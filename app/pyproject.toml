@@ -16,6 +16,8 @@ dependencies = [
     # The API server (`python -m server`).
     "fastapi",
     "uvicorn",
+    # Calls to vLLM from the chat route (`server.llm`).
+    "httpx",
     # The YAML config (`juno.config`).
     "pydantic",
     "pyyaml",
@@ -26,7 +28,7 @@ dependencies = [
 wayland = ["evdev>=1.7"]
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx"]  # httpx: FastAPI's TestClient
+dev = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/capture", "src/juno", "src/server"]

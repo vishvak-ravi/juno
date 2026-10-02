@@ -14,12 +14,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel
 
+from server.llm import LlmError, complete
+
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 # The id becomes a file name, so it may not contain dots or slashes.
 ChatId = Annotated[str, PathParam(pattern=r"^[A-Za-z0-9_-]+$", max_length=128)]
 
-# PUT reads the file, appends and writes it back; two at once must not interleave.
+# PUT reads the file, asks the model, appends and writes the file back; two at
+# once must not interleave, so PUTs run one at a time.
 write_lock = threading.Lock()
 
 
@@ -67,10 +70,20 @@ def get_chat(chat_id: ChatId, request: Request) -> Chat:
 
 @router.put("/{chat_id}")
 def append_to_chat(chat_id: ChatId, body: NewMessages, request: Request) -> Chat:
-    """Append the messages to the chat, creating it if it does not exist."""
+    """Append the messages and the model's reply to them, creating the chat if needed.
+
+    The whole conversation is sent to the model, as the ``juno`` REPL does in
+    multi-turn mode. If the model gives no reply, nothing is stored.
+    """
     path = chat_file(request.app.state.chats_dir, chat_id)
     with write_lock:
         chat = read_chat(path) or Chat(id=chat_id, messages=[])
         chat.messages.extend(body.messages)
+        try:
+            reply = complete(request.app.state.llm,
+                             [message.model_dump() for message in chat.messages])
+        except LlmError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        chat.messages.append(Message(role="assistant", content=reply))
         write_chat(path, chat)
     return chat

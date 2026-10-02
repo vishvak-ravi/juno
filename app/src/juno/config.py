@@ -54,10 +54,21 @@ class CaptureConfig(Section):
     verbose: bool = False
 
 
+class LlmConfig(Section):
+    # The OpenAI-compatible server that chats are completed by; the `juno`
+    # script runs vLLM here. The model is whichever one that server lists.
+    base_url: str = "http://localhost:8000"
+    max_tokens: int = 2048
+    temperature: float = 0.7
+    # Seconds to wait for a reply.
+    timeout_seconds: float = 300.0
+
+
 class Config(Section):
     # Seconds a process gets to exit after SIGTERM before it is killed.
     stop_timeout_seconds: float = 30.0
     server: ServerConfig = Field(default_factory=ServerConfig)
+    llm: LlmConfig = Field(default_factory=LlmConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
 
 
