@@ -1,7 +1,7 @@
 """Synthetic backend: generated frames and scripted input.
 
 Lets the whole recorder run with no display access, for tests and for
-``python -m capture --backend fake``.
+``backend: fake`` in the config.
 """
 
 from __future__ import annotations

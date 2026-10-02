@@ -27,7 +27,7 @@ PERMISSION_HELP = (
     "    sudo usermod -aG input $USER\n"
     "then log out and back in. To use it before logging out, start the "
     "recorder with:\n"
-    "    sg input -c 'uv run python -m capture'"
+    "    sg input -c 'uv run python -m juno'"
 )
 
 

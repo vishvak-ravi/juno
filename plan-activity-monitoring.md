@@ -71,7 +71,7 @@ app/src/capture/
   sources/x11.py            STUB
   handlers.py               InputHandler, ScreenshotLoop (replace napsack's two handlers)
   recorder.py               Recorder: napsack queues + workers wired to a Backend
-  __main__.py               python -m capture [--backend auto|wayland|x11|fake]
+  __main__.py               python -m capture (the recorder process; settings from config.yaml)
   check.py                  python -m capture.check (the acceptance test)
 app/spikes/evdev_input.py   prints live evdev events next to the names that get logged
 app/tests/                  109 tests
@@ -95,14 +95,14 @@ read `/dev/input` from here.
 2. **First real run:**
    ```
    cd ~/dev/juno/app
-   uv run python -m capture          # or: sg input -c 'uv run python -m capture'
+   uv run python -m juno             # or: sg input -c 'uv run python -m juno'
    uv run python -m capture.check    # after Ctrl+C
    ```
 3. **Cost of Tada's settings on a 4K screen** (measured while the screen was
    changing constantly): about 77% of one core, because every changed frame
    is resized; memory grows toward 12 GB, because the 120 s buffer holds 600
    frames of 20 MB; each saved screenshot is 1.5 to 3.5 MB at 3445x1938.
-   A static screen costs almost nothing. `--scale 0.5 --buffer-seconds 10`
+   A static screen costs almost nothing. `scale: 0.5` and `buffer_seconds: 10` in `config.yaml`
    brings this down to 1920x1080 screenshots and well under 1 GB. napsack only
    needs a few seconds of buffer, so 10 s loses nothing. Decide whether to
    change the defaults.

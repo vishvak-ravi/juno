@@ -13,5 +13,5 @@ from capture.sources.base import Backend, BackendUnavailable
 def create(**options) -> Backend:
     raise BackendUnavailable(
         "The X11 backend is not implemented yet. "
-        "Use --backend fake to exercise the recorder end to end."
+        "Set backend: fake in the config to exercise the recorder end to end."
     )

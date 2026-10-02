@@ -13,6 +13,12 @@ dependencies = [
     "napsack==0.1.3",
     "numpy",
     "pillow",
+    # The API server (`python -m server`).
+    "fastapi",
+    "uvicorn",
+    # The YAML config (`juno.config`).
+    "pydantic",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +29,7 @@ wayland = ["evdev>=1.7"]
 dev = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/capture"]
+packages = ["src/capture", "src/juno", "src/server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

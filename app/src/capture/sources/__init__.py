@@ -43,7 +43,7 @@ def detect_backend_name(env: Mapping[str, str] | None = None) -> str:
         return "x11"
     raise BackendUnavailable(
         "Could not detect a display session (XDG_SESSION_TYPE, WAYLAND_DISPLAY "
-        "and DISPLAY are all unset). Pass --backend explicitly."
+        "and DISPLAY are all unset). Set backend in the config explicitly."
     )
 
 

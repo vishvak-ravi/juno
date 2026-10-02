@@ -1,0 +1,32 @@
+# Settings for `python -m juno` and the two processes it starts.
+# Read from the working directory, or from the path in JUNO_CONFIG_PATH.
+
+# Seconds a process gets to exit after SIGTERM before it is killed.
+stop_timeout_seconds: 30
+
+server:
+  host: 127.0.0.1
+  port: 8765
+
+capture:
+  # Base directory; sessions go under screen/sessions/.
+  # null: $XDG_DATA_HOME/juno, or ~/.local/share/juno.
+  data_dir: null
+  # Platform sources: auto (detect from the session), wayland, x11, fake.
+  backend: auto
+  fps: 5
+  # Seconds of frames to keep in memory.
+  buffer_seconds: 120
+  # Target DPI for saved screenshots.
+  dpi: 100
+  # Scale factor for screenshots (0.0-1.0); overrides dpi.
+  scale: null
+  # Maximal screenshot resolution as [width, height].
+  max_res: null
+  # Event types to skip: move, scroll, click, key.
+  disable: [move]
+  # Whether screenshot files are written.
+  screenshots: true
+  # Stop after this many seconds. null: run until Ctrl+C.
+  duration: null
+  verbose: false

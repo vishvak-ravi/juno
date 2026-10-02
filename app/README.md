@@ -34,19 +34,28 @@ desktop's share dialog once; the grant is remembered in
 ## Run
 
 ```
-uv run python -m capture            # record until Ctrl+C
+uv run python -m juno               # run the app until Ctrl+C
 uv run python -m capture.check      # check the newest session
-uv run python -m capture --backend fake --duration 10   # synthetic session, no access needed
 uv run pytest
 ```
 
+`python -m juno` is one loop that starts two subprocesses, the API server
+(`python -m server`, FastAPI on uvicorn) and the recorder (`python -m capture`),
+and stops both when either exits or on Ctrl+C. So far the server has one route,
+`GET /api/status`.
+
+There are no command-line flags. All three read [`config.yaml`](config.yaml)
+from the working directory, or the file named by `JUNO_CONFIG_PATH`. For a
+synthetic session that needs no access, set `backend: fake` and `duration: 10`
+under `capture`.
+
 Before logging out and in, the group can be used with
-`sg input -c 'uv run python -m capture'`.
+`sg input -c 'uv run python -m juno'`.
 
 Sessions go to `~/.local/share/juno/screen/sessions/session_<timestamp>/`
-(`--data-dir` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
+(`capture.data_dir` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
 screenshots scaled to 100 dpi, mouse moves not recorded. On a 4K screen those
-defaults are heavy; `--scale 0.5 --buffer-seconds 10` is much lighter.
+defaults are heavy; `scale: 0.5` with `buffer_seconds: 10` is much lighter.
 
 ## Adding a backend
 
