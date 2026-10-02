@@ -31,7 +31,8 @@ class ServerConfig(Section):
 
 
 class CaptureConfig(Section):
-    # Base directory; sessions go under screen/sessions/. None: default_data_dir().
+    # Base directory; sessions go under screen/sessions/, chats under chats/.
+    # None: default_data_dir().
     data_dir: Optional[Path] = None
     # Platform sources to use; "auto" detects them from the session.
     backend: str = "auto"
