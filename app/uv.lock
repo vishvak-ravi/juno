@@ -1254,6 +1254,7 @@ wayland = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -1271,7 +1272,10 @@ requires-dist = [
 provides-extras = ["wayland"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
+dev = [
+    { name = "httpx" },
+    { name = "pytest", specifier = ">=8" },
+]
 
 [[package]]
 name = "jupyter-core"

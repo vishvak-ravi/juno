@@ -41,8 +41,13 @@ uv run pytest
 
 `python -m juno` is one loop that starts two subprocesses, the API server
 (`python -m server`, FastAPI on uvicorn) and the recorder (`python -m capture`),
-and stops both when either exits or on Ctrl+C. So far the server has one route,
-`GET /api/status`.
+and stops both when either exits or on Ctrl+C.
+
+The server's routes so far are `GET /api/status` and `/chats/{id}`. A chat is
+the message list the `juno` REPL sends to vLLM (`{"role", "content"}` items).
+`PUT /chats/{id}` with `{"messages": [...]}` appends them, creating the chat if
+needed, and `GET /chats/{id}` returns it. Each chat is one JSON file,
+`<data_dir>/chats/<id>.json`, next to the recorder's `<data_dir>/screen/`.
 
 There are no command-line flags. All three read [`config.yaml`](config.yaml)
 from the working directory, or the file named by `JUNO_CONFIG_PATH`. For a

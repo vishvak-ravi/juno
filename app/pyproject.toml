@@ -26,7 +26,7 @@ dependencies = [
 wayland = ["evdev>=1.7"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx"]  # httpx: FastAPI's TestClient
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/capture", "src/juno", "src/server"]

@@ -9,7 +9,7 @@ server:
   port: 8765
 
 capture:
-  # Base directory; sessions go under screen/sessions/.
+  # Base directory; sessions go under screen/sessions/, chats under chats/.
   # null: $XDG_DATA_HOME/juno, or ~/.local/share/juno.
   data_dir: null
   # Platform sources: auto (detect from the session), wayland, x11, fake.
