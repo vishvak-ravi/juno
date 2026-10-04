@@ -32,6 +32,17 @@ tools:
     enabled: true
     # Most results one search returns.
     max_results: 8
+  claude:
+    # fwd_to_claude: prompts forwarded to Claude Code in a tmux window of the
+    # running tmux server (a session named juno is started if there is none).
+    # Claude runs as this user, outside the bash sandbox.
+    enabled: true
+    # Model of a new conversation when the call names none. null: Claude Code's default.
+    model: null
+    # --permission-mode for new conversations. null: Claude Code's own setting.
+    permission_mode: null
+    # Seconds to wait for Claude to finish one turn.
+    timeout_seconds: 600
 
 capture:
   # Base directory; the recorder's sessions go under screen/sessions/, the

@@ -3,8 +3,9 @@
 Served by the same process as the REST routes, at ``/mcp`` over streamable
 HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The
 annotation tools read the same files as ``/annotations`` through
-``annotate.store``; ``web_search`` and ``bash`` are there when ``ToolsConfig``
-enables them. Whoever can reach ``/mcp`` or ``/chats`` can have bash commands run.
+``annotate.store``; ``web_search``, ``bash`` and ``fwd_to_claude`` are there when
+``ToolsConfig`` enables them. Whoever can reach ``/mcp`` or ``/chats`` can have
+bash commands run and prompts sent to Claude Code.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from annotate.records import session_dir
 from annotate.store import AnnotationRecord, list_records, parse_annotation_id, read_record
 from juno.config import ToolsConfig
+from server.claude import ClaudeError, TmuxDest, forward_to_claude
 from server.search import SearchError, search_web
 from server.shell import BashError, run_bash
 
@@ -61,15 +63,18 @@ def result_text(result: dict) -> str:
 
 
 def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
-               workspace: Path) -> MCPServer:
+               workspace: Path, claude_results: Path) -> MCPServer:
     """The MCP server over the sessions of every device stored in ``devices_dir``.
 
     Args:
         result_chars: the most characters a tool result may take.
             ``list_annotations`` returns fewer annotations than ``limit`` and
             ``bash`` cuts the middle out of its output rather than exceed it.
-        tools: which of ``web_search`` and ``bash`` the server has, and their limits.
-        workspace: the directory bash commands start in.
+        tools: which of ``web_search``, ``bash`` and ``fwd_to_claude`` the server
+            has, and their limits.
+        workspace: the directory bash commands start in, and Claude Code too
+            unless ``tools.claude.cwd`` names another.
+        claude_results: where Claude Code reports the end of each turn.
     """
     server = MCPServer("juno", instructions=INSTRUCTIONS)
 
@@ -170,6 +175,35 @@ def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
                 return await to_thread.run_sync(run_bash, command, tools.bash, workspace,
                                                 result_chars)
             except BashError as exc:
+                raise ToolError(str(exc))
+
+    if tools.claude.enabled:
+        claude_cwd = tools.claude.cwd.expanduser() if tools.claude.cwd else workspace
+
+        @server.tool()
+        async def fwd_to_claude(prompt: str, model: Optional[str] = None,
+                                tmux_dest: Optional[TmuxDest] = None) -> dict:
+            """Forward a prompt to Claude Code, a stronger model with its own tools for
+            files, commands and the web, and wait for its reply. Claude runs in a tmux
+            pane on the Juno server's machine, where the user can watch it. It sees only
+            `prompt`, nothing of this conversation. A reply can take minutes.
+
+            The result has "reply", Claude's answer, and "tmux_dest", where it ran. The
+            defaults are good: pass only `prompt` to start a conversation in a new window.
+
+            Args:
+                prompt: everything Claude needs: the task, the facts already known, and
+                    what to answer with.
+                model: the model of a new conversation: an alias (haiku, sonnet, opus)
+                    or a full model id. Left out: the configured default.
+                tmux_dest: where to run. Pass {"pane": ...} with the pane of an earlier
+                    result's "tmux_dest" to continue that conversation.
+            """
+            try:
+                return await to_thread.run_sync(
+                    forward_to_claude, prompt, model, tmux_dest or TmuxDest(), tools.claude,
+                    claude_results, claude_cwd, result_chars)
+            except ClaudeError as exc:
                 raise ToolError(str(exc))
 
     return server

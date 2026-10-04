@@ -11,7 +11,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
-from juno.config import Config, devices_dir, load_config, resolve_data_dir, workspace_dir
+from juno.config import (Config, claude_results_dir, devices_dir, load_config,
+                         resolve_data_dir, workspace_dir)
 from predict.predictor import Predictor
 from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
@@ -87,7 +88,7 @@ def create_app(config: Optional[Config] = None,
 
     data_dir = resolve_data_dir(config.capture)
     mcp = create_mcp(devices_dir(data_dir), config.llm.tool_result_chars, config.tools,
-                     workspace_dir(data_dir))
+                     workspace_dir(data_dir), claude_results_dir(data_dir))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

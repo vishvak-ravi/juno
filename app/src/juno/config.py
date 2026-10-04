@@ -91,10 +91,37 @@ class WebSearchConfig(Section):
     max_results: int = 8
 
 
+class ClaudeConfig(Section):
+    # Whether the chat model may forward prompts to Claude Code in tmux. Claude
+    # runs as the server's user, outside the bash sandbox, and is billed to the
+    # account `claude` is logged in to.
+    enabled: bool = False
+    # The Claude Code executable.
+    command: str = "claude"
+    # The model of a new conversation when the call names none: an alias such
+    # as sonnet or opus, or a full model id. None: Claude Code's own default.
+    model: Optional[str] = None
+    # Passed as --permission-mode: default, acceptEdits, auto, plan, dontAsk or
+    # bypassPermissions. None: whatever Claude Code's settings say.
+    permission_mode: Optional[str] = None
+    # Seconds to wait for Claude to finish one turn.
+    timeout_seconds: float = 600.0
+    # The directory a new conversation starts in. None: workspace_dir().
+    cwd: Optional[Path] = None
+    # Name of the session created when no tmux server is running. With one
+    # running, new windows go to the session tmux considers current.
+    tmux_session: str = "juno"
+    # Name of a new window when the call gives none.
+    window_name: str = "claude"
+    # tmux server socket name (tmux -L). None: the user's default server.
+    tmux_socket: Optional[str] = None
+
+
 class ToolsConfig(Section):
     # Tools of the MCP server besides the annotation ones (`server.mcp`).
     bash: BashConfig = Field(default_factory=BashConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
 
 
 class AnnotateConfig(Section):
@@ -194,6 +221,11 @@ def devices_dir(data_dir: Path) -> Path:
 def workspace_dir(data_dir: Path) -> Path:
     """Where the chat model's bash commands run, and the one place they can keep files."""
     return data_dir / "workspace"
+
+
+def claude_results_dir(data_dir: Path) -> Path:
+    """Where Claude Code reports the end of each turn (`server.claude`)."""
+    return data_dir / "claude"
 
 
 def config_path() -> Path:
