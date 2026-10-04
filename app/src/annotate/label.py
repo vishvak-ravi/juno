@@ -14,10 +14,15 @@ from napsack.label.clients.client import DENSE_IMAGE_CAPTION_SCHEMA
 from pydantic import BaseModel, ValidationError
 
 from annotate.request import AnnotationRequest, to_messages
+from annotate.sanitize import Sanitization
 
 
 class AnnotationError(Exception):
     """The model's reply was not the JSON the schema asks for."""
+
+
+class UnsanitizedRequest(Exception):
+    """The request has not been through ``annotate.sanitize.sanitize``."""
 
 
 class Action(BaseModel):
@@ -34,6 +39,8 @@ class Annotation(BaseModel):
     actions: list[Action]
     # The text the user was reading or writing, for search.
     dense_caption: str
+    # How the request this answers was cleaned before it was sent.
+    sanitization: Sanitization
 
 
 def completion_params(request: AnnotationRequest, model: str, max_tokens: int,
@@ -58,12 +65,19 @@ def completion_params(request: AnnotationRequest, model: str, max_tokens: int,
 
 def annotate(request: AnnotationRequest, model: str, max_tokens: int,
              api_key: Optional[str] = None) -> Annotation:
-    """One model call for ``request``. ``api_key`` None leaves the key to litellm's env lookup."""
+    """One model call for ``request``. ``api_key`` None leaves the key to litellm's env lookup.
+
+    Raises ``UnsanitizedRequest``, sending nothing, if ``request.sanitization`` is None.
+    """
+    if request.sanitization is None:
+        raise UnsanitizedRequest(
+            "the request has no sanitization; pass it through annotate.sanitize.sanitize first")
     completion = litellm.completion(**completion_params(request, model, max_tokens, api_key))
     choice = completion.choices[0]
     raw = choice.message.content
     try:
-        return Annotation.model_validate(json.loads(raw))
+        return Annotation.model_validate(
+            {**json.loads(raw), "sanitization": request.sanitization})
     except (TypeError, ValueError, ValidationError) as exc:
         raise AnnotationError(
             f"{model} did not return an annotation ({exc}); "

@@ -1,7 +1,7 @@
 """Annotate one chunk of a recorded session: ``python -m annotate SESSION_DIR``.
 
-Sends a single request (``--chunk``, default the first) and prints the model's
-output as JSON. Settings come from the ``annotate`` section of the YAML config
+Sends a single request (``--chunk``, default the first), sanitized by
+``annotate.sanitize``, and prints the model's output as JSON. Settings come from the ``annotate`` section of the YAML config
 (see ``juno.config``); the API key comes from the environment or a ``.env``
 file in the working directory or above it.
 """
@@ -19,6 +19,7 @@ from dotenv import find_dotenv, load_dotenv
 from annotate.label import AnnotationError, annotate
 from annotate.records import read_aggregations
 from annotate.request import build_requests
+from annotate.sanitize import sanitize
 from juno.config import ConfigError, load_config
 
 GEMINI_KEY_ENV = "GEMINI_API_KEY"
@@ -48,9 +49,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {args.session_dir} has no chunk {args.chunk}", file=sys.stderr)
         return 2
 
+    request = sanitize(request)
     print(f"chunk {args.chunk}: {len(request.frames)} frames, "
           f"{request.frames[0].screenshot_path} to {request.frames[-1].screenshot_path}",
           file=sys.stderr)
+    print(f"sanitization: {request.sanitization.model_dump_json()}", file=sys.stderr)
     if args.dry_run:
         print(request)
         return 0

@@ -6,9 +6,10 @@ import litellm
 import pytest
 from PIL import Image
 
-from annotate.label import Action, AnnotationError, annotate
+from annotate.label import Action, AnnotationError, UnsanitizedRequest, annotate
 from annotate.records import read_aggregations
 from annotate.request import AnnotationFrame, AnnotationRequest, build_requests
+from annotate.sanitize import sanitize
 from juno.config import AnnotateConfig
 
 # The live test runs only with both of these set.
@@ -22,7 +23,7 @@ def request_of_one_frame(tmp_path):
     Image.new("RGB", (40, 20), "white").save(path)
     frame = AnnotationFrame(label="Frame 1", screenshot_path=str(path), cursor=None,
                             monitor=None, events="")
-    return AnnotationRequest(frames=[frame], prompt="Describe.")
+    return sanitize(AnnotationRequest(frames=[frame], prompt="Describe."))
 
 
 def reply_with(monkeypatch, content, finish_reason="stop"):
@@ -39,6 +40,16 @@ def test_the_reply_is_parsed_into_actions_and_a_dense_caption(monkeypatch, reque
     annotation = annotate(request_of_one_frame, model="gemini/any", max_tokens=100, api_key="k")
     assert annotation.actions == [Action(start=1, end=1, caption="Opened a file.")]
     assert annotation.dense_caption == "notes.txt"
+    assert annotation.sanitization == request_of_one_frame.sanitization
+
+
+def test_a_request_that_was_not_sanitized_is_not_sent(monkeypatch, request_of_one_frame):
+    def completion(**params):
+        raise AssertionError("the model was called")
+    monkeypatch.setattr(litellm, "completion", completion)
+    unsanitized = request_of_one_frame.model_copy(update={"sanitization": None})
+    with pytest.raises(UnsanitizedRequest):
+        annotate(unsanitized, model="gemini/any", max_tokens=100, api_key="k")
 
 
 @pytest.mark.parametrize("content", [None, "", '{"actions": [', '{"actions": []}'])
@@ -56,12 +67,13 @@ def test_live_one_chunk_of_a_real_session_is_annotated():
     """One real model call on the first chunk of the session in JUNO_ANNOTATE_SESSION."""
     config = AnnotateConfig()
     aggregations = read_aggregations(Path(os.environ[SESSION_ENV]))
-    request = next(build_requests(aggregations, chunk_size=config.chunk_size))
+    request = sanitize(next(build_requests(aggregations, chunk_size=config.chunk_size)))
 
     annotation = annotate(request, model=config.model, max_tokens=config.max_tokens)
 
     assert annotation.actions, "the model described no action"
     assert annotation.dense_caption.strip()
+    assert annotation.sanitization == request.sanitization
     for action in annotation.actions:
         assert 1 <= action.start <= action.end <= len(request.frames)
         assert action.caption.strip()

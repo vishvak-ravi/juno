@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw
 from pydantic import BaseModel
 
 from annotate.records import Aggregation
+from annotate.sanitize import Sanitization
 
 # Aggregations per request; Tada's MIN_CHUNK. The CLI takes it from the config.
 DEFAULT_CHUNK_SIZE = 10
@@ -47,6 +48,8 @@ class AnnotationFrame(BaseModel):
 class AnnotationRequest(BaseModel):
     frames: list[AnnotationFrame]
     prompt: str
+    # Set by ``annotate.sanitize.sanitize``; None means not yet safe to send out.
+    sanitization: Optional[Sanitization] = None
 
     def __str__(self) -> str:
         return "\n".join([*(str(frame) for frame in self.frames), self.prompt])

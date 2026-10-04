@@ -29,6 +29,7 @@ from PIL import Image
 from annotate.label import annotate
 from annotate.records import read_aggregations
 from annotate.request import DEFAULT_CHUNK_SIZE, build_requests, draw_cursor, to_messages
+from annotate.sanitize import sanitize
 from capture.recorder import Recorder
 from capture.sources.base import Backend
 from capture.sources.evdev_input import EvdevInputSource
@@ -360,7 +361,8 @@ def test_our_model_call_is_tadas_model_call(tada, tmp_path):
             row(tmp_path, 11.0, [event(11.5, "mouse_down", {"button": "Button.left"})])]
     theirs = dict(tada.sent([as_processed(r) for r in rows]))
 
-    request = next(build_requests(write_session(tmp_path, rows)))
+    # Nothing in these rows is a secret, so sanitizing leaves Tada's input as it is.
+    request = sanitize(next(build_requests(write_session(tmp_path, rows))))
     config = AnnotateConfig()
     tada.calls.clear()
     annotation = annotate(request, model=config.model, max_tokens=config.max_tokens,
