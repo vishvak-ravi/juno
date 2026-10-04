@@ -135,14 +135,15 @@ def test_a_prediction_is_the_models_reply_to_the_latest_actions(tmp_path, model_
     assert all(image["image_url"]["url"].startswith("data:image/png;base64,")
                for image in images)
     assert text.startswith("You will analyze user behavior")
+    assert "Predict the next 3 actions the user will take." in text
     assert "Look at the images of their device" in text
     # The last four actions, oldest first, each caption change described once.
+    text = text[:text.index("</actions>")]
     assert "Opened the editor." not in text
     assert text.index("Typed a line.") < text.index("<description>editor text</description>") \
-        < text.index("Ran the tests.") < text.index("Read the failure.") \
-        < text.index("Fixed the bug.") < text.index("<description>terminal text</description>")
+        < text.index("Ran the tests.") < text.index("<description>terminal text</description>") \
+        < text.index("Read the failure.") < text.index("Fixed the bug.")
     assert text.count("<description>terminal text</description>") == 1
-    assert "Predict the next 3 actions the user will take." in text
 
 
 def test_without_screenshots_the_request_is_text_only(tmp_path, model_server):
