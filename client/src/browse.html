@@ -27,12 +27,24 @@
   li button { display: block; width: 100%; text-align: left; padding: .4rem 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
   li button[aria-current="true"] { font-weight: 600; }
   small, .status { color: var(--dim); }
-  button.more { margin-top: .5rem; padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
-  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  button.more { padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  section > button.more { margin-top: .5rem; }
+  h2 button.more { margin-left: .5rem; font-weight: normal; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   article { margin: 0 0 1rem; max-width: 70ch; }
   article b { display: block; color: var(--dim); font-weight: 500; }
   article p { margin: 0; white-space: pre-wrap; }
+  /* Assistant replies, read as markdown. */
+  .md p { white-space: normal; margin: 0 0 .5rem; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 15px; margin: .75rem 0 .25rem; }
+  .md ul, .md ol { list-style: revert; margin: 0 0 .5rem; padding-left: 1.5rem; }
+  .md code { font: 12px/1.4 ui-monospace, monospace; background: var(--raw); padding: 0 .2em; }
+  .md pre { margin: 0 0 .5rem; }
+  .md pre code { padding: 0; }
+  form { display: flex; gap: .5rem; max-width: 70ch; }
+  form input { flex: 1; padding: .4rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+
   pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
   pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
   li.event { padding: .15rem 0; white-space: pre; }
@@ -47,7 +59,7 @@
 
 <main>
   <nav>
-    <h2>Chats</h2>
+    <h2>Chats <button id="new-chat" class="more">New</button></h2>
     <section id="chats"></section>
     <h2>Sessions</h2>
     <section id="sessions"></section>
@@ -64,7 +76,7 @@
       first_id: "chat-a", last_id: "chat-b", has_more: false },
     "/chats/chat-a": { id: "chat-a", messages: [
       { role: "user", content: "What did I work on this morning?" },
-      { role: "assistant", content: "Mostly the recorder: two sessions, about 40 minutes each." },
+      { role: "assistant", content: "Mostly the **recorder**: two sessions, about 40 minutes each.\n\n## Sessions\n\n1. `session_20261003_091500`, 12 aggregations\n2. `session_20261002_161000`, still empty\n\nTo check the newest one:\n\n```bash\nls ~/.local/share/juno/screen/sessions | tail -1\n```" },
       { role: "user", content: "Anything else?" },
       { role: "assistant", content: "A short detour into the config loader." }] },
     "/chats/chat-b": { id: "chat-b", messages: [] },
@@ -96,21 +108,28 @@
         cursor_position: [640, 400], monitor: { left: 0, top: 0, width: 1920, height: 1080 }, burst_id: 2, scale_factor: 0.5 }],
       first_id: "session_20261003_091500-000000", last_id: "session_20261003_091500-000001", has_more: false },
   };
-  // Where the data comes from, in order: the Electron bridge (window.juno.get, a GET
+  // Where the data comes from, in order: the Electron bridge (window.juno, calls
   // proxied by the main process), a server reachable by fetch, else the examples above.
   const BASE = (window.juno && window.juno.base) || "http://127.0.0.1:8765";
+  const checked = async (response) => {
+    if (!response.ok) throw new Error(`${response.status} ${(await response.json()).detail}`);
+    return response.json();
+  };
   const api = async (path) => {
     if (window.juno && window.juno.get) return window.juno.get(path);
     try {
-      const response = await fetch(BASE + path);
-      if (!response.ok) throw new Error(`${response.status} ${(await response.json()).detail}`);
-      return response.json();
+      return await checked(await fetch(BASE + path));
     } catch (error) {
       if (!(path in EXAMPLE)) throw error;
       document.title = "Juno Browser (example data)";
       return EXAMPLE[path];
     }
   };
+  // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
+  const send = (chatId, content) => window.juno && window.juno.sendChat
+    ? window.juno.sendChat(chatId, content)
+    : fetch(`${BASE}/chats/${chatId}`, { method: "PUT", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ messages: [{ role: "user", content }] }) }).then(checked);
   // Aggregations per LLM label: the server's annotate.chunk_size, which it does not report yet.
   const CHUNK = 10;
 
@@ -170,17 +189,98 @@
 
   const detail = document.getElementById("detail");
   let current = null;
-  function show(button, path, render) {
+  function select(button) {
     current && current.removeAttribute("aria-current");
-    (current = button).setAttribute("aria-current", "true");
+    (current = button) && button.setAttribute("aria-current", "true");
+  }
+  function show(button, path, render) {
+    select(button);
     load(detail, async () => render(await api(path)));
   }
   const row = (label, meta, onclick) => el("li", {}, el("button", { onclick }, label, el("br"), el("small", { textContent: meta })));
 
-  paged(document.getElementById("chats"), "/chats", (chat) =>
+  // The markdown the model tends to write: headings, fenced code, lists,
+  // paragraphs; `code`, **bold** and *italic* inside them. Anything else stays text.
+  function inline(node, text) {
+    node.append(...text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).map((part) =>
+      part.startsWith("`") ? el("code", { textContent: part.slice(1, -1) })
+      : part.startsWith("**") ? el("strong", { textContent: part.slice(2, -2) })
+      : part.startsWith("*") ? el("em", { textContent: part.slice(1, -1) })
+      : part));
+    return node;
+  }
+  const BLOCK = /^(```|#{1,6}\s|\s*(?:[-*]|\d+\.)\s)/;
+  function markdown(text) {
+    const out = el("div", { className: "md" });
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length;) {
+      const line = lines[i];
+      let m;
+      if (line.startsWith("```")) {
+        const code = [];
+        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+        i++;
+        out.append(el("pre", {}, el("code", { textContent: code.join("\n") })));
+      } else if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
+        out.append(inline(el(`h${m[1].length}`), m[2]));
+        i++;
+      } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s/))) {
+        const list = el(m[1] ? "ol" : "ul");
+        for (; i < lines.length && (m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)/)); i++) list.append(inline(el("li"), m[1]));
+        out.append(list);
+      } else if (!line.trim()) {
+        i++;
+      } else {
+        const para = [];
+        for (; i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]); i++) para.push(lines[i]);
+        out.append(inline(el("p"), para.join("\n")));
+      }
+    }
+    return out;
+  }
+
+  // A chat: its messages, then a box to send the next one.
+  const message = (m) => el("article", {}, el("b", { textContent: m.role }),
+    m.role === "assistant" ? markdown(m.content) : el("p", { textContent: m.content }));
+  function chatView(chatId, messages) {
+    const input = el("input", { id: "composer", placeholder: "Message", autocomplete: "off" });
+    const button = el("button", { className: "more", textContent: "Send" });
+    const form = el("form", {}, input, button);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const content = input.value.trim();
+      if (!content) return;
+      input.value = "";
+      input.disabled = button.disabled = true;
+      const sent = message({ role: "user", content });
+      const waiting = el("p", { className: "status", textContent: "…" });
+      form.before(sent, waiting);
+      try {
+        const chat = await send(chatId, content);
+        detail.replaceChildren(...chatView(chatId, chat.messages));
+        listChats();  // a new chat appears; an existing one moves to the top
+      } catch (error) {
+        // The server keeps nothing on failure, so the message goes back in the box.
+        sent.remove();
+        waiting.textContent = String(error.message || error);
+        input.value = content;
+        input.disabled = button.disabled = false;
+        input.focus();
+      }
+    };
+    requestAnimationFrame(() => { detail.scrollTop = detail.scrollHeight; input.focus(); });
+    return [...messages.map(message), form];
+  }
+
+  const listChats = () => paged(document.getElementById("chats"), "/chats", (chat) =>
     row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, (event) =>
-      show(event.currentTarget, `/chats/${chat.id}`, (full) =>
-        full.messages.map((m) => el("article", {}, el("b", { textContent: m.role }), el("p", { textContent: m.content }))))));
+      show(event.currentTarget, `/chats/${chat.id}`, (full) => chatView(full.id, full.messages))));
+  listChats();
+  // A new chat exists only on the client until its first message is sent.
+  document.getElementById("new-chat").onclick = () => {
+    select(null);
+    detail.replaceChildren(...chatView(crypto.randomUUID(), []));
+  };
 
   // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
   const event = (e) => el("li", { className: "event", textContent:
