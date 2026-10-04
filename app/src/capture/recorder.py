@@ -30,6 +30,7 @@ from napsack.record.workers import AggregationWorker, SaveWorker
 
 from capture.handlers import InputHandler, ScreenshotLoop
 from capture.sources.base import Backend
+from juno.config import sessions_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ DEFAULT_DISABLE = ("move",)
 
 def new_session_dir(data_dir: Union[str, Path]) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path(data_dir) / "screen" / "sessions" / f"session_{stamp}"
+    return sessions_dir(Path(data_dir)) / f"session_{stamp}"
 
 
 class Recorder:

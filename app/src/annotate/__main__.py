@@ -11,14 +11,13 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from itertools import islice
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
 from annotate.label import AnnotationError, annotate
 from annotate.records import read_aggregations
-from annotate.request import build_requests
+from annotate.request import chunk_request
 from annotate.sanitize import sanitize
 from juno.config import ConfigError, load_config
 
@@ -43,10 +42,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    requests = build_requests(aggregations, chunk_size=config.chunk_size)
-    request = next(islice(requests, args.chunk, None), None)
+    request = chunk_request(aggregations, args.chunk, chunk_size=config.chunk_size)
     if request is None:
-        print(f"error: {args.session_dir} has no chunk {args.chunk}", file=sys.stderr)
+        print(f"error: {args.session_dir} has no chunk {args.chunk} with a screenshot",
+              file=sys.stderr)
         return 2
 
     request = sanitize(request)

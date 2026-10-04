@@ -35,6 +35,8 @@ class AnnotationFrame(BaseModel):
 
     label: str
     screenshot_path: str
+    # When the screenshot was taken, Unix seconds.
+    timestamp: Optional[float] = None
     # Where the pointer is drawn, in desktop coordinates; None draws nothing.
     cursor: Optional[tuple[int, int]]
     monitor: Optional[dict[str, int]]
@@ -82,6 +84,7 @@ def build_request(aggregations: Sequence[Aggregation],
         frames.append(AnnotationFrame(
             label=label,
             screenshot_path=record["screenshot_path"],
+            timestamp=record["screenshot_timestamp"],
             cursor=cursor,
             monitor=record["monitor"],
             events=NapsackAggregation.from_dict(record).to_prompt(label),
@@ -101,6 +104,18 @@ def build_requests(aggregations: Sequence[Aggregation],
         request = build_request(aggregations[start:start + chunk_size], prompt)
         if request.frames:
             yield request
+
+
+def chunk_request(aggregations: Sequence[Aggregation], chunk: int,
+                  chunk_size: int = DEFAULT_CHUNK_SIZE,
+                  prompt: Optional[str] = None) -> Optional[AnnotationRequest]:
+    """The request for chunk ``chunk`` (from 0) of a session's aggregations.
+
+    None if the session has no such rows or none of them has a screenshot.
+    """
+    rows = aggregations[chunk * chunk_size:(chunk + 1) * chunk_size]
+    request = build_request(rows, prompt) if rows else None
+    return request if request is not None and request.frames else None
 
 
 def draw_cursor(image: Image.Image, cursor: Optional[tuple[int, int]],

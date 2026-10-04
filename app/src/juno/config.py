@@ -72,6 +72,9 @@ class AnnotateConfig(Section):
     max_tokens: int = 8192
     # Aggregations (screenshots) per request.
     chunk_size: int = 10
+    # Whether the recorder asks the server to annotate each chunk as it fills.
+    # Every screenshot then goes to the model's provider.
+    live: bool = False
 
 
 class Config(Section):
@@ -91,6 +94,11 @@ def default_data_dir() -> Path:
 def resolve_data_dir(config: CaptureConfig) -> Path:
     """The base directory the recorder writes to under ``config``."""
     return config.data_dir.expanduser() if config.data_dir else default_data_dir()
+
+
+def sessions_dir(data_dir: Path) -> Path:
+    """Where recorded sessions live under the base directory ``data_dir``."""
+    return data_dir / "screen" / "sessions"
 
 
 def config_path() -> Path:

@@ -48,3 +48,6 @@ annotate:
   max_tokens: 8192
   # Aggregations (screenshots) per request.
   chunk_size: 10
+  # Whether the recorder asks the server to annotate each chunk as it fills.
+  # Every screenshot then goes to the model's provider.
+  live: false
