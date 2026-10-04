@@ -21,6 +21,7 @@ from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
+from server.tools import create_chat_tools, session_tools
 from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
 logger = logging.getLogger(__name__)
@@ -89,9 +90,12 @@ def create_app(config: Optional[Config] = None,
     data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"
     predictor = Predictor(config.predict)
-    mcp = create_mcp(devices_dir(data_dir), chats_dir, config.llm.tool_result_chars,
-                     config.tools, workspace_dir(data_dir), claude_results_dir(data_dir),
-                     predictor, config.llm)
+    chat_tools = create_chat_tools(devices_dir(data_dir), chats_dir,
+                                   config.llm.tool_result_chars, config.tools,
+                                   workspace_dir(data_dir), claude_results_dir(data_dir),
+                                   predictor, config.llm)
+    mcp = create_mcp(session_tools(devices_dir(data_dir), config.llm.tool_result_chars,
+                                   predictor, config.llm))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -107,7 +111,7 @@ def create_app(config: Optional[Config] = None,
     app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
-    app.state.mcp = mcp
+    app.state.chat_tools = chat_tools
     app.state.annotate = config.annotate
     app.state.predictor = predictor
     app.state.worker = AnnotationWorker(app.state.devices_dir, config.annotate,

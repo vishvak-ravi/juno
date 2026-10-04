@@ -1,5 +1,6 @@
 """fwd_to_claude against a real tmux server on its own socket and a stand-in for ``claude``."""
 
+import asyncio
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from juno.config import CaptureConfig, ClaudeConfig, Config, ToolsConfig
 from server.app import create_app
 from server.claude import ClaudeError, TmuxDest, forward_to_claude
+from server.tools import call_chat_tool
 
 pytestmark = pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is not installed")
 
@@ -101,21 +103,16 @@ def test_errors_name_what_went_wrong(config, tmp_path):
         forward(config, tmp_path, "  ")
 
 
-def test_an_agent_forwards_a_prompt_over_mcp_only_when_enabled(config, tmp_path):
-    def call(tools: ToolsConfig) -> dict:
+def test_the_model_forwards_a_prompt_only_when_enabled(config, tmp_path):
+    def call(tools: ToolsConfig) -> str:
         app = create_app(Config(capture=CaptureConfig(data_dir=tmp_path), tools=tools))
-        # The MCP endpoint only answers requests addressed to the server's own host.
-        with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-            return client.post(
-                "/mcp", headers={"Accept": "application/json, text/event-stream"},
-                json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                      "params": {"name": "fwd_to_claude", "arguments": {
-                          "prompt": "one", "tmux_dest": {"name": "from-mcp"}}}}).json()["result"]
+        arguments = json.dumps({"prompt": "one", "tmux_dest": {"name": "from-chat"}})
+        with TestClient(app) as client:
+            return asyncio.run(call_chat_tool(client.app.state.chat_tools, "fwd_to_claude",
+                                              arguments))
 
-    on = call(ToolsConfig(claude=config))
-    assert not on["isError"]
-    result = json.loads(on["content"][0]["text"])
+    result = json.loads(call(ToolsConfig(claude=config)))
     assert result["reply"] == "default: one"
-    assert result["tmux_dest"]["name"] == "from-mcp"
+    assert result["tmux_dest"]["name"] == "from-chat"
     # Off by default.
-    assert call(ToolsConfig())["isError"]
+    assert call(ToolsConfig()).startswith("error:")

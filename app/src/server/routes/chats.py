@@ -4,7 +4,7 @@ A conversation is the message list the ``juno`` REPL keeps as its history and
 sends to vLLM: OpenAI chat messages, ``{"role": ..., "content": ...}``, oldest
 first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json`` (``server.chat_store``).
 
-The model answers with the MCP server's tools (``server.mcp``) and, unless the
+The model answers with the tools of ``server.tools`` and, unless the
 chat starts with a system message of its own, the system prompt in
 ``prompts/chat_system.txt``. Neither the prompt nor the tool calls are stored.
 
@@ -23,8 +23,8 @@ from pydantic import BaseModel
 from server.chat_store import (CHAT_ID_MAX_LENGTH, CHAT_ID_PATTERN, Chat, Message, chat_file,
                                chat_title, read_chat, read_chats, write_chat)
 from server.llm import LlmError, complete
-from server.mcp import call_chat_tool, chat_tools
 from server.routes.paging import Page, page_of
+from server.tools import call_chat_tool, tool_definitions
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -88,12 +88,12 @@ def append_to_chat(chat_id: ChatId, body: NewMessages, request: Request) -> Chat
     """
     path = chat_file(request.app.state.chats_dir, chat_id)
     llm = request.app.state.llm
-    mcp = request.app.state.mcp
-    # This route runs in a worker thread; the MCP server's methods are coroutines.
-    tools = from_thread.run(chat_tools, mcp)
+    chat_tools = request.app.state.chat_tools
+    tools = tool_definitions(chat_tools)
 
     def call_tool(name: str, arguments: str) -> str:
-        return from_thread.run(call_chat_tool, mcp, name, arguments)
+        # This route runs in a worker thread; the tools are run by a coroutine.
+        return from_thread.run(call_chat_tool, chat_tools, name, arguments)
 
     with write_lock:
         chat = read_chat(path) or Chat(id=chat_id, messages=[])

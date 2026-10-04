@@ -118,7 +118,7 @@ class ClaudeConfig(Section):
 
 
 class ToolsConfig(Section):
-    # Tools of the MCP server besides the annotation ones (`server.mcp`).
+    # Tools of the chat model besides the session and past-chat ones (`server.tools`).
     bash: BashConfig = Field(default_factory=BashConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)

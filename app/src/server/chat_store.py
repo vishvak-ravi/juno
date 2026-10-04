@@ -3,7 +3,7 @@
 A conversation is a list of OpenAI chat messages, ``{"role": ..., "content": ...}``,
 oldest first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json``; the routes in
 ``server.routes.chats`` write the files, and the ``search_chats`` and ``get_chat``
-tools of ``server.mcp`` read them.
+tools of ``server.tools`` read them.
 """
 
 import logging

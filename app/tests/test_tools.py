@@ -1,5 +1,7 @@
-"""The bash, web_search and past-chat tools: on their own, over MCP, and from a chat."""
+"""The chat model's tools: bash, web_search and the past chats, and which tools agents get
+over MCP."""
 
+import asyncio
 import json
 import shutil
 import time
@@ -8,11 +10,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import server.mcp
-from juno.config import BashConfig, CaptureConfig, Config, LlmConfig, ToolsConfig, WebSearchConfig
+import server.tools
+from juno.config import (BashConfig, CaptureConfig, ClaudeConfig, Config, LlmConfig, ToolsConfig,
+                         WebSearchConfig)
 from server.app import create_app
 from server.search import SearchError
 from server.shell import run_bash
+from server.tools import call_chat_tool
 from test_chats import model_server, store_chat  # noqa: F401  (model_server is a fixture)
 
 needs_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
@@ -74,7 +78,12 @@ def mcp_request(client: TestClient, method: str, params: dict) -> dict:
     return response.json()["result"]
 
 
-def test_an_agent_searches_the_web_over_mcp(tmp_path, monkeypatch):
+def call(client: TestClient, name: str, arguments: dict) -> str:
+    """What the chat model is shown for a call it made."""
+    return asyncio.run(call_chat_tool(client.app.state.chat_tools, name, json.dumps(arguments)))
+
+
+def test_the_model_searches_the_web(tmp_path, monkeypatch):
     asked = []
 
     def search_web(query, max_results):
@@ -83,29 +92,37 @@ def test_an_agent_searches_the_web_over_mcp(tmp_path, monkeypatch):
             raise SearchError("the search failed: no results")
         return [{"title": "A page", "url": "https://example.com", "snippet": "About a thing."}]
 
-    monkeypatch.setattr(server.mcp, "search_web", search_web)
+    monkeypatch.setattr(server.tools, "search_web", search_web)
     tools = ToolsConfig(web_search=WebSearchConfig(max_results=3))
     with app_client(tmp_path, tools) as client:
-        found = mcp_request(client, "tools/call", {
-            "name": "web_search", "arguments": {"query": "a thing", "max_results": 50}})
-        failed = mcp_request(client, "tools/call", {
-            "name": "web_search", "arguments": {"query": "nothing"}})
+        found = call(client, "web_search", {"query": "a thing", "max_results": 50})
+        failed = call(client, "web_search", {"query": "nothing"})
 
-    assert json.loads(found["content"][0]["text"]) == {"results": [
+    assert json.loads(found) == {"results": [
         {"title": "A page", "url": "https://example.com", "snippet": "About a thing."}]}
     # Never more results than configured, whatever the agent asks for.
     assert asked[0] == ("a thing", 3)
-    assert failed["isError"] and "no results" in failed["content"][0]["text"]
+    assert failed.startswith("error:") and "no results" in failed
 
 
 def test_tools_turned_off_are_not_offered(tmp_path):
     off = ToolsConfig(bash=BashConfig(enabled=False), web_search=WebSearchConfig(enabled=False))
     with app_client(tmp_path / "on", ToolsConfig()) as client:
-        on_names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
+        on_names = set(client.app.state.chat_tools)
     with app_client(tmp_path / "off", off) as client:
-        off_names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
+        off_names = set(client.app.state.chat_tools)
     assert on_names - off_names == {"bash", "web_search"}
-    assert "list_annotations" in off_names
+    assert {"list_annotations", "search_chats"} <= off_names
+
+
+def test_agents_get_only_the_session_tools_over_mcp(tmp_path):
+    every = ToolsConfig(claude=ClaudeConfig(enabled=True))
+    with app_client(tmp_path, every) as client:
+        names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
+        refused = mcp_request(client, "tools/call", {"name": "bash",
+                                                     "arguments": {"command": "true"}})
+    assert names == {"list_annotations", "get_annotation", "predict_next_actions"}
+    assert refused["isError"]
 
 
 def test_the_model_can_run_a_command_before_it_answers(tmp_path, model_server):  # noqa: F811
@@ -123,7 +140,7 @@ def test_the_model_can_run_a_command_before_it_answers(tmp_path, model_server): 
     assert response.json()["messages"][-1]["content"] == "re: 42\n"
 
 
-def test_an_agent_finds_a_past_chat_and_reads_it_over_mcp(tmp_path):
+def test_the_model_finds_a_past_chat_and_reads_it(tmp_path):
     store_chat(tmp_path, "garden", [
         {"role": "system", "content": "be brief about tomatoes"},
         {"role": "user", "content": "when should the tomatoes be planted"},
@@ -134,17 +151,13 @@ def test_an_agent_finds_a_past_chat_and_reads_it_over_mcp(tmp_path):
     (tmp_path / "chats" / "broken.json").write_text("not json")
 
     with app_client(tmp_path, ToolsConfig()) as client:
-        def call(name, arguments):
-            return mcp_request(client, "tools/call", {"name": name, "arguments": arguments})
-
-        found = json.loads(call("search_chats", {"query": "Tomatoes frost"})["content"][0]["text"])
-        nothing = json.loads(call("search_chats", {"query": "submarine"})["content"][0]["text"])
-        one = json.loads(call("search_chats", {"query": "train", "limit": 1})["content"][0]["text"])
-        chat = json.loads(call("get_chat", {"chat_id": "garden"})["content"][0]["text"])
-        rest = json.loads(call("get_chat", {"chat_id": "garden", "first_message": 3})
-                          ["content"][0]["text"])
-        missing = call("get_chat", {"chat_id": "nowhere"})
-        outside = call("get_chat", {"chat_id": "../chats/garden"})
+        found = json.loads(call(client, "search_chats", {"query": "Tomatoes frost"}))
+        nothing = json.loads(call(client, "search_chats", {"query": "submarine"}))
+        one = json.loads(call(client, "search_chats", {"query": "train", "limit": 1}))
+        chat = json.loads(call(client, "get_chat", {"chat_id": "garden"}))
+        rest = json.loads(call(client, "get_chat", {"chat_id": "garden", "first_message": 3}))
+        missing = call(client, "get_chat", {"chat_id": "nowhere"})
+        outside = call(client, "get_chat", {"chat_id": "../chats/garden"})
 
     # The message with both words comes first; system messages are not searched.
     assert [(m["chat_id"], m["message"], m["role"]) for m in found["matches"]] == [
@@ -160,8 +173,8 @@ def test_an_agent_finds_a_past_chat_and_reads_it_over_mcp(tmp_path):
                         {"message": 3, "role": "assistant",
                          "content": "Plant tomatoes after the last frost."}]}
     assert [m["message"] for m in rest["messages"]] == [3]
-    assert missing["isError"] and "no chat with id nowhere" in missing["content"][0]["text"]
-    assert outside["isError"]
+    assert missing.startswith("error:") and "no chat with id nowhere" in missing
+    assert outside.startswith("error:")
 
 
 def test_past_chat_results_stay_within_the_result_limit(tmp_path):
@@ -172,13 +185,9 @@ def test_past_chat_results_stay_within_the_result_limit(tmp_path):
     config = Config(capture=CaptureConfig(data_dir=tmp_path),
                     llm=LlmConfig(base_url="http://localhost:1", tool_result_chars=1500))
     with TestClient(create_app(config), base_url="http://127.0.0.1:8765") as client:
-        def call(name, arguments):
-            return mcp_request(client, "tools/call",
-                               {"name": name, "arguments": arguments})["content"][0]["text"]
-
-        found = call("search_chats", {"query": "lighthouse"})
-        first = call("get_chat", {"chat_id": "long"})
-        last = call("get_chat", {"chat_id": "long", "first_message": 3})
+        found = call(client, "search_chats", {"query": "lighthouse"})
+        first = call(client, "get_chat", {"chat_id": "long"})
+        last = call(client, "get_chat", {"chat_id": "long", "first_message": 3})
 
     assert len(found) <= 1500 and len(first) <= 1500
     # A snippet shows the part of a long message around the word found.
