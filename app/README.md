@@ -100,6 +100,13 @@ fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
 `<device_id>-session_<timestamp>`. On a machine that only records, run
 `uv run python -m capture` instead of `python -m juno`.
 
+The server annotates on one thread with up to `annotate.max_concurrency` model
+calls in flight, taking chunks a recorder just filled first, then ones asked
+for with `PUT /annotations/{id}`, then (with `annotate.backfill`) every other
+chunk in its store without a finished annotation, most recent first. A call the
+provider was too busy for is made again, up to `annotate.max_attempts` times.
+`GET /api/queue` shows what is waiting and in flight.
+
 `uv run python -m capture.upload` copies every session already recorded on this
 computer to the server, without asking for annotations; run it again to
 continue a copy that stopped. Set `capture.device_id` first: the id is part of

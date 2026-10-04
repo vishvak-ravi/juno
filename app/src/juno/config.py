@@ -85,6 +85,26 @@ class AnnotateConfig(Section):
     # annotates each chunk as it fills. Every screenshot then goes to the
     # model's provider.
     live: bool = False
+    # Model calls the server keeps in flight at once.
+    max_concurrency: int = 4
+    # Calls made for one chunk before its annotation is left failed. A call is
+    # repeated only when the provider was busy or the reply was not an annotation.
+    max_attempts: int = 3
+    # Seconds one call may take.
+    timeout_seconds: float = 300.0
+    # Seconds every call waits after the provider was busy: the base doubles with
+    # each attempt of the chunk, up to the maximum.
+    retry_base_seconds: float = 5.0
+    retry_max_seconds: float = 120.0
+    # Whether the server, on its own, annotates every chunk in its store that
+    # has no finished annotation, most recent first, behind the chunks recorders
+    # are filling now. Every stored screenshot then goes to the model's provider.
+    backfill: bool = True
+    # Seconds between the server's looks through its store for such chunks.
+    scan_interval_seconds: float = 60.0
+    # Seconds a session must have gone without a new row before the rows after
+    # its last full chunk are annotated.
+    tail_idle_seconds: float = 300.0
 
 
 class PredictConfig(Section):

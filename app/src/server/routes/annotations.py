@@ -18,33 +18,24 @@ from annotate.store import (
     ANNOTATION_ID,
     AnnotationRecord,
     list_records,
-    new_record,
     parse_annotation_id,
     read_record,
-    write_record,
 )
 from server.routes.paging import DeviceFilter, Page, page_of
+from server.worker import Priority
 
 router = APIRouter(prefix="/annotations", tags=["annotations"])
 
 AnnotationId = Annotated[str, PathParam(pattern=ANNOTATION_ID.pattern, max_length=128)]
 
 
-def queue_chunk(state: State, session_id: str, chunk: int) -> AnnotationRecord:
-    """The chunk's annotation, queued unless it is done or already waiting.
+def queue_chunk(state: State, session_id: str, chunk: int,
+                priority: Priority = Priority.REQUESTED) -> AnnotationRecord:
+    """The chunk's annotation, queued at ``priority`` unless it is finished.
 
-    A chunk that is new, failed, or was left pending by a server that stopped
-    gets a fresh pending record and goes to the worker.
+    See ``AnnotationWorker.request``.
     """
-    directory = session_dir(state.devices_dir, session_id)
-    record = read_record(directory, chunk)
-    if record is not None and (record.status == "done"
-                               or state.worker.is_waiting(session_id, chunk)):
-        return record
-    record = new_record(session_id, chunk, state.annotate.model)
-    write_record(directory, record)
-    state.worker.submit(session_id, chunk)
-    return record
+    return state.worker.request(session_id, chunk, priority)
 
 
 @router.get("")

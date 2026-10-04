@@ -56,6 +56,26 @@ annotate:
   # Whether the recorder uploads each aggregation to the server, which annotates
   # each chunk as it fills. Every screenshot then goes to the model's provider.
   live: true
+  # Model calls the server keeps in flight at once.
+  max_concurrency: 4
+  # Calls made for one chunk before its annotation is left failed. A call is
+  # repeated only when the provider was busy or the reply was not an annotation.
+  max_attempts: 3
+  # Seconds one call may take.
+  timeout_seconds: 300
+  # Seconds every call waits after the provider was busy: the base doubles with
+  # each attempt of the chunk, up to the maximum.
+  retry_base_seconds: 5
+  retry_max_seconds: 120
+  # Whether the server, on its own, annotates every chunk in its store that has
+  # no finished annotation, most recent first, behind the chunks recorders are
+  # filling now. Every stored screenshot then goes to the model's provider.
+  backfill: true
+  # Seconds between the server's looks through its store for such chunks.
+  scan_interval_seconds: 60
+  # Seconds a session must have gone without a new row before the rows after its
+  # last full chunk are annotated.
+  tail_idle_seconds: 300
 
 predict:
   # Next-action prediction (`POST /predictions`); the defaults are Tada's.

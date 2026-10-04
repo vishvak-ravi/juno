@@ -7,7 +7,8 @@ labeler: the same messages, token limit and JSON response schema.
 from __future__ import annotations
 
 import json
-from typing import Optional
+import asyncio
+from typing import Any, Optional
 
 import litellm
 from napsack.label.clients.client import DENSE_IMAGE_CAPTION_SCHEMA
@@ -63,16 +64,53 @@ def completion_params(request: AnnotationRequest, model: str, max_tokens: int,
     return params
 
 
+# What the provider raises when the same request may succeed later.
+PROVIDER_BUSY = (litellm.RateLimitError, litellm.ServiceUnavailableError, litellm.Timeout,
+                 litellm.APIConnectionError, litellm.InternalServerError)
+
+
+def retryable(exc: BaseException) -> bool:
+    """Whether the call that raised ``exc`` is worth making again."""
+    return isinstance(exc, (*PROVIDER_BUSY, AnnotationError, TimeoutError))
+
+
+def retry_after_seconds(exc: BaseException) -> Optional[float]:
+    """How long the provider asked to wait (its ``Retry-After`` header), if it said."""
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        return float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+
+
+def require_sanitized(request: AnnotationRequest) -> None:
+    if request.sanitization is None:
+        raise UnsanitizedRequest(
+            "the request has no sanitization; pass it through annotate.sanitize.sanitize first")
+
+
 def annotate(request: AnnotationRequest, model: str, max_tokens: int,
              api_key: Optional[str] = None) -> Annotation:
     """One model call for ``request``. ``api_key`` None leaves the key to litellm's env lookup.
 
     Raises ``UnsanitizedRequest``, sending nothing, if ``request.sanitization`` is None.
     """
-    if request.sanitization is None:
-        raise UnsanitizedRequest(
-            "the request has no sanitization; pass it through annotate.sanitize.sanitize first")
+    require_sanitized(request)
     completion = litellm.completion(**completion_params(request, model, max_tokens, api_key))
+    return parse_completion(completion, request, model)
+
+
+async def annotate_async(request: AnnotationRequest, model: str, max_tokens: int,
+                         api_key: Optional[str] = None) -> Annotation:
+    """``annotate`` without holding a thread while the provider answers."""
+    require_sanitized(request)
+    # Encoding the screenshots takes CPU time; keep it off the event loop.
+    params = await asyncio.to_thread(completion_params, request, model, max_tokens, api_key)
+    return parse_completion(await litellm.acompletion(**params), request, model)
+
+
+def parse_completion(completion: Any, request: AnnotationRequest, model: str) -> Annotation:
+    """The annotation in a litellm completion for ``request``."""
     choice = completion.choices[0]
     raw = choice.message.content
     try:

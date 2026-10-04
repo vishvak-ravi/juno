@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
-from annotate.label import Annotation, annotate
+from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
 from juno.config import Config, devices_dir, load_config, resolve_data_dir
 from predict.predictor import Predictor
@@ -19,7 +19,7 @@ from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
-from server.worker import AnnotationWorker
+from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,12 @@ router = APIRouter(prefix="/api", tags=["status"])
 @router.get("/status")
 async def get_status():
     return {"status": "ok"}
+
+
+@router.get("/queue")
+def get_queue(request: Request) -> QueueStatus:
+    """How many chunks are waiting to be annotated, and how many calls are in flight."""
+    return request.app.state.worker.status()
 
 
 # The phone client: one page that calls the routes below from the address it was opened at.
@@ -43,7 +49,7 @@ def get_web_page() -> FileResponse:
 
 
 def create_app(config: Optional[Config] = None,
-               annotate_request: Optional[Callable[[AnnotationRequest], Annotation]] = None,
+               annotate_request: Optional[AnnotateRequest] = None,
                ) -> FastAPI:
     """
     Args:
@@ -56,20 +62,21 @@ def create_app(config: Optional[Config] = None,
     if config is None:
         config = load_config()
     if annotate_request is None:
-        def annotate_request(request: AnnotationRequest) -> Annotation:
-            return annotate(request, model=config.annotate.model,
-                            max_tokens=config.annotate.max_tokens)
+        async def annotate_request(request: AnnotationRequest) -> Annotation:
+            return await annotate_async(request, model=config.annotate.model,
+                                        max_tokens=config.annotate.max_tokens)
 
     data_dir = resolve_data_dir(config.capture)
     mcp = create_mcp(devices_dir(data_dir), config.llm.tool_result_chars)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        resumed = app.state.worker.resume_pending()
-        if resumed:
-            logger.info("resuming %d annotations left pending", resumed)
-        async with mcp.session_manager.run():
-            yield
+        app.state.worker.start()
+        try:
+            async with mcp.session_manager.run():
+                yield
+        finally:
+            app.state.worker.stop()
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.state.chats_dir = data_dir / "chats"

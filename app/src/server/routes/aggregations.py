@@ -34,6 +34,7 @@ from annotate.records import (
 )
 from server.routes.annotations import queue_chunk
 from server.routes.paging import DeviceFilter, Page, page_of
+from server.worker import Priority
 
 router = APIRouter(prefix="/aggregations", tags=["aggregations"])
 
@@ -146,7 +147,7 @@ def upload_aggregation(aggregation_id: AggregationId, request: Request, response
 
     chunk_size = state.annotate.chunk_size
     if annotate and (row + 1) % chunk_size == 0:
-        queue_chunk(state, session_id, row // chunk_size)
+        queue_chunk(state, session_id, row // chunk_size, Priority.LIVE)
     response.status_code = 201
     return find(state.devices_dir, aggregation_id)
 

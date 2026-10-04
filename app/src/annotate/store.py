@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Literal, Optional
@@ -51,6 +52,10 @@ class AnnotationRecord(BaseModel):
     # The model's output with the sanitization of its request; None unless done.
     annotation: Optional[Annotation] = None
     error: Optional[str] = None
+    # Model calls made for this record so far, failed ones included.
+    attempts: int = 0
+    # Rows the chunk held when it was annotated; None on records older than this field.
+    rows: Optional[int] = None
 
 
 def annotation_id(session_id: str, chunk: int) -> str:
@@ -75,6 +80,16 @@ def new_record(session_id: str, chunk: int, model: str) -> AnnotationRecord:
                             model=model)
 
 
+def covers(record: Optional[AnnotationRecord], rows: int) -> bool:
+    """Whether ``record`` is a finished annotation of a chunk that now holds ``rows`` rows.
+
+    A done record made when the chunk held fewer rows (a session's last, still
+    growing chunk) does not cover it.
+    """
+    return (record is not None and record.status == "done"
+            and (record.rows is None or record.rows >= rows))
+
+
 def read_record(session_dir: Path, chunk: int) -> Optional[AnnotationRecord]:
     """The stored annotation of a chunk, or None if there is none."""
     try:
@@ -87,7 +102,8 @@ def write_record(session_dir: Path, record: AnnotationRecord) -> None:
     """Replace the file in one step, so a reader never sees half a record."""
     path = annotation_file(session_dir, record.chunk)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".json.tmp")
+    # Its own name per writer: two threads may write the same record at once.
+    temporary = path.with_suffix(f".{threading.get_ident()}.tmp")
     temporary.write_text(record.model_dump_json(indent=2))
     os.replace(temporary, path)
 
