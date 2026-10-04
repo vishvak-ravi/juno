@@ -113,3 +113,63 @@ def test_a_failed_model_call_is_recorded_and_a_new_put_retries_it(tmp_path):
 
     assert client.put(f"/annotations/{annotation_id}").status_code == 202
     assert wait_until_settled(client, annotation_id)["status"] == "done"
+
+
+def test_sessions_and_their_aggregations_can_be_browsed(tmp_path):
+    write_session(tmp_path, rows=3)
+    client = client_for(tmp_path, annotate_request=None)
+
+    (session,) = client.get("/sessions").json()["data"]
+    assert (session["id"], session["aggregations"], session["annotations"]) == (SESSION, 3, 0)
+    assert client.get(f"/sessions/{SESSION}").json() == session
+    assert client.get("/sessions/no_such_session").status_code == 404
+
+    page = client.get("/aggregations", params={"session_id": SESSION, "order": "asc",
+                                               "since": 1001.0}).json()
+    assert [item["id"] for item in page["data"]] == [f"{SESSION}-000001", f"{SESSION}-000002"]
+    assert page["data"][0]["events"][0]["details"] == {"key": "a"}
+
+    screenshot = client.get(f"/aggregations/{SESSION}-000001/screenshot")
+    assert screenshot.status_code == 200
+    assert screenshot.headers["content-type"] == "image/png"
+    assert client.get(f"/aggregations/{SESSION}-000003").status_code == 404
+
+
+def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
+    write_session(tmp_path, rows=2)
+
+    def annotate_request(request):
+        return Annotation(actions=[Action(start=1, end=2, caption="Typed a.")],
+                          dense_caption="a", sanitization=request.sanitization)
+
+    config = Config(capture=CaptureConfig(data_dir=tmp_path),
+                    annotate=AnnotateConfig(chunk_size=2))
+    app = create_app(config, annotate_request=annotate_request)
+    annotation_id = f"{SESSION}-0000"
+
+    def call(client, tool, arguments):
+        response = client.post(
+            "/mcp", headers={"Accept": "application/json, text/event-stream"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                  "params": {"name": tool, "arguments": arguments}})
+        result = response.json()["result"]
+        return result["isError"], json.loads(result["content"][0]["text"]) \
+            if not result["isError"] else result["content"][0]["text"]
+
+    # The MCP endpoint only answers requests addressed to the server's own host.
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        client.put(f"/annotations/{annotation_id}")
+        wait_until_settled(client, annotation_id)
+
+        is_error, listed = call(client, "list_annotations", {"limit": 5})
+        assert not is_error
+        assert [(a["id"], a["actions"], a["text_on_screen"]) for a in listed["annotations"]] == [
+            (annotation_id, ["Typed a."], "a")]
+
+        is_error, full = call(client, "get_annotation", {"annotation_id": annotation_id})
+        assert not is_error
+        assert full["actions"] == [{"start": 1, "end": 2, "caption": "Typed a."}]
+        assert "Key pressed: a" in full["frames"][0]["input"]
+
+        is_error, message = call(client, "get_annotation", {"annotation_id": "nope"})
+        assert is_error and "list_annotations" in message

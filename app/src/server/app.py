@@ -1,14 +1,19 @@
 """FastAPI application and route registration."""
 
+from contextlib import asynccontextmanager
 from typing import Callable, Optional
 
 from fastapi import APIRouter, FastAPI
+from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate
 from annotate.request import AnnotationRequest
 from juno.config import Config, load_config, resolve_data_dir, sessions_dir
+from server.mcp import MCP_PATH, create_mcp
+from server.routes.aggregations import router as aggregations_router
 from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
+from server.routes.sessions import router as sessions_router
 from server.worker import AnnotationWorker
 
 router = APIRouter(prefix="/api", tags=["status"])
@@ -38,7 +43,14 @@ def create_app(config: Optional[Config] = None,
                             max_tokens=config.annotate.max_tokens)
 
     data_dir = resolve_data_dir(config.capture)
-    app = FastAPI(title="Juno Server")
+    mcp = create_mcp(sessions_dir(data_dir))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        async with mcp.session_manager.run():
+            yield
+
+    app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.state.chats_dir = data_dir / "chats"
     app.state.sessions_dir = sessions_dir(data_dir)
     app.state.llm = config.llm
@@ -47,5 +59,14 @@ def create_app(config: Optional[Config] = None,
                                         annotate_request)
     app.include_router(router)
     app.include_router(chats_router)
+    app.include_router(sessions_router)
+    app.include_router(aggregations_router)
     app.include_router(annotations_router)
+    # After the routes: the MCP app answers MCP_PATH and nothing else.
+    # Requests must name this server by an address it is reached at (blocks DNS rebinding).
+    names = {config.server.host, "127.0.0.1", "localhost"}
+    allowed_hosts = sorted(names | {f"{name}:*" for name in names})
+    app.mount("/", mcp.streamable_http_app(
+        streamable_http_path=MCP_PATH, stateless_http=True, json_response=True,
+        transport_security=TransportSecuritySettings(allowed_hosts=allowed_hosts)))
     return app
