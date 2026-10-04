@@ -1,4 +1,6 @@
+const { spawn } = require("node:child_process");
 const path = require("node:path");
+const readline = require("node:readline");
 const { app, BrowserWindow, ipcMain } = require("electron");
 
 // The Juno app server, e.g. http://<tailscale-host>:8765.
@@ -27,6 +29,23 @@ ipcMain.handle("api:get", async (_event, route) => {
   return response.json();
 });
 
+// The dictation helper (native/dictate.swift, built by `npm run native`) takes
+// "start"/"stop" lines and prints one JSON line per recognition update.
+function startDictation() {
+  const helper = spawn(path.join(__dirname, "../native/juno-dictate"), {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  helper.on("error", (error) => console.error(`dictation helper: ${error.message}`));
+  helper.stdin.on("error", () => {}); // the helper exited; its stderr says why
+  readline.createInterface({ input: helper.stdout }).on("line", (line) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send("dictation:text", JSON.parse(line));
+    }
+  });
+  ipcMain.on("dictation:set", (_event, on) => helper.stdin.write(on ? "start\n" : "stop\n"));
+  app.on("will-quit", () => helper.kill());
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1000,
@@ -43,6 +62,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  startDictation();
   createWindow();
   // macOS: re-create a window when the dock icon is clicked and none are open.
   app.on("activate", () => {

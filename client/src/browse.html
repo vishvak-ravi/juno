@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' http: https:" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; img-src 'self' http: https:" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Juno Browser</title>
 <style>
@@ -53,9 +53,20 @@
   /* Each open level sits inside its parent's region. */
   .nest { margin: .25rem 0 0 .5rem; padding-left: .75rem; border-left: 2px solid var(--line); }
   img { display: block; max-width: 100%; margin-top: .5rem; }
+
+  /* The camera with the hand keypoints (hand.js), mirrored like a mirror. */
+  #hand { position: fixed; right: 1rem; top: 1rem; width: 240px; background: var(--bg); }
+  #camera, #overlay { display: block; width: 100%; transform: scaleX(-1); }
+  #overlay { position: absolute; top: 0; left: 0; }
 </style>
 </head>
 <body>
+
+<div id="hand">
+  <video id="camera" muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div id="hand-label"></div>
+</div>
 
 <main>
   <nav>
@@ -319,5 +330,6 @@
         ...Array.from({ length: Math.ceil(full.aggregations / CHUNK) }, (_, n) => chunk(full.id, n, full.aggregations)),
       ])));
 </script>
+<script type="module" src="hand.js"></script>
 </body>
 </html>
