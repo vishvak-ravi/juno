@@ -2,13 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'" />
     <title>Juno</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Juno</h1>
-    <p id="versions"></p>
+    <div id="hand">
+      <video id="camera" muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div id="hand-label"></div>
+    </div>
+    <main id="messages"></main>
+    <form id="composer">
+      <input id="input" autocomplete="off" placeholder="Message" autofocus />
+      <button type="submit">Send</button>
+    </form>
     <script src="renderer.js"></script>
+    <script type="module" src="hand.js"></script>
   </body>
 </html>

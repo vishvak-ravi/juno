@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>dev.juno.dictate</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Juno dictates your messages.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Juno dictates your messages on this Mac.</string>
+</dict>
+</plist>
