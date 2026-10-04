@@ -26,6 +26,17 @@ if mode == "silent":
     time.sleep(30)
     sys.exit(0)
 
+if mode == "desktop":
+    # One 320x200 monitor showing a light screen, pointer at (80, 50).
+    send({"type": "status", "state": "awaiting_consent"})
+    send({"type": "streams", "streams": [
+        {"index": 0, "left": 0, "top": 0, "width": 320, "height": 200, "width_mm": None}]})
+    send({"type": "frame", "index": 0, "width": 320, "height": 200, "stride": 960},
+         bytes([230]) * (960 * 200))
+    send({"type": "cursor", "index": 0, "x": 80, "y": 50})
+    sys.stdin.buffer.read()
+    sys.exit(0)
+
 send({"type": "status", "state": "awaiting_consent"})
 send({"type": "streams", "streams": [
     {"index": 0, "left": 0, "top": 0, "width": 8, "height": 4, "width_mm": 100},
@@ -35,6 +46,7 @@ send({"type": "streams", "streams": [
 send({"type": "frame", "index": 0, "width": 8, "height": 4, "stride": 24}, bytes([7]) * 96)
 row = bytes([1, 2, 3] * 5) + b"\xff"
 send({"type": "frame", "index": 1, "width": 5, "height": 2, "stride": 16}, row * 2)
+send({"type": "cursor", "index": 1, "x": 4, "y": 1})
 if mode == "crash":
     sys.exit(1)
 send({"type": "frame", "index": 0, "width": 8, "height": 4, "stride": 24}, bytes([9]) * 96)

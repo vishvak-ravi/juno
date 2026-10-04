@@ -80,6 +80,7 @@ class Config(Section):
     server: ServerConfig = Field(default_factory=ServerConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
+    annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
 
 
 def default_data_dir() -> Path:

@@ -2,7 +2,9 @@
 
 The portal and PipeWire work happens in ``portal_helper.py`` under the system
 Python, which has the GStreamer bindings. This class starts that helper, reads
-frames from its stdout, and keeps the newest one per monitor.
+frames from its stdout, and keeps the newest one per monitor. The stream also
+carries the pointer position, so this class is the Wayland ``CursorSource`` too;
+the pointer itself is not drawn into the frames.
 
 The first run shows the desktop's share dialog once. After that the stored
 restore token lets the session start silently. The desktop shows its "screen is
@@ -23,7 +25,14 @@ from typing import BinaryIO, Optional, Sequence
 
 import numpy as np
 
-from capture.sources.base import BackendUnavailable, Frame, Monitor, ScreenSource
+from capture.sources.base import (
+    BackendUnavailable,
+    CursorSource,
+    Frame,
+    Monitor,
+    Position,
+    ScreenSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +85,7 @@ def frame_array(header: dict, payload: bytearray) -> np.ndarray:
     return np.ascontiguousarray(rows[:, : width * 3]).reshape(height, width, 3)
 
 
-class PortalScreenSource(ScreenSource):
+class PortalScreenSource(ScreenSource, CursorSource):
 
     def __init__(
         self,
@@ -100,6 +109,8 @@ class PortalScreenSource(ScreenSource):
         self._lock = threading.Lock()
         self._monitors: list[Monitor] = []
         self._frames: dict[int, np.ndarray] = {}
+        # (monitor index, x, y) in that stream's pixels, as last reported.
+        self._cursor: Optional[tuple[int, int, int]] = None
         self._error: Optional[str] = None
         self._ready = threading.Event()
         self._stopping = threading.Event()
@@ -133,6 +144,9 @@ class PortalScreenSource(ScreenSource):
                 array = frame_array(header, payload)
                 with self._lock:
                     self._frames[header["index"]] = array
+            elif kind == "cursor":
+                with self._lock:
+                    self._cursor = (header["index"], header["x"], header["y"])
             elif kind == "streams":
                 with self._lock:
                     self._monitors = [
@@ -160,6 +174,7 @@ class PortalScreenSource(ScreenSource):
             with self._lock:
                 self._frames.clear()
                 self._monitors = []
+                self._cursor = None
                 if self._error is None and not self._stopping.is_set():
                     self._error = f"the screen capture helper exited ({process.returncode})"
             self._ready.set()  # wake start() if it is still waiting
@@ -209,6 +224,7 @@ class PortalScreenSource(ScreenSource):
         with self._lock:
             self._frames.clear()
             self._monitors = []
+            self._cursor = None
 
     def monitors(self) -> list[Monitor]:
         with self._lock:
@@ -221,3 +237,18 @@ class PortalScreenSource(ScreenSource):
         if data is None or monitor is None:
             return None
         return Frame(data=data, monitor=monitor)
+
+    # -- CursorSource ------------------------------------------------------
+
+    def position(self) -> Optional[Position]:
+        with self._lock:
+            if self._cursor is None:
+                return None
+            index, x, y = self._cursor
+            data = self._frames.get(index)
+            monitor = next((m for m in self._monitors if m.index == index), None)
+        if data is None or monitor is None:
+            return None
+        # Stream pixels to desktop coordinates: they differ under display scaling.
+        return (monitor.left + round(x * monitor.width / data.shape[1]),
+                monitor.top + round(y * monitor.height / data.shape[0]))

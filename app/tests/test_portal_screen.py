@@ -88,9 +88,12 @@ def test_start_delivers_monitors_and_latest_frames(tmp_path):
         assert wait_for(lambda: screen.grab(1) is not None)
         assert screen.grab(1).data.shape == (2, 5, 3)
         assert screen.grab(5) is None
+        # The helper reported the pointer at (4, 1) on monitor 1, which starts at x=8.
+        assert wait_for(lambda: screen.position() == (12, 1))
     finally:
         screen.stop()
     assert screen.monitors() == [] and screen.grab(0) is None
+    assert screen.position() is None
     screen.stop()  # safe twice
 
 

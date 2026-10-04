@@ -14,12 +14,14 @@ Protocol on stdout, one message after another:
     {"type": "status", "state": "awaiting_consent"}
     {"type": "streams", "streams": [{"index", "left", "top", "width", "height", "width_mm"}]}
     {"type": "frame", "index", "width", "height", "stride", "size"}   + RGB bytes
+    {"type": "cursor", "index", "x", "y"}   pointer position, in that stream's pixels
     {"type": "error", "message"}
 
 It exits when stdin closes, so it never outlives the recorder.
 """
 
 import argparse
+import ctypes
 import itertools
 import json
 import os
@@ -38,11 +40,40 @@ PORTAL_PATH = "/org/freedesktop/portal/desktop"
 SCREENCAST = "org.freedesktop.portal.ScreenCast"
 
 SOURCE_MONITOR = 1
-CURSOR_EMBEDDED = 2   # drawn into the frame, like mss(with_cursor=True) in Tada
+CURSOR_METADATA = 4   # not drawn into the frame; its position rides on each buffer
 PERSIST_UNTIL_REVOKED = 2
 
 _out = sys.stdout.buffer
 _out_lock = threading.Lock()
+
+
+class RegionOfInterestMeta(ctypes.Structure):
+    """The leading fields of GstVideoRegionOfInterestMeta."""
+
+    _fields_ = [("flags", ctypes.c_int), ("info", ctypes.c_void_p),
+                ("roi_type", ctypes.c_uint32), ("id", ctypes.c_int),
+                ("parent_id", ctypes.c_int), ("x", ctypes.c_uint), ("y", ctypes.c_uint)]
+
+
+# PyGObject's GstVideo typelib is a separate distro package; the library
+# itself always comes with GStreamer.
+_gstvideo = ctypes.CDLL("libgstvideo-1.0.so.0")
+_gstvideo.gst_buffer_get_video_region_of_interest_meta_id.restype = ctypes.POINTER(
+    RegionOfInterestMeta)
+_gstvideo.gst_buffer_get_video_region_of_interest_meta_id.argtypes = [
+    ctypes.c_void_p, ctypes.c_int]
+
+
+def cursor_position(buffer):
+    """(x, y) of the pointer in stream pixels, or None if the buffer carries none.
+
+    pipewiresrc turns PipeWire's cursor metadata into a region-of-interest
+    meta of type "cursor" with id 0.
+    """
+    meta = _gstvideo.gst_buffer_get_video_region_of_interest_meta_id(hash(buffer), 0)
+    if not meta or GLib.quark_to_string(meta.contents.roi_type) != "cursor":
+        return None
+    return meta.contents.x, meta.contents.y
 
 
 def log(message):
@@ -163,7 +194,7 @@ def negotiate(portal, token_file):
     options = {
         "types": variant("u", SOURCE_MONITOR),
         "multiple": variant("b", True),
-        "cursor_mode": variant("u", CURSOR_EMBEDDED),
+        "cursor_mode": variant("u", CURSOR_METADATA),
         "persist_mode": variant("u", PERSIST_UNTIL_REVOKED),
     }
     restore_token = read_token(token_file)
@@ -225,6 +256,7 @@ def main():
 
     widths = physical_widths()
     described, pipelines = [], []
+    cursors = {}  # stream index -> last position sent
     for index, (node_id, props) in enumerate(streams):
         left, top = props.get("position", (0, 0))
         width, height = props.get("size", (0, 0))
@@ -233,7 +265,7 @@ def main():
 
         fd = portal.open_pipewire_remote(session)  # one connection per stream
         pipeline = Gst.parse_launch(
-            f"pipewiresrc fd={fd} path={node_id} do-timestamp=true ! "
+            f"pipewiresrc name=src fd={fd} path={node_id} do-timestamp=true ! "
             # Plain system-memory caps: keep DMABuf out, it cannot be read back
             # reliably on every GPU driver.
             "video/x-raw ! "
@@ -266,6 +298,21 @@ def main():
                 buffer.unmap(mapped)
             return Gst.FlowReturn.OK
 
+        def on_buffer(_pad, info, index=index):
+            # Read ahead of videorate: the pointer's last position must not be
+            # lost with a dropped frame.
+            position = cursor_position(info.get_buffer())
+            if position is not None and position != cursors.get(index):
+                cursors[index] = position
+                try:
+                    send({"type": "cursor", "index": index,
+                          "x": position[0], "y": position[1]})
+                except OSError:  # the recorder went away
+                    GLib.idle_add(loop.quit)
+            return Gst.PadProbeReturn.OK
+
+        pipeline.get_by_name("src").get_static_pad("src").add_probe(
+            Gst.PadProbeType.BUFFER, on_buffer)
         pipeline.get_by_name("sink").connect("new-sample", on_sample)
         gst_bus = pipeline.get_bus()
         gst_bus.add_signal_watch()

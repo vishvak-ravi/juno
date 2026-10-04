@@ -43,7 +43,6 @@ def test_wayland_backend_checks_input_access_before_anything_else(monkeypatch):
 
 def test_wayland_backend_is_portal_screen_plus_evdev_input(monkeypatch):
     from capture.sources import evdev_input, wayland
-    from capture.sources.base import UnknownCursor
     from capture.sources.evdev_input import EvdevInputSource
     from capture.sources.portal_screen import PortalScreenSource
     monkeypatch.setattr(wayland, "check_access", lambda: None)
@@ -52,7 +51,8 @@ def test_wayland_backend_is_portal_screen_plus_evdev_input(monkeypatch):
     assert isinstance(backend.screen, PortalScreenSource)
     assert "7" == backend.screen._command[-1]
     assert isinstance(backend.input, EvdevInputSource)
-    assert isinstance(backend.cursor, UnknownCursor) and backend.cursor.position() is None
+    # The pointer position comes from the screen stream.
+    assert backend.cursor is backend.screen and backend.cursor.position() is None
 
 
 def test_every_registered_backend_module_exposes_create():

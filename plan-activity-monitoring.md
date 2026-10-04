@@ -49,7 +49,7 @@ to X11, so only those are replaced:
 |---|---|---|---|---|
 | `ScreenshotHandler` (`mss`) | X11 only, black frames on Wayland | `ScreenSource` | `PortalScreenSource`: portal ScreenCast, `persist_mode=2` + restore token, PipeWire frames via GStreamer in a system-Python helper | verified here: one dialog on first run, none on the second, 5 fps, 3840x2160, not black |
 | `InputEventHandler` + listeners (`pynput`) | X11 hooks; Wayland-native apps invisible | `InputSource` | `EvdevInputSource`: `/dev/input/event*`, key codes translated to pynput names (US layout) | written and unit tested; spike confirmed by hand; needs the `input` group for a full run |
-| `mouse.Controller().position` | Wayland has no global pointer position | `CursorSource` | `UnknownCursor`: always None | events carry `cursor_position: null`; pointer is still drawn into each frame |
+| `mouse.Controller().position` | Wayland has no global pointer position | `CursorSource` | `PortalScreenSource`: ScreenCast `cursor_mode=4`, position read from each PipeWire buffer | written and unit tested; not yet run through the portal. Frames no longer contain the pointer; `annotate.request.draw_cursor` draws it at read time |
 
 The Screenshot-portal alternative was not needed: ScreenCast works.
 
