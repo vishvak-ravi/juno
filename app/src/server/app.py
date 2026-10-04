@@ -2,9 +2,11 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import APIRouter, FastAPI
+from fastapi.responses import FileResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate
@@ -25,6 +27,17 @@ router = APIRouter(prefix="/api", tags=["status"])
 @router.get("/status")
 async def get_status():
     return {"status": "ok"}
+
+
+# The phone client: one page that calls the routes below from the address it was opened at.
+WEB_PAGE = Path(__file__).resolve().parent / "web" / "index.html"
+web_router = APIRouter(tags=["web"])
+
+
+@web_router.get("/", include_in_schema=False)
+def get_web_page() -> FileResponse:
+    # no-cache: a copy saved to the phone's Home Screen asks for the current page each time.
+    return FileResponse(WEB_PAGE, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 def create_app(config: Optional[Config] = None,
@@ -65,6 +78,7 @@ def create_app(config: Optional[Config] = None,
     app.state.worker = AnnotationWorker(app.state.sessions_dir, config.annotate,
                                         annotate_request)
     app.include_router(router)
+    app.include_router(web_router)
     app.include_router(chats_router)
     app.include_router(sessions_router)
     app.include_router(aggregations_router)

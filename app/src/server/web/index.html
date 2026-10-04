@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- Opened from the iOS Home Screen, the page runs full screen, without Safari's bars. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Juno" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<title>Juno</title>
+<style>
+  :root { --bg: #fafafa; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #eeeeee; --accent: #2b6cb0; --error: #c53030; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --ink: #eaeaea; --dim: #9a9a9a; --line: #333; --raw: #242424; --accent: #4a90d9; --error: #f56565; color-scheme: dark; }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
+  button { font: inherit; color: var(--accent); background: none; border: 0; padding: .5rem; cursor: pointer; }
+  button:disabled { opacity: .5; }
+
+  header { display: grid; grid-template-columns: 5rem 1fr 5rem; align-items: center; border-bottom: 1px solid var(--line);
+           padding: env(safe-area-inset-top) calc(.5rem + env(safe-area-inset-right)) 0 calc(.5rem + env(safe-area-inset-left)); }
+  header h1 { margin: 0; padding: .6rem 0; font-size: 1rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { grid-column: 2; }
+  #back { grid-column: 1; text-align: left; }
+  #new { grid-column: 3; text-align: right; }
+
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+         padding: 1rem calc(1rem + env(safe-area-inset-right)) 1rem calc(1rem + env(safe-area-inset-left)); }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 0 0 .25rem; }
+  section + h2 { margin-top: 1.5rem; }
+  h3 { font-size: .9rem; color: var(--dim); font-weight: 500; margin: .75rem 0 .25rem; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li button { display: block; width: 100%; text-align: left; padding: .6rem 0; border-bottom: 1px solid var(--line); color: inherit;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small, .status { color: var(--dim); }
+  button.more { margin-top: .5rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+
+  /* A chat: bubbles, the user's on the right. */
+  .message { max-width: 85%; width: fit-content; margin: 0 0 .5rem; padding: .5rem .75rem; border-radius: 1rem; background: var(--raw);
+             white-space: pre-wrap; overflow-wrap: anywhere; }
+  .message.user { margin-left: auto; color: #fff; background: var(--accent); }
+  .message.pending { opacity: .6; }
+  .message.error { color: var(--error); background: none; padding-left: 0; }
+  /* Assistant replies, read as markdown. */
+  .md { white-space: normal; }
+  .md p { margin: 0 0 .5rem; white-space: pre-wrap; }
+  .md > :last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 1rem; text-transform: none; letter-spacing: 0; color: inherit; font-weight: 600; margin: .5rem 0 .25rem; }
+  .md ul, .md ol { list-style: revert; margin: 0 0 .5rem; padding-left: 1.5rem; }
+  .md code { font: 13px/1.4 ui-monospace, monospace; }
+  .md pre { margin: 0 0 .5rem; background: var(--bg); }
+
+  #composer { display: flex; gap: .5rem; border-top: 1px solid var(--line);
+              padding: .5rem calc(.75rem + env(safe-area-inset-right)) calc(.5rem + env(safe-area-inset-bottom)) calc(.75rem + env(safe-area-inset-left)); }
+  #composer[hidden] { display: none; }
+  /* 16px: anything smaller makes iOS zoom the page when the field is focused. */
+  #input { flex: 1; min-width: 0; padding: .5rem .75rem; font: inherit; font-size: 16px; color: inherit; background: var(--bg);
+           border: 1px solid var(--line); border-radius: 1rem; }
+
+  pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
+  pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
+  li.event { padding: .15rem 0; white-space: pre; }
+  details { border-bottom: 1px solid var(--line); padding: .5rem 0; }
+  summary { cursor: pointer; }
+  /* Each open level sits inside its parent's region. */
+  .nest { margin: .25rem 0 0 .25rem; padding-left: .5rem; border-left: 2px solid var(--line); }
+  img { display: block; max-width: 100%; margin-top: .5rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="back" hidden>‹ Back</button>
+  <h1 id="title">Juno</h1>
+  <button id="new">New</button>
+</header>
+<main id="view"></main>
+<form id="composer" hidden>
+  <input id="input" placeholder="Message" autocomplete="off" enterkeyhint="send" />
+  <button type="submit">Send</button>
+</form>
+
+<script>
+  // The phone client: the views of the desktop client (client/src/browse.html), one
+  // screen at a time. The Juno server serves this page, so every request below goes
+  // to the address the page was opened at.
+  //
+  // Screens, by location.hash:  (none) the chat and session lists
+  //                             #/chats/<id>     one chat and its message box
+  //                             #/sessions/<id>  one session, its chunks and frames
+
+  class ApiError extends Error {
+    constructor(status, detail) { super(`${status} ${detail}`); this.status = status; }
+  }
+  async function api(path, options) {
+    const response = await fetch(path, options);
+    if (!response.ok) {
+      const text = await response.text();
+      let detail = text;
+      try { detail = JSON.parse(text).detail ?? text; } catch {}
+      throw new ApiError(response.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return response.json();
+  }
+  // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
+  const send = (chatId, content) => api(`/chats/${chatId}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [{ role: "user", content }] }) });
+  // Aggregations per LLM label: the server's annotate.chunk_size, which it does not report yet.
+  const CHUNK = 10;
+
+  const el = (tag, props = {}, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+  const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
+  const json = (value) => el("pre", { textContent: JSON.stringify(value, null, 2) });
+  const pad = (n, width) => String(n).padStart(width, "0");
+  const status = (text) => el("p", { className: "status", textContent: text });
+  const message_of = (error) => String(error.message || error);
+  // crypto.randomUUID exists only on https pages; the server is plain http.
+  const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => pad(b.toString(16), 2)).join("");
+
+  const view = document.getElementById("view");
+  const title = document.getElementById("title");
+  const back = document.getElementById("back");
+  const composer = document.getElementById("composer");
+  const input = document.getElementById("input");
+  const sendButton = composer.querySelector("button");
+
+  // Fills `target` with what `work` resolves to, as one pending state, shown only
+  // when the wait is long enough to notice. `current()` turning false means the
+  // user has moved on, and the result is dropped.
+  async function load(target, work, current = () => true) {
+    const pending = setTimeout(() => current() && target.replaceChildren(status("Loading…")), 300);
+    try {
+      const nodes = await work();
+      if (current()) target.replaceChildren(...nodes);
+    } catch (error) {
+      if (current()) target.replaceChildren(status(message_of(error)));
+    } finally {
+      clearTimeout(pending);
+    }
+  }
+
+  // A collapsed level that fetches its contents the first time it is opened.
+  function level(summary, work) {
+    const body = el("div", { className: "nest" });
+    const d = el("details", {}, el("summary", {}, summary));
+    d.ontoggle = () => { if (d.open && !body.parentNode) { d.append(body); load(body, work); } };
+    return d;
+  }
+
+  // One paged list, with its first page already fetched. `render(item)` makes the
+  // list element for one item; "Load more" fetches the next page with ?after=<last_id>.
+  async function paged(path, render) {
+    const list = el("ul");
+    const more = el("button", { className: "more", textContent: "Load more", hidden: true });
+    const add = (page) => {
+      list.append(...page.data.map(render));
+      more.hidden = !page.has_more;
+      more.onclick = async () => {
+        more.disabled = true;
+        try {
+          add(await api(`${path}?limit=20&after=${page.last_id}`));
+        } catch (error) {
+          list.append(el("small", { textContent: message_of(error) }));
+        }
+        more.disabled = false;
+      };
+    };
+    const first = await api(`${path}?limit=20`);
+    if (!first.data.length) list.append(el("small", { textContent: "None yet." }));
+    add(first);
+    return el("section", {}, list, more);
+  }
+  const row = (label, meta, href) => el("li", {}, el("button", { onclick: () => { location.hash = href; } },
+    label, el("br"), el("small", { textContent: meta })));
+
+  // The markdown the model tends to write: headings, fenced code, lists,
+  // paragraphs; `code`, **bold** and *italic* inside them. Anything else stays text.
+  function inline(node, text) {
+    node.append(...text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).map((part) =>
+      part.startsWith("`") ? el("code", { textContent: part.slice(1, -1) })
+      : part.startsWith("**") ? el("strong", { textContent: part.slice(2, -2) })
+      : part.startsWith("*") ? el("em", { textContent: part.slice(1, -1) })
+      : part));
+    return node;
+  }
+  const BLOCK = /^(```|#{1,6}\s|\s*(?:[-*]|\d+\.)\s)/;
+  function markdown(text) {
+    const out = el("div", { className: "md" });
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length;) {
+      const line = lines[i];
+      let m;
+      if (line.startsWith("```")) {
+        const code = [];
+        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+        i++;
+        out.append(el("pre", {}, el("code", { textContent: code.join("\n") })));
+      } else if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
+        out.append(inline(el(`h${m[1].length}`), m[2]));
+        i++;
+      } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s/))) {
+        const list = el(m[1] ? "ol" : "ul");
+        for (; i < lines.length && (m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)/)); i++) list.append(inline(el("li"), m[1]));
+        out.append(list);
+      } else if (!line.trim()) {
+        i++;
+      } else {
+        const para = [];
+        for (; i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]); i++) para.push(lines[i]);
+        out.append(inline(el("p"), para.join("\n")));
+      }
+    }
+    return out;
+  }
+
+  // The first screen: both lists, fetched together.
+  const home = async () => {
+    const [chats, sessions] = await Promise.all([
+      paged("/chats", (chat) =>
+        row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`)),
+      paged("/sessions", (session) =>
+        row(session.id, `${session.aggregations} aggregations · ${time(session.updated_at)}`, `#/sessions/${session.id}`)),
+    ]);
+    return [el("h2", { textContent: "Chats" }), chats, el("h2", { textContent: "Sessions" }), sessions];
+  };
+
+  // A chat: its messages as bubbles. The message box below them is #composer.
+  const bubble = ({ role, content }) => role === "assistant"
+    ? el("div", { className: "message assistant" }, markdown(content))
+    : el("div", { className: `message ${role}`, textContent: content });
+  const toBottom = () => { view.scrollTop = view.scrollHeight; };
+  let chatId = null;
+  const chat = async (id) => {
+    // A chat exists on the server only once its first message is sent, so 404 is a new chat.
+    const { messages } = await api(`/chats/${id}`).catch((error) => {
+      if (error.status === 404) return { messages: [] };
+      throw error;
+    });
+    requestAnimationFrame(toBottom);
+    return messages.map(bubble);
+  };
+  composer.onsubmit = async (event) => {
+    event.preventDefault();
+    const content = input.value.trim();
+    const id = chatId;
+    if (!content || sendButton.disabled) return;
+    // Only the button is disabled: disabling the field would close the keyboard.
+    input.value = "";
+    sendButton.disabled = true;
+    view.querySelectorAll(".error").forEach((node) => node.remove());
+    const sent = bubble({ role: "user", content });
+    const waiting = bubble({ role: "pending", content: "…" });
+    view.append(sent, waiting);
+    toBottom();
+    try {
+      const { messages } = await send(id, content);
+      if (chatId === id) view.replaceChildren(...messages.map(bubble));
+    } catch (error) {
+      // The server keeps nothing on failure, so the message goes back in the box.
+      sent.remove();
+      waiting.replaceWith(bubble({ role: "error", content: message_of(error) }));
+      if (chatId === id && !input.value) input.value = content;
+    }
+    sendButton.disabled = false;
+    toBottom();
+  };
+
+  // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
+  const event = (e) => el("li", { className: "event", textContent:
+    `${time(e.timestamp)}  ${e.event_type}  ${JSON.stringify(e.details)}${e.cursor_position ? `  @${e.cursor_position}` : ""}` });
+
+  function frame(a, number) {
+    const img = el("img", { alt: "", loading: "lazy" });
+    const { events, ...rest } = a;
+    const d = level(`${number ? `Frame ${number}` : "no screenshot"} · row ${a.row} · ${time(a.timestamp)} · ${a.reason} · ${a.num_events} events`,
+      async () => [img, el("ul", {}, ...events.map(event)), json(rest)]);
+    // The screenshot is fetched only when the frame is opened.
+    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `/aggregations/${a.id}/screenshot`; });
+    return d;
+  }
+
+  const chunk = (sessionId, n, total) =>
+    level(`chunk ${n} · rows ${n * CHUNK}–${Math.min((n + 1) * CHUNK, total) - 1}`, async () => {
+      const [label, page] = await Promise.all([
+        // 404: nobody has asked for this chunk to be annotated. Anything else is a real error.
+        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) =>
+          ({ status: error.status === 404 ? "not annotated" : message_of(error) })),
+        api(`/aggregations?session_id=${sessionId}&order=asc&limit=${CHUNK}${n ? `&after=${sessionId}-${pad(n * CHUNK - 1, 6)}` : ""}`),
+      ]);
+      const { frames, ...rest } = label;  // frames repeat the aggregations below
+      let number = 0;
+      return [el("h3", { textContent: "LLM label" }), json(rest),
+              el("h3", { textContent: "Frames" }), ...page.data.map((a) => frame(a, a.screenshot_path ? ++number : 0))];
+    });
+
+  const session = async (id) => {
+    const full = await api(`/sessions/${id}`);
+    return [
+      json(full),
+      el("h3", { textContent: "Chunks" }),
+      ...(full.aggregations ? [] : [el("small", { textContent: "None yet." })]),
+      ...Array.from({ length: Math.ceil(full.aggregations / CHUNK) }, (_, n) => chunk(full.id, n, full.aggregations)),
+    ];
+  };
+
+  // Shows the screen location.hash names.
+  function route() {
+    const hash = location.hash;
+    const [, kind, id] = hash.match(/^#\/(chats|sessions)\/([A-Za-z0-9_-]+)$/) || [];
+    chatId = kind === "chats" ? id : null;
+    back.hidden = !kind;
+    composer.hidden = kind !== "chats";
+    title.textContent = kind === "chats" ? "Chat" : kind === "sessions" ? id : "Juno";
+    view.replaceChildren();
+    load(view, kind === "chats" ? () => chat(id) : kind === "sessions" ? () => session(id) : home,
+         () => location.hash === hash);
+  }
+  window.addEventListener("hashchange", route);
+  back.onclick = () => { location.hash = ""; };
+  document.getElementById("new").onclick = () => { location.hash = `#/chats/${newId()}`; };
+  route();
+</script>
+</body>
+</html>
