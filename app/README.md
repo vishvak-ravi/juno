@@ -43,13 +43,19 @@ uv run pytest
 (`python -m server`, FastAPI on uvicorn) and the recorder (`python -m capture`),
 and stops both when either exits or on Ctrl+C.
 
-The server's routes so far are `GET /api/status` and `/chats/{id}`. A chat is
+The server's routes so far are `GET /api/status`, `GET /chats` and `/chats/{id}`. A chat is
 the message list the `juno` REPL sends to vLLM (`{"role", "content"}` items).
 `PUT /chats/{id}` with `{"messages": [...]}` appends them, sends the whole
 conversation to the model server in `llm.base_url` (vLLM, as started by `juno`)
 and appends its reply; the chat is created if needed. `GET /chats/{id}` returns
 it. Each chat is one JSON file, `<data_dir>/chats/<id>.json`, next to the
 recorder's `<data_dir>/screen/`.
+
+`GET /chats` lists the stored chats as `{id, title, message_count, updated_at}`
+(title: first line of the first user message; `updated_at`: Unix seconds),
+in OpenAI's list shape: `?limit=` (1-100, default 20), `?order=desc|asc` (by
+last change, default `desc`) and `?after=<id>` for the next page; the response
+is `{"object": "list", "data", "first_id", "last_id", "has_more"}`.
 
 There are no command-line flags. All three read [`config.yaml`](config.yaml)
 from the working directory, or the file named by `JUNO_CONFIG_PATH`. For a
