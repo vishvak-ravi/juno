@@ -1240,10 +1240,12 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "litellm" },
     { name = "napsack" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "uvicorn" },
 ]
@@ -1263,10 +1265,12 @@ requires-dist = [
     { name = "evdev", marker = "extra == 'wayland'", specifier = ">=1.7" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "litellm" },
     { name = "napsack", specifier = "==0.1.3" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "uvicorn" },
 ]

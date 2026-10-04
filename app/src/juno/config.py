@@ -55,13 +55,23 @@ class CaptureConfig(Section):
 
 
 class LlmConfig(Section):
-    # The OpenAI-compatible server that chats are completed by; the `juno`
-    # script runs vLLM here. The model is whichever one that server lists.
+    # The OpenAI-compatible server that chats are completed by. The model is
+    # whichever one that server lists.
     base_url: str = "http://localhost:8000"
     max_tokens: int = 2048
     temperature: float = 0.7
     # Seconds to wait for a reply.
     timeout_seconds: float = 300.0
+
+
+class AnnotateConfig(Section):
+    # The litellm model that annotates recorded sessions; Tada's labeling model.
+    # A gemini/ model reads its key from GEMINI_API_KEY.
+    model: str = "gemini/gemini-3.1-flash-lite"
+    # Upper bound on the reply, hidden reasoning included.
+    max_tokens: int = 8192
+    # Aggregations (screenshots) per request.
+    chunk_size: int = 10
 
 
 class Config(Section):

@@ -39,3 +39,12 @@ capture:
   # Stop after this many seconds. null: run until Ctrl+C.
   duration: null
   verbose: false
+
+annotate:
+  # The litellm model that annotates recorded sessions (`python -m annotate`).
+  # A gemini/ model reads its key from GEMINI_API_KEY, in the environment or .env.
+  model: gemini/gemini-3.1-flash-lite
+  # Upper bound on the reply, hidden reasoning included.
+  max_tokens: 8192
+  # Aggregations (screenshots) per request.
+  chunk_size: 10
