@@ -113,3 +113,23 @@ def test_a_failed_model_call_is_recorded_and_a_new_put_retries_it(tmp_path):
 
     assert client.put(f"/annotations/{annotation_id}").status_code == 202
     assert wait_until_settled(client, annotation_id)["status"] == "done"
+
+
+def test_sessions_and_their_aggregations_can_be_browsed(tmp_path):
+    write_session(tmp_path, rows=3)
+    client = client_for(tmp_path, annotate_request=None)
+
+    (session,) = client.get("/sessions").json()["data"]
+    assert (session["id"], session["aggregations"], session["annotations"]) == (SESSION, 3, 0)
+    assert client.get(f"/sessions/{SESSION}").json() == session
+    assert client.get("/sessions/no_such_session").status_code == 404
+
+    page = client.get("/aggregations", params={"session_id": SESSION, "order": "asc",
+                                               "since": 1001.0}).json()
+    assert [item["id"] for item in page["data"]] == [f"{SESSION}-000001", f"{SESSION}-000002"]
+    assert page["data"][0]["events"][0]["details"] == {"key": "a"}
+
+    screenshot = client.get(f"/aggregations/{SESSION}-000001/screenshot")
+    assert screenshot.status_code == 200
+    assert screenshot.headers["content-type"] == "image/png"
+    assert client.get(f"/aggregations/{SESSION}-000003").status_code == 404

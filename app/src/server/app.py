@@ -7,8 +7,10 @@ from fastapi import APIRouter, FastAPI
 from annotate.label import Annotation, annotate
 from annotate.request import AnnotationRequest
 from juno.config import Config, load_config, resolve_data_dir, sessions_dir
+from server.routes.aggregations import router as aggregations_router
 from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
+from server.routes.sessions import router as sessions_router
 from server.worker import AnnotationWorker
 
 router = APIRouter(prefix="/api", tags=["status"])
@@ -47,5 +49,7 @@ def create_app(config: Optional[Config] = None,
                                         annotate_request)
     app.include_router(router)
     app.include_router(chats_router)
+    app.include_router(sessions_router)
+    app.include_router(aggregations_router)
     app.include_router(annotations_router)
     return app
