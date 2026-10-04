@@ -12,7 +12,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 from typing import Mapping
 
 from juno.config import CONFIG_PATH_ENV, ConfigError, config_path, load_config
@@ -36,15 +35,18 @@ def spawn(module: str, env: Mapping[str, str]) -> subprocess.Popen:
 
 
 def stop_all(processes: Mapping[str, subprocess.Popen], timeout: float) -> None:
-    """SIGTERM every running process; SIGKILL the ones still up after ``timeout`` seconds."""
-    running = {name: process for name, process in processes.items()
-               if process.poll() is None}
-    for process in running.values():
+    """Stop the running processes one at a time, last started first.
+
+    Each gets SIGTERM, then SIGKILL if it is still up after ``timeout`` seconds.
+    The recorder goes before the server, so the requests it sends while
+    flushing its last aggregations still find the server.
+    """
+    for name, process in reversed(list(processes.items())):
+        if process.poll() is not None:
+            continue
         process.terminate()
-    deadline = time.monotonic() + timeout
-    for name, process in running.items():
         try:
-            process.wait(timeout=max(0.0, deadline - time.monotonic()))
+            process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             logger.warning("%s did not stop within %.0f s; killing it", name, timeout)
             process.kill()
