@@ -1,6 +1,7 @@
-"""The chat route, against a stand-in for vLLM that speaks the same two endpoints."""
+"""The chat routes, against a stand-in for vLLM that speaks the same two endpoints."""
 
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -104,3 +105,51 @@ def test_nothing_is_stored_when_the_model_is_unreachable(tmp_path, model_server)
     assert "could not reach" in response.json()["detail"]
     assert client.get("/chats/abc").json()["messages"] == [
         question, {"role": "assistant", "content": "re: first question"}]
+
+
+def store_chat(tmp_path, chat_id: str, messages: list[dict], updated_at: int):
+    path = tmp_path / "chats" / f"{chat_id}.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"id": chat_id, "messages": messages}))
+    os.utime(path, (updated_at, updated_at))
+
+
+def test_list_is_empty_before_any_chat(tmp_path):
+    client = client_for(tmp_path, "http://unused")
+    assert client.get("/chats").json() == {
+        "object": "list", "data": [], "first_id": None, "last_id": None, "has_more": False}
+
+
+def test_list_summarizes_chats_newest_change_first(tmp_path):
+    store_chat(tmp_path, "old", [{"role": "system", "content": "be brief"},
+                                 {"role": "user", "content": "first line\nsecond line"},
+                                 {"role": "assistant", "content": "ok"}], 1000)
+    store_chat(tmp_path, "new", [], 2000)
+    (tmp_path / "chats" / "broken.json").write_text("not json")
+    client = client_for(tmp_path, "http://unused")
+
+    body = client.get("/chats").json()
+    assert body["data"] == [
+        {"id": "new", "title": None, "message_count": 0, "updated_at": 2000},
+        {"id": "old", "title": "first line", "message_count": 3, "updated_at": 1000},
+    ]
+    assert (body["first_id"], body["last_id"], body["has_more"]) == ("new", "old", False)
+    assert [c["id"] for c in client.get("/chats?order=asc").json()["data"]] == ["old", "new"]
+
+
+def test_list_pages_with_the_after_cursor(tmp_path):
+    for n in range(5):
+        store_chat(tmp_path, f"c{n}", [], 1000 + n)
+    client = client_for(tmp_path, "http://unused")
+
+    first = client.get("/chats?limit=2").json()
+    assert [c["id"] for c in first["data"]] == ["c4", "c3"]
+    assert first["has_more"] is True
+    second = client.get(f"/chats?limit=2&after={first['last_id']}").json()
+    assert [c["id"] for c in second["data"]] == ["c2", "c1"]
+    last = client.get(f"/chats?limit=2&after={second['last_id']}").json()
+    assert [c["id"] for c in last["data"]] == ["c0"]
+    assert last["has_more"] is False
+
+    assert client.get("/chats?after=missing").status_code == 400
+    assert client.get("/chats?limit=0").status_code == 422

@@ -1,20 +1,27 @@
-"""``/chats/{id}``: conversations kept as JSON files, one per chat.
+"""``/chats`` and ``/chats/{id}``: conversations kept as JSON files, one per chat.
 
 A conversation is the message list the ``juno`` REPL keeps as its history and
 sends to vLLM: OpenAI chat messages, ``{"role": ..., "content": ...}``, oldest
 first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json``.
+
+The list route follows OpenAI's list convention (``limit``, ``order``, an
+``after`` cursor; ``object: "list"``, ``data``, ``first_id``, ``last_id``,
+``has_more``), as the messages follow its chat format.
 """
 
+import logging
 import os
 import threading
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from server.llm import LlmError, complete
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -24,6 +31,9 @@ ChatId = Annotated[str, PathParam(pattern=r"^[A-Za-z0-9_-]+$", max_length=128)]
 # PUT reads the file, asks the model, appends and writes the file back; two at
 # once must not interleave, so PUTs run one at a time.
 write_lock = threading.Lock()
+
+# Characters of the first user message kept as a chat's title in the list.
+TITLE_CHARS = 80
 
 
 class Message(BaseModel):
@@ -38,6 +48,23 @@ class NewMessages(BaseModel):
 class Chat(BaseModel):
     id: str
     messages: list[Message]
+
+
+class ChatSummary(BaseModel):
+    id: str
+    # The first line of the first user message; None if there is none.
+    title: Optional[str]
+    message_count: int
+    # Unix seconds of the last change to the chat.
+    updated_at: int
+
+
+class ChatList(BaseModel):
+    object: Literal["list"] = "list"
+    data: list[ChatSummary]
+    first_id: Optional[str]
+    last_id: Optional[str]
+    has_more: bool
 
 
 def chat_file(chats_dir: Path, chat_id: str) -> Path:
@@ -58,6 +85,63 @@ def write_chat(path: Path, chat: Chat) -> None:
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(chat.model_dump_json(indent=2))
     os.replace(temporary, path)
+
+
+def chat_title(chat: Chat) -> Optional[str]:
+    for message in chat.messages:
+        if message.role == "user" and message.content.strip():
+            return message.content.strip().splitlines()[0][:TITLE_CHARS]
+    return None
+
+
+def summarize_chats(chats_dir: Path) -> list[ChatSummary]:
+    """One summary per stored chat, in no particular order. Unreadable files are skipped."""
+    summaries = []
+    for path in chats_dir.glob("*.json"):
+        try:
+            chat = read_chat(path)
+            updated_at = int(path.stat().st_mtime)
+        except (OSError, ValidationError) as exc:
+            logger.warning("skipping %s: %s", path, exc)
+            continue
+        if chat is None:  # deleted since the glob
+            continue
+        summaries.append(ChatSummary(id=chat.id, title=chat_title(chat),
+                                     message_count=len(chat.messages),
+                                     updated_at=updated_at))
+    return summaries
+
+
+def page_of(summaries: list[ChatSummary], limit: int, order: str,
+            after: Optional[str]) -> ChatList:
+    """The ``limit`` chats after the one with id ``after``, ordered by last change."""
+    ordered = sorted(summaries, key=lambda s: (s.updated_at, s.id),
+                     reverse=order == "desc")
+    start = 0
+    if after is not None:
+        ids = [summary.id for summary in ordered]
+        if after not in ids:
+            raise HTTPException(status_code=400, detail=f"no chat with id {after}")
+        start = ids.index(after) + 1
+    data = ordered[start:start + limit]
+    return ChatList(data=data,
+                    first_id=data[0].id if data else None,
+                    last_id=data[-1].id if data else None,
+                    has_more=start + limit < len(ordered))
+
+
+@router.get("")
+def list_chats(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    order: Literal["asc", "desc"] = "desc",
+    after: Optional[str] = None,
+) -> ChatList:
+    """Stored chats, newest change first by default.
+
+    For the next page, pass the previous page's ``last_id`` as ``after``.
+    """
+    return page_of(summarize_chats(request.app.state.chats_dir), limit, order, after)
 
 
 @router.get("/{chat_id}")
