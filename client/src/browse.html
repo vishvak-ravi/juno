@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' http: https:" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Juno Browser</title>
+<style>
+  :root { --bg: #ffffff; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #f4f4f4; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; color-scheme: dark; }
+
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+  main { display: grid; grid-template-columns: minmax(16rem, 22rem) 1fr; height: 100%; }
+  @media (max-width: 700px) { main { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; } }
+  nav, #detail { overflow: auto; padding: 1rem; }
+  nav { border-right: 1px solid var(--line); }
+  @media (max-width: 700px) { nav { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+  h2, h3 { font-size: 14px; margin: 0 0 .5rem; }
+  h3 { color: var(--dim); font-weight: 500; margin-top: .75rem; }
+  h2 + h2, section + h2 { margin-top: 1.5rem; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li button { display: block; width: 100%; text-align: left; padding: .4rem 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
+  li button[aria-current="true"] { font-weight: 600; }
+  small, .status { color: var(--dim); }
+  button.more { margin-top: .5rem; padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  article { margin: 0 0 1rem; max-width: 70ch; }
+  article b { display: block; color: var(--dim); font-weight: 500; }
+  article p { margin: 0; white-space: pre-wrap; }
+  pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
+  pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
+  li.event { padding: .15rem 0; white-space: pre; }
+  details { border-bottom: 1px solid var(--line); padding: .3rem 0; }
+  summary { cursor: pointer; }
+  /* Each open level sits inside its parent's region. */
+  .nest { margin: .25rem 0 0 .5rem; padding-left: .75rem; border-left: 2px solid var(--line); }
+  img { display: block; max-width: 100%; margin-top: .5rem; }
+</style>
+</head>
+<body>
+
+<main>
+  <nav>
+    <h2>Chats</h2>
+    <section id="chats"></section>
+    <h2>Sessions</h2>
+    <section id="sessions"></section>
+  </nav>
+  <div id="detail"><p class="status">Pick a chat or a session.</p></div>
+</main>
+
+<script>
+  // Stand-in responses, in the server's shapes, for viewing this page without a server.
+  const EXAMPLE = {
+    "/chats?limit=20": { object: "list", data: [
+      { id: "chat-a", title: "What did I work on this morning", message_count: 4, updated_at: 1791100000 },
+      { id: "chat-b", title: null, message_count: 0, updated_at: 1791090000 }],
+      first_id: "chat-a", last_id: "chat-b", has_more: false },
+    "/chats/chat-a": { id: "chat-a", messages: [
+      { role: "user", content: "What did I work on this morning?" },
+      { role: "assistant", content: "Mostly the recorder: two sessions, about 40 minutes each." },
+      { role: "user", content: "Anything else?" },
+      { role: "assistant", content: "A short detour into the config loader." }] },
+    "/chats/chat-b": { id: "chat-b", messages: [] },
+    "/sessions?limit=20": { object: "list", data: [
+      { id: "session_20261003_091500", aggregations: 12, annotations: 1, updated_at: 1791100200.5 },
+      { id: "session_20261002_161000", aggregations: 0, annotations: 0, updated_at: null }],
+      first_id: "session_20261003_091500", last_id: "session_20261002_161000", has_more: false },
+    "/sessions/session_20261003_091500": { id: "session_20261003_091500", aggregations: 12, annotations: 1, updated_at: 1791100200.5 },
+    "/sessions/session_20261002_161000": { id: "session_20261002_161000", aggregations: 0, annotations: 0, updated_at: null },
+    "/annotations/session_20261003_091500-0000": { id: "session_20261003_091500-0000", session_id: "session_20261003_091500", chunk: 0,
+      status: "done", created_at: 1791100210, updated_at: 1791100230, model: "gemini/gemini-3.1-flash-lite", frames: [],
+      start_time: 1791100099.8, end_time: 1791100200.0,
+      annotation: { actions: [{ start: 1, end: 1, caption: "Types a letter in the editor." }, { start: 2, end: 2, caption: "Clicks into the terminal." }],
+        dense_caption: "Editor open on main.py; terminal below it.",
+        sanitization: { algorithm: "napsack", version: 1, text: true, images: false, replaced: {} } }, error: null },
+    "/aggregations?session_id=session_20261003_091500&order=asc&limit=10": { object: "list", data: [
+      { id: "session_20261003_091500-000000", session_id: "session_20261003_091500", row: 0,
+        timestamp: 1791100100.2, reason: "burst_end", event_type: "key_press", request_state: "idle",
+        screenshot_path: "screenshots/0001.png", screenshot_timestamp: 1791100099.8, end_screenshot_timestamp: 1791100100.2,
+        num_events: 2, events: [
+          { timestamp: 1791100100.0, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "key_press", details: { key: "a" }, cursor_position: null },
+          { timestamp: 1791100100.1, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "key_release", details: { key: "a" }, cursor_position: null }],
+        cursor_position: null, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, burst_id: 1, scale_factor: 0.5 },
+      { id: "session_20261003_091500-000001", session_id: "session_20261003_091500", row: 1,
+        timestamp: 1791100200.5, reason: "burst_end", event_type: "mouse_down", request_state: "idle",
+        screenshot_path: "screenshots/0002.png", screenshot_timestamp: 1791100200.0, end_screenshot_timestamp: 1791100200.5,
+        num_events: 1, events: [
+          { timestamp: 1791100200.4, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "mouse_down", details: { button: "Button.left" }, cursor_position: [640, 400] }],
+        cursor_position: [640, 400], monitor: { left: 0, top: 0, width: 1920, height: 1080 }, burst_id: 2, scale_factor: 0.5 }],
+      first_id: "session_20261003_091500-000000", last_id: "session_20261003_091500-000001", has_more: false },
+  };
+  // Where the data comes from, in order: the Electron bridge (window.juno.get, a GET
+  // proxied by the main process), a server reachable by fetch, else the examples above.
+  const BASE = (window.juno && window.juno.base) || "http://127.0.0.1:8765";
+  const api = async (path) => {
+    if (window.juno && window.juno.get) return window.juno.get(path);
+    try {
+      const response = await fetch(BASE + path);
+      if (!response.ok) throw new Error(`${response.status} ${(await response.json()).detail}`);
+      return response.json();
+    } catch (error) {
+      if (!(path in EXAMPLE)) throw error;
+      document.title = "Juno Browser (example data)";
+      return EXAMPLE[path];
+    }
+  };
+  // Aggregations per LLM label: the server's annotate.chunk_size, which it does not report yet.
+  const CHUNK = 10;
+
+  const el = (tag, props = {}, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+  const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
+  const json = (value) => el("pre", { textContent: JSON.stringify(value, null, 2) });
+  const pad = (n, width) => String(n).padStart(width, "0");
+
+  // Fills `target` with what `work` resolves to, as one pending state, shown
+  // only when the wait is long enough to notice.
+  async function load(target, work) {
+    const pending = setTimeout(() => target.replaceChildren(el("p", { className: "status", textContent: "Loading…" })), 300);
+    try {
+      target.replaceChildren(...await work());
+    } catch (error) {
+      target.replaceChildren(el("p", { className: "status", textContent: String(error.message || error) }));
+    } finally {
+      clearTimeout(pending);
+    }
+  }
+
+  // A collapsed level that fetches its contents the first time it is opened.
+  function level(summary, work) {
+    const body = el("div", { className: "nest" });
+    const d = el("details", {}, el("summary", {}, summary));
+    d.ontoggle = () => { if (d.open && !body.parentNode) { d.append(body); load(body, work); } };
+    return d;
+  }
+
+  // One paged list. `render(item)` makes the list element for one item; the
+  // "Load more" button fetches the next page with ?after=<last_id>.
+  async function paged(container, path, render) {
+    let after = "";
+    const list = el("ul");
+    const more = el("button", { className: "more", textContent: "Load more", hidden: true });
+    container.replaceChildren(list, more);
+    const next = async () => {
+      more.disabled = true;
+      try {
+        const page = await api(`${path}?limit=20${after && `&after=${after}`}`);
+        if (!page.data.length && !after) list.append(el("small", { textContent: "None yet." }));
+        list.append(...page.data.map(render));
+        after = page.last_id;
+        more.hidden = !page.has_more;
+      } catch (error) {
+        list.append(el("small", { textContent: String(error.message || error) }));
+      }
+      more.disabled = false;
+    };
+    more.onclick = next;
+    await next();
+  }
+
+  const detail = document.getElementById("detail");
+  let current = null;
+  function show(button, path, render) {
+    current && current.removeAttribute("aria-current");
+    (current = button).setAttribute("aria-current", "true");
+    load(detail, async () => render(await api(path)));
+  }
+  const row = (label, meta, onclick) => el("li", {}, el("button", { onclick }, label, el("br"), el("small", { textContent: meta })));
+
+  paged(document.getElementById("chats"), "/chats", (chat) =>
+    row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, (event) =>
+      show(event.currentTarget, `/chats/${chat.id}`, (full) =>
+        full.messages.map((m) => el("article", {}, el("b", { textContent: m.role }), el("p", { textContent: m.content }))))));
+
+  // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
+  const event = (e) => el("li", { className: "event", textContent:
+    `${time(e.timestamp)}  ${e.event_type}  ${JSON.stringify(e.details)}${e.cursor_position ? `  @${e.cursor_position}` : ""}` });
+
+  function frame(a, number) {
+    const img = el("img", { alt: "", loading: "lazy" });
+    const { events, ...rest } = a;
+    const d = level(`${number ? `Frame ${number}` : "no screenshot"} · row ${a.row} · ${time(a.timestamp)} · ${a.reason} · ${a.num_events} events`,
+      async () => [img, el("ul", {}, ...events.map(event)), json(rest)]);
+    // The screenshot is fetched only when the frame is opened.
+    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `${BASE}/aggregations/${a.id}/screenshot`; });
+    return d;
+  }
+
+  const chunk = (sessionId, n, total) =>
+    level(`chunk ${n} · rows ${n * CHUNK}–${Math.min((n + 1) * CHUNK, total) - 1}`, async () => {
+      const [label, page] = await Promise.all([
+        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) => ({ status: String(error.message || error) })),
+        api(`/aggregations?session_id=${sessionId}&order=asc&limit=${CHUNK}${n ? `&after=${sessionId}-${pad(n * CHUNK - 1, 6)}` : ""}`),
+      ]);
+      const { frames, ...rest } = label;  // frames repeat the aggregations below
+      let number = 0;
+      return [el("h3", { textContent: "LLM label" }), json(rest),
+              el("h3", { textContent: "Frames" }), ...page.data.map((a) => frame(a, a.screenshot_path ? ++number : 0))];
+    });
+
+  paged(document.getElementById("sessions"), "/sessions", (session) =>
+    row(session.id, `${session.aggregations} aggregations · ${time(session.updated_at)}`, (event) =>
+      show(event.currentTarget, `/sessions/${session.id}`, (full) => [
+        json(full),
+        el("h3", { textContent: "Chunks" }),
+        ...(full.aggregations ? [] : [el("small", { textContent: "None yet." })]),
+        ...Array.from({ length: Math.ceil(full.aggregations / CHUNK) }, (_, n) => chunk(full.id, n, full.aggregations)),
+      ])));
+</script>
+</body>
+</html>
