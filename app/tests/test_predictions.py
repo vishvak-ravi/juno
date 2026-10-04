@@ -1,4 +1,4 @@
-"""The prediction route, against a stand-in for vLLM that records what it is sent."""
+"""The prediction route and tool, against a stand-in for vLLM that records what it is sent."""
 
 import json
 import threading
@@ -15,6 +15,7 @@ from annotate.sanitize import Sanitization
 from annotate.store import new_record, write_record
 from juno.config import CaptureConfig, Config, LlmConfig, PredictConfig, devices_dir
 from server.app import create_app
+from test_tools import mcp_request
 
 REPLY = "<actions>\n    <action>Saved the file.</action>\n</actions>"
 SANITIZATION = Sanitization(algorithm="none", version=1, text=False, images=False,
@@ -71,7 +72,8 @@ def client_for(tmp_path, base_url: str, **predict) -> TestClient:
                     llm=LlmConfig(base_url=base_url, max_tokens=77, temperature=0.5),
                     predict=PredictConfig(**{"past_len": 4, "future_len": 3,
                                              "num_imgs_per_sample": 2, **predict}))
-    return TestClient(create_app(config))
+    # The MCP endpoint only answers requests addressed to the server's own host.
+    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
 
 
 def write_annotation(tmp_path, chunk: int, captions: list[str], dense_caption: str,
@@ -195,3 +197,24 @@ def test_an_unreachable_model_server_is_a_502(tmp_path):
     client = client_for(tmp_path, "http://127.0.0.1:1")
 
     assert client.post("/predictions").status_code == 502
+
+
+def test_an_agent_asks_for_a_prediction_over_mcp(tmp_path, model_server):
+    write_annotation(tmp_path, 0, ["One.", "Two.", "Three.", "Four."], "some text")
+    write_annotation(tmp_path, 1, ["Phone one."], "phone text", device="phone")
+    with client_for(tmp_path, model_server.url) as client:
+        names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
+        predicted = mcp_request(client, "tools/call", {
+            "name": "predict_next_actions", "arguments": {"device": "laptop"}})
+        too_few = mcp_request(client, "tools/call", {
+            "name": "predict_next_actions", "arguments": {"device": "phone"}})
+        unknown = mcp_request(client, "tools/call", {
+            "name": "predict_next_actions", "arguments": {"device": "tablet"}})
+
+    assert "predict_next_actions" in names
+    assert json.loads(predicted["content"][0]["text"])["predicted_actions"] == ["Saved the file."]
+    _, text = sent_parts(model_server)
+    assert "Four." in text and "Phone" not in text
+    assert too_few["isError"] and "not enough data (1/4)" in too_few["content"][0]["text"]
+    assert unknown["isError"] and "the devices are: laptop, phone" in unknown["content"][0]["text"]
+    assert len(model_server.requests) == 1

@@ -87,8 +87,10 @@ def create_app(config: Optional[Config] = None,
                                         max_tokens=config.annotate.max_tokens)
 
     data_dir = resolve_data_dir(config.capture)
+    predictor = Predictor(config.predict)
     mcp = create_mcp(devices_dir(data_dir), config.llm.tool_result_chars, config.tools,
-                     workspace_dir(data_dir), claude_results_dir(data_dir))
+                     workspace_dir(data_dir), claude_results_dir(data_dir), predictor,
+                     config.llm)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -106,7 +108,7 @@ def create_app(config: Optional[Config] = None,
     app.state.llm = config.llm
     app.state.mcp = mcp
     app.state.annotate = config.annotate
-    app.state.predictor = Predictor(config.predict)
+    app.state.predictor = predictor
     app.state.worker = AnnotationWorker(app.state.devices_dir, config.annotate,
                                         annotate_request)
     app.include_router(router)

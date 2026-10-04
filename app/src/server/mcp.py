@@ -1,9 +1,10 @@
-"""The MCP server: annotations, web search and bash as tools an agent can call.
+"""The MCP server: annotations, predictions, web search and bash as tools an agent can call.
 
 Served by the same process as the REST routes, at ``/mcp`` over streamable
 HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The
 annotation tools read the same files as ``/annotations`` through
-``annotate.store``; ``web_search``, ``bash`` and ``fwd_to_claude`` are there when
+``annotate.store`` and ``predict_next_actions`` makes the prediction of
+``POST /predictions`` through ``server.prediction``; ``web_search``, ``bash`` and ``fwd_to_claude`` are there when
 ``ToolsConfig`` enables them. Whoever can reach ``/mcp`` or ``/chats`` can have
 bash commands run and prompts sent to Claude Code.
 """
@@ -11,6 +12,7 @@ bash commands run and prompts sent to Claude Code.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -22,8 +24,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from annotate.records import session_dir
 from annotate.store import AnnotationRecord, list_records, parse_annotation_id, read_record
-from juno.config import ToolsConfig
+from juno.config import LlmConfig, ToolsConfig
+from predict.predictor import Predictor
 from server.claude import ClaudeError, TmuxDest, forward_to_claude
+from server.llm import LlmError
+from server.prediction import NotEnoughData, predict
 from server.search import SearchError, search_web
 from server.shell import BashError, run_bash
 
@@ -33,7 +38,8 @@ INSTRUCTIONS = (
     "Each annotation covers a short stretch of activity on one device: the actions the user "
     "took and the text they were reading or writing. Call list_annotations to see recent "
     "activity on every device or on one, and get_annotation with an id from that list for "
-    "the keys and clicks behind one annotation. web_search finds pages on the web and bash "
+    "the keys and clicks behind one annotation. predict_next_actions asks a model what the "
+    "user is likely to do next. web_search finds pages on the web and bash "
     "runs a command on the Juno server's machine, when the server has them turned on."
 )
 
@@ -63,7 +69,8 @@ def result_text(result: dict) -> str:
 
 
 def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
-               workspace: Path, claude_results: Path) -> MCPServer:
+               workspace: Path, claude_results: Path, predictor: Predictor,
+               llm: LlmConfig) -> MCPServer:
     """The MCP server over the sessions of every device stored in ``devices_dir``.
 
     Args:
@@ -75,8 +82,17 @@ def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
         workspace: the directory bash commands start in, and Claude Code too
             unless ``tools.claude.cwd`` names another.
         claude_results: where Claude Code reports the end of each turn.
+        predictor: builds the request ``predict_next_actions`` sends.
+        llm: the model server that request is sent to.
     """
     server = MCPServer("juno", instructions=INSTRUCTIONS)
+
+    def known_devices(device: Optional[str]) -> list[str]:
+        """Every device there is activity from; a ``ToolError`` if ``device`` is not one."""
+        devices = sorted(path.name for path in devices_dir.glob("*") if path.is_dir())
+        if device is not None and device not in devices:
+            raise ToolError(f"no device {device}; the devices are: {', '.join(devices) or 'none'}")
+        return devices
 
     @server.tool()
     def list_annotations(last_minutes: Optional[float] = None, since: Optional[str] = None,
@@ -101,9 +117,7 @@ def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
         if last_minutes is not None:
             start = now - last_minutes * 60
         end = datetime.fromisoformat(until).timestamp() if until else None
-        devices = sorted(path.name for path in devices_dir.glob("*") if path.is_dir())
-        if device is not None and device not in devices:
-            raise ToolError(f"no device {device}; the devices are: {', '.join(devices) or 'none'}")
+        devices = known_devices(device)
         done = [record for record in list_records(devices_dir, since=start, until=end,
                                                   device_id=device)
                 if record.status == "done"]
@@ -138,6 +152,34 @@ def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
                 "frames": [{"frame": number, "time": local_time(frame.timestamp),
                             "input": frame.events}
                            for number, frame in enumerate(record.frames, start=1)]}
+
+    @server.tool()
+    async def predict_next_actions(device: Optional[str] = None) -> dict:
+        """What the user is likely to do next: a model's guess at their next few actions,
+        soonest first, made from their latest annotated actions, the screenshots of the
+        newest ones and earlier activity that resembles them. Each call asks the model
+        again, which takes a while and can give a different guess. It fails until enough
+        activity has been annotated.
+
+        Args:
+            device: predict from the activity on this device only, one of the "devices"
+                list_annotations returns. Left out: the activity on every device.
+        """
+        known_devices(device)
+        try:
+            # In a thread: the model call blocks, and this runs on the server's event loop.
+            prediction = await to_thread.run_sync(predict, devices_dir, predictor, llm, device)
+        except NotEnoughData as exc:
+            raise ToolError(f"{exc}: too few of the user's actions are annotated yet")
+        except OSError as exc:
+            raise ToolError(f"could not read a screenshot: {exc}")
+        except LlmError as exc:
+            raise ToolError(str(exc))
+        # The reply is an <actions> block of <action> tags; a reply without tags is kept whole.
+        actions = [action.strip() for action in
+                   re.findall(r"<action>(.*?)</action>", prediction.actions, re.DOTALL)]
+        return {"now": local_time(time.time()),
+                "predicted_actions": actions or [prediction.actions.strip()]}
 
     if tools.web_search.enabled:
         @server.tool()
