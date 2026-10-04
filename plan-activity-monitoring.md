@@ -68,7 +68,9 @@ app/src/capture/
   sources/wayland/evdev_input.py    reads /dev/input, hot-plug rescan
   sources/wayland/evdev_keys.py     evdev key codes -> pynput names
   sources/fake.py           generated frames + scripted input, for tests and demos
-  sources/x11.py            STUB
+  sources/pynput_mss.py     mss frames + pynput input and pointer, shared by macos and x11
+  sources/macos.py          create(): permission check + pynput_mss
+  sources/x11.py            create(): pynput_mss (not yet run on X11)
   handlers.py               InputHandler, ScreenshotLoop (replace napsack's two handlers)
   recorder.py               Recorder: napsack queues + workers wired to a Backend
   __main__.py               python -m capture (the recorder process; settings from config.yaml)

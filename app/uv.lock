@@ -1238,21 +1238,20 @@ name = "juno-capture"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "evdev", marker = "sys_platform == 'linux'" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "litellm" },
+    { name = "mss" },
     { name = "napsack" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "pynput" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "screeninfo" },
     { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-wayland = [
-    { name = "evdev" },
 ]
 
 [package.dev-dependencies]
@@ -1262,19 +1261,21 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "evdev", marker = "extra == 'wayland'", specifier = ">=1.7" },
+    { name = "evdev", marker = "sys_platform == 'linux'", specifier = ">=1.7" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "litellm" },
+    { name = "mss", specifier = ">=10.2,<11" },
     { name = "napsack", specifier = "==0.1.3" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "pynput", specifier = ">=1.8.1" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "screeninfo", specifier = ">=0.8.1" },
     { name = "uvicorn" },
 ]
-provides-extras = ["wayland"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

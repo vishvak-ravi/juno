@@ -1,17 +1,16 @@
-"""X11 backend. NOT IMPLEMENTED.
+"""X11 backend: Tada's path, mss frames and pynput input and pointer.
 
-This is Tada's existing path: ``mss`` for frames, ``pynput`` for input and the
-pointer position, ``screeninfo`` for monitors. It needs no spike, only an
-adapter onto ``capture.sources.base``, and comes after the Wayland backend.
+Not yet run on an X11 session.
 """
 
 from __future__ import annotations
 
-from capture.sources.base import Backend, BackendUnavailable
+from capture.sources.base import Backend
 
 
 def create(**options) -> Backend:
-    raise BackendUnavailable(
-        "The X11 backend is not implemented yet. "
-        "Set backend: fake in the config to exercise the recorder end to end."
-    )
+    # Imported here: importing pynput connects to the X display, which must not
+    # happen merely because this module was loaded.
+    from capture.sources.pynput_mss import MssScreen, PynputCursor, PynputInput
+
+    return Backend(name="x11", screen=MssScreen(), input=PynputInput(), cursor=PynputCursor())

@@ -5,9 +5,9 @@ from capture.check import check_session, latest_session
 from juno.config import CaptureConfig
 
 
-def test_unimplemented_backend_exits_with_a_clear_error(tmp_path, capsys):
-    assert main(CaptureConfig(backend="x11", data_dir=tmp_path)) == 2
-    assert "not implemented" in capsys.readouterr().err
+def test_unavailable_backend_exits_with_a_clear_error(tmp_path, capsys):
+    assert main(CaptureConfig(backend="windows", data_dir=tmp_path)) == 2
+    assert "Unknown backend" in capsys.readouterr().err
     assert not (tmp_path / "screen").exists()
 
 

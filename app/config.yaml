@@ -21,7 +21,8 @@ capture:
   # Base directory; sessions go under screen/sessions/, chats under chats/.
   # null: $XDG_DATA_HOME/juno, or ~/.local/share/juno.
   data_dir: null
-  # Platform sources: auto (detect from the session), wayland, x11, fake.
+  # Platform sources: auto (detect from the platform and session), wayland, x11,
+  # macos, fake.
   backend: auto
   fps: 5
   # Seconds of frames to keep in memory.

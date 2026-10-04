@@ -15,22 +15,23 @@ from capture.sources.fake import FakeScreenSource, ScriptedInputSource
     ({"XDG_SESSION_TYPE": "Wayland"}, "wayland"),
 ])
 def test_detect_backend_name(env, expected):
-    assert detect_backend_name(env) == expected
+    assert detect_backend_name(env, platform="linux") == expected
+
+
+def test_detect_picks_macos_even_with_an_x_server():
+    # XQuartz sets DISPLAY on macOS.
+    assert detect_backend_name({"DISPLAY": ":0"}, platform="darwin") == "macos"
+    assert detect_backend_name({}, platform="darwin") == "macos"
 
 
 def test_detect_fails_without_a_session():
     with pytest.raises(BackendUnavailable):
-        detect_backend_name({"XDG_SESSION_TYPE": "tty"})
+        detect_backend_name({"XDG_SESSION_TYPE": "tty"}, platform="linux")
 
 
 def test_unknown_backend():
     with pytest.raises(BackendUnavailable, match="Unknown backend"):
         load_backend("windows")
-
-
-def test_unimplemented_backend_says_so():
-    with pytest.raises(BackendUnavailable, match="not implemented"):
-        load_backend("x11")
 
 
 def test_wayland_backend_checks_input_access_before_anything_else(monkeypatch):

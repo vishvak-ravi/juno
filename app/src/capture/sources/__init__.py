@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
 from typing import Mapping
 
 from capture.sources.base import (
@@ -29,12 +30,18 @@ __all__ = [
 BACKENDS: dict[str, str] = {
     "wayland": "capture.sources.wayland",
     "x11": "capture.sources.x11",
+    "macos": "capture.sources.macos",
     "fake": "capture.sources.fake",
 }
 
 
-def detect_backend_name(env: Mapping[str, str] | None = None) -> str:
-    """Pick a backend from the session environment."""
+def detect_backend_name(env: Mapping[str, str] | None = None,
+                        platform: str | None = None) -> str:
+    """Pick a backend from the platform, then the session environment."""
+    platform = sys.platform if platform is None else platform
+    # Before DISPLAY: XQuartz sets it on macOS.
+    if platform == "darwin":
+        return "macos"
     env = os.environ if env is None else env
     session = env.get("XDG_SESSION_TYPE", "").lower()
     if session == "wayland" or (not session and env.get("WAYLAND_DISPLAY")):

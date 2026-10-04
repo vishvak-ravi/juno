@@ -11,6 +11,13 @@ dependencies = [
     # Pinned: capture reuses napsack's queue/aggregation/save internals,
     # so the on-disk format and burst logic are exactly Tada's.
     "napsack==0.1.3",
+    # The macOS and X11 sources (`capture.sources.pynput_mss`), napsack's own
+    # libraries; mss.MSS is new in 10.2.
+    "mss>=10.2,<11",
+    "pynput>=1.8.1",
+    "screeninfo>=0.8.1",
+    # The Wayland input source (`capture.sources.wayland.evdev_input`).
+    "evdev>=1.7; sys_platform == 'linux'",
     "numpy",
     "pillow",
     # The annotation call (`annotate.label`) and its API key in .env.
@@ -25,10 +32,6 @@ dependencies = [
     "pydantic",
     "pyyaml",
 ]
-
-[project.optional-dependencies]
-# Needed only by the Wayland backend and its spikes.
-wayland = ["evdev>=1.7"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
