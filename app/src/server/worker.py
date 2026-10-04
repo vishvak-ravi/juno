@@ -1,7 +1,9 @@
 """Runs pending annotations, one at a time, on a background thread.
 
 One at a time keeps the requests to the model's provider in order and under
-its per-minute limit. The thread starts with the first submission.
+its per-minute limit. The thread starts with the first submission. The worker
+dies with the server; what it had not finished stays pending on disk and is
+queued again by ``resume_pending`` when the next server starts.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from annotate.label import Annotation
 from annotate.records import read_aggregations
 from annotate.request import AnnotationRequest, chunk_request
 from annotate.sanitize import sanitize
-from annotate.store import AnnotationRecord, read_record, write_record
+from annotate.store import AnnotationRecord, list_records, read_record, write_record
 from juno.config import AnnotateConfig
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,14 @@ class AnnotationWorker:
                                                 name="annotation-worker")
                 self._thread.start()
         self._queue.put((session_id, chunk))
+
+    def resume_pending(self) -> int:
+        """Queue every annotation a previous server left pending; returns how many."""
+        pending = [record for record in list_records(self.sessions_dir)
+                   if record.status == "pending"]
+        for record in pending:
+            self.submit(record.session_id, record.chunk)
+        return len(pending)
 
     def _run(self) -> None:
         while True:

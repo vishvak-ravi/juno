@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from annotate.label import Action, Annotation
+from annotate.store import new_record, write_record
 from juno.config import AnnotateConfig, CaptureConfig, Config, sessions_dir
 from server.app import create_app
 
@@ -173,3 +174,15 @@ def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
 
         is_error, message = call(client, "get_annotation", {"annotation_id": "nope"})
         assert is_error and "list_annotations" in message
+
+
+def test_an_annotation_left_pending_by_a_stopped_server_is_finished_by_the_next(tmp_path):
+    write_session(tmp_path, rows=2)
+    write_record(sessions_dir(tmp_path) / SESSION,
+                 new_record(SESSION, 0, "gemini/any"))  # queued, then the server stopped
+
+    def annotate_request(request):
+        return Annotation(actions=[], dense_caption="", sanitization=request.sanitization)
+
+    with client_for(tmp_path, annotate_request) as client:  # startup runs
+        assert wait_until_settled(client, f"{SESSION}-0000")["status"] == "done"

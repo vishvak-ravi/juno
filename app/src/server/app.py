@@ -1,5 +1,6 @@
 """FastAPI application and route registration."""
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Callable, Optional
 
@@ -15,6 +16,8 @@ from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
 from server.routes.sessions import router as sessions_router
 from server.worker import AnnotationWorker
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["status"])
 
@@ -47,6 +50,9 @@ def create_app(config: Optional[Config] = None,
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        resumed = app.state.worker.resume_pending()
+        if resumed:
+            logger.info("resuming %d annotations left pending", resumed)
         async with mcp.session_manager.run():
             yield
 
