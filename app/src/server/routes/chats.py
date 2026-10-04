@@ -4,9 +4,7 @@ A conversation is the message list the ``juno`` REPL keeps as its history and
 sends to vLLM: OpenAI chat messages, ``{"role": ..., "content": ...}``, oldest
 first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json``.
 
-The list route follows OpenAI's list convention (``limit``, ``order``, an
-``after`` cursor; ``object: "list"``, ``data``, ``first_id``, ``last_id``,
-``has_more``), as the messages follow its chat format.
+The list route returns a ``server.routes.paging.Page``.
 """
 
 import logging
@@ -20,6 +18,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, ValidationError
 
 from server.llm import LlmError, complete
+from server.routes.paging import Page, page_of
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +56,6 @@ class ChatSummary(BaseModel):
     message_count: int
     # Unix seconds of the last change to the chat.
     updated_at: int
-
-
-class ChatList(BaseModel):
-    object: Literal["list"] = "list"
-    data: list[ChatSummary]
-    first_id: Optional[str]
-    last_id: Optional[str]
-    has_more: bool
 
 
 def chat_file(chats_dir: Path, chat_id: str) -> Path:
@@ -112,36 +103,17 @@ def summarize_chats(chats_dir: Path) -> list[ChatSummary]:
     return summaries
 
 
-def page_of(summaries: list[ChatSummary], limit: int, order: str,
-            after: Optional[str]) -> ChatList:
-    """The ``limit`` chats after the one with id ``after``, ordered by last change."""
-    ordered = sorted(summaries, key=lambda s: (s.updated_at, s.id),
-                     reverse=order == "desc")
-    start = 0
-    if after is not None:
-        ids = [summary.id for summary in ordered]
-        if after not in ids:
-            raise HTTPException(status_code=400, detail=f"no chat with id {after}")
-        start = ids.index(after) + 1
-    data = ordered[start:start + limit]
-    return ChatList(data=data,
-                    first_id=data[0].id if data else None,
-                    last_id=data[-1].id if data else None,
-                    has_more=start + limit < len(ordered))
-
-
 @router.get("")
 def list_chats(
     request: Request,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     order: Literal["asc", "desc"] = "desc",
     after: Optional[str] = None,
-) -> ChatList:
-    """Stored chats, newest change first by default.
-
-    For the next page, pass the previous page's ``last_id`` as ``after``.
-    """
-    return page_of(summarize_chats(request.app.state.chats_dir), limit, order, after)
+) -> Page[ChatSummary]:
+    """Stored chats, newest change first by default."""
+    summaries = sorted(summarize_chats(request.app.state.chats_dir),
+                       key=lambda s: (s.updated_at, s.id))
+    return page_of(summaries, limit, order, after)
 
 
 @router.get("/{chat_id}")
