@@ -1,6 +1,6 @@
 import pytest
 
-from capture.sources.evdev_keys import PRESS, RELEASE, REPEAT, KeyTranslator, button_name
+from capture.sources.wayland.evdev_keys import PRESS, RELEASE, REPEAT, KeyTranslator, button_name
 
 
 def tap(translator, *names):

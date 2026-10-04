@@ -3,9 +3,9 @@ import pytest
 evdev = pytest.importorskip("evdev")
 e = evdev.ecodes
 
-from capture.sources import evdev_input  # noqa: E402
+from capture.sources.wayland import evdev_input  # noqa: E402
 from capture.sources.base import BackendUnavailable  # noqa: E402
-from capture.sources.evdev_input import EvdevInputSource  # noqa: E402
+from capture.sources.wayland.evdev_input import EvdevInputSource  # noqa: E402
 
 
 class Listener:

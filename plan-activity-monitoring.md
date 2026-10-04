@@ -62,11 +62,11 @@ napsack as is. Both later.
 app/src/capture/
   sources/base.py           ScreenSource, InputSource, CursorSource, Monitor, Frame, Backend
   sources/__init__.py       backend registry + detection from XDG_SESSION_TYPE
-  sources/wayland.py        create(): portal screen + evdev input + unknown cursor
-  sources/portal_screen.py  starts the helper, keeps the newest frame per monitor, restarts a dropped session
-  sources/portal_helper.py  runs under /usr/bin/python3: portal handshake, PipeWire -> RGB frames on stdout
-  sources/evdev_input.py    reads /dev/input, hot-plug rescan
-  sources/evdev_keys.py     evdev key codes -> pynput names
+  sources/wayland/__init__.py       create(): portal screen + evdev input + unknown cursor
+  sources/wayland/portal_screen.py  starts the helper, keeps the newest frame per monitor, restarts a dropped session
+  sources/wayland/portal_helper.py  runs under /usr/bin/python3: portal handshake, PipeWire -> RGB frames on stdout
+  sources/wayland/evdev_input.py    reads /dev/input, hot-plug rescan
+  sources/wayland/evdev_keys.py     evdev key codes -> pynput names
   sources/fake.py           generated frames + scripted input, for tests and demos
   sources/x11.py            STUB
   handlers.py               InputHandler, ScreenshotLoop (replace napsack's two handlers)

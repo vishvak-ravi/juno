@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from capture.sources import portal_screen
+from capture.sources.wayland import portal_screen
 from capture.sources.base import BackendUnavailable
-from capture.sources.portal_screen import PortalScreenSource, frame_array, read_message
+from capture.sources.wayland.portal_screen import PortalScreenSource, frame_array, read_message
 
 FAKE = str(Path(__file__).with_name("fake_helper.py"))
 

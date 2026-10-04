@@ -34,7 +34,7 @@ def test_unimplemented_backend_says_so():
 
 
 def test_wayland_backend_checks_input_access_before_anything_else(monkeypatch):
-    from capture.sources import evdev_input
+    from capture.sources.wayland import evdev_input
     monkeypatch.setattr(evdev_input, "readable_device_paths",
                         lambda: ([], ["/dev/input/event0"]))
     with pytest.raises(BackendUnavailable, match="input group"):
@@ -42,9 +42,10 @@ def test_wayland_backend_checks_input_access_before_anything_else(monkeypatch):
 
 
 def test_wayland_backend_is_portal_screen_plus_evdev_input(monkeypatch):
-    from capture.sources import evdev_input, wayland
-    from capture.sources.evdev_input import EvdevInputSource
-    from capture.sources.portal_screen import PortalScreenSource
+    from capture.sources import wayland
+    from capture.sources.wayland import evdev_input
+    from capture.sources.wayland.evdev_input import EvdevInputSource
+    from capture.sources.wayland.portal_screen import PortalScreenSource
     monkeypatch.setattr(wayland, "check_access", lambda: None)
     backend = load_backend("wayland", fps=7)
     assert backend.name == "wayland"

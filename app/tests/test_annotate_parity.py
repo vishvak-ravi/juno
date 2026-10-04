@@ -32,9 +32,9 @@ from annotate.request import DEFAULT_CHUNK_SIZE, build_requests, draw_cursor, to
 from annotate.sanitize import sanitize
 from capture.recorder import Recorder
 from capture.sources.base import Backend
-from capture.sources.evdev_input import EvdevInputSource
+from capture.sources.wayland.evdev_input import EvdevInputSource
 from capture.sources.fake import FakeCursor, FakeScreenSource
-from capture.sources.portal_screen import PortalScreenSource
+from capture.sources.wayland.portal_screen import PortalScreenSource
 from juno.config import AnnotateConfig
 
 from test_recorder import ManualInput, type_and_click

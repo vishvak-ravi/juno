@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from capture.sources.evdev_keys import PRESS, REPEAT, KeyTranslator, button_name  # noqa: E402
+from capture.sources.wayland.evdev_keys import PRESS, REPEAT, KeyTranslator, button_name  # noqa: E402
 
 
 def _names(table, code):

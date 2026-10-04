@@ -15,7 +15,7 @@ import time
 from typing import Optional
 
 from capture.sources.base import BackendUnavailable, InputListener, InputSource
-from capture.sources.evdev_keys import KeyTranslator, button_name
+from capture.sources.wayland.evdev_keys import KeyTranslator, button_name
 
 logger = logging.getLogger(__name__)
 

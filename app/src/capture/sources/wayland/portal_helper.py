@@ -3,7 +3,7 @@
 
 Runs under the SYSTEM Python (``/usr/bin/python3``), not the project venv:
 it needs PyGObject with GStreamer and PipeWire, which the distro ships and pip
-does not. ``capture.sources.portal_screen`` starts it and reads its output, so
+does not. ``capture.sources.wayland.portal_screen`` starts it and reads its output, so
 this file must not import anything from the ``capture`` package.
 
 Protocol on stdout, one message after another:

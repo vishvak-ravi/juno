@@ -10,8 +10,8 @@
 from __future__ import annotations
 
 from capture.sources.base import Backend
-from capture.sources.evdev_input import EvdevInputSource, check_access
-from capture.sources.portal_screen import PortalScreenSource
+from capture.sources.wayland.evdev_input import EvdevInputSource, check_access
+from capture.sources.wayland.portal_screen import PortalScreenSource
 
 
 def create(fps: int = 5, **options) -> Backend:
