@@ -73,6 +73,30 @@ class LlmConfig(Section):
     tool_result_chars: int = 12000
 
 
+class BashConfig(Section):
+    # Whether the chat model may run bash commands on the server's machine.
+    enabled: bool = True
+    # Run each command under bubblewrap: system directories read-only, no home
+    # directory, only the workspace writable. False: the command runs as the
+    # server's user, with everything that user can read and write.
+    sandbox: bool = True
+    # Seconds a command may run before it and everything it started are killed.
+    timeout_seconds: float = 60.0
+
+
+class WebSearchConfig(Section):
+    # Whether the chat model may search the web.
+    enabled: bool = True
+    # Most results one search returns, whatever number the model asks for.
+    max_results: int = 8
+
+
+class ToolsConfig(Section):
+    # Tools of the MCP server besides the annotation ones (`server.mcp`).
+    bash: BashConfig = Field(default_factory=BashConfig)
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+
+
 class AnnotateConfig(Section):
     # The litellm model that annotates recorded sessions; Tada's labeling model.
     # A gemini/ model reads its key from GEMINI_API_KEY.
@@ -131,6 +155,7 @@ class Config(Section):
     stop_timeout_seconds: float = 30.0
     server: ServerConfig = Field(default_factory=ServerConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
@@ -164,6 +189,11 @@ def sessions_dir(data_dir: Path) -> Path:
 def devices_dir(data_dir: Path) -> Path:
     """Where the server stores the sessions uploaded to it, one directory per device."""
     return data_dir / "screen" / "devices"
+
+
+def workspace_dir(data_dir: Path) -> Path:
+    """Where the chat model's bash commands run, and the one place they can keep files."""
+    return data_dir / "workspace"
 
 
 def config_path() -> Path:

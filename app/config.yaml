@@ -17,6 +17,22 @@ llm:
   # Seconds to wait for a reply.
   timeout_seconds: 300
 
+tools:
+  # Tools the chat model has besides reading annotations. Anyone who can reach
+  # this server can have them used, through /chats or /mcp.
+  bash:
+    enabled: true
+    # Run commands under bubblewrap: system directories read-only, no home
+    # directory, only <data_dir>/workspace writable; the network stays open.
+    # false: commands run as this user, with all of its files.
+    sandbox: true
+    # Seconds a command may run before it is killed.
+    timeout_seconds: 60
+  web_search:
+    enabled: true
+    # Most results one search returns.
+    max_results: 8
+
 capture:
   # Base directory; the recorder's sessions go under screen/sessions/, the
   # server's copies of every device's under screen/devices/, chats under chats/.

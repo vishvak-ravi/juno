@@ -1,8 +1,10 @@
-"""The MCP server: annotations as tools an agent can call.
+"""The MCP server: annotations, web search and bash as tools an agent can call.
 
 Served by the same process as the REST routes, at ``/mcp`` over streamable
-HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The tools
-read the same files as ``/annotations`` through ``annotate.store``.
+HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The
+annotation tools read the same files as ``/annotations`` through
+``annotate.store``; ``web_search`` and ``bash`` are there when ``ToolsConfig``
+enables them. Whoever can reach ``/mcp`` or ``/chats`` can have bash commands run.
 """
 
 from __future__ import annotations
@@ -13,11 +15,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from anyio import to_thread
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from annotate.records import session_dir
 from annotate.store import AnnotationRecord, list_records, parse_annotation_id, read_record
+from juno.config import ToolsConfig
+from server.search import SearchError, search_web
+from server.shell import BashError, run_bash
 
 MCP_PATH = "/mcp"
 INSTRUCTIONS = (
@@ -25,7 +31,8 @@ INSTRUCTIONS = (
     "Each annotation covers a short stretch of activity on one device: the actions the user "
     "took and the text they were reading or writing. Call list_annotations to see recent "
     "activity on every device or on one, and get_annotation with an id from that list for "
-    "the keys and clicks behind one annotation."
+    "the keys and clicks behind one annotation. web_search finds pages on the web and bash "
+    "runs a command on the Juno server's machine, when the server has them turned on."
 )
 
 
@@ -53,12 +60,16 @@ def result_text(result: dict) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def create_mcp(devices_dir: Path, result_chars: int) -> MCPServer:
+def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
+               workspace: Path) -> MCPServer:
     """The MCP server over the sessions of every device stored in ``devices_dir``.
 
     Args:
-        result_chars: the most characters a ``list_annotations`` result may take;
-            it returns fewer annotations than ``limit`` rather than exceed it.
+        result_chars: the most characters a tool result may take.
+            ``list_annotations`` returns fewer annotations than ``limit`` and
+            ``bash`` cuts the middle out of its output rather than exceed it.
+        tools: which of ``web_search`` and ``bash`` the server has, and their limits.
+        workspace: the directory bash commands start in.
     """
     server = MCPServer("juno", instructions=INSTRUCTIONS)
 
@@ -122,6 +133,44 @@ def create_mcp(devices_dir: Path, result_chars: int) -> MCPServer:
                 "frames": [{"frame": number, "time": local_time(frame.timestamp),
                             "input": frame.events}
                            for number, frame in enumerate(record.frames, start=1)]}
+
+    if tools.web_search.enabled:
+        @server.tool()
+        async def web_search(query: str, max_results: int = 5) -> dict:
+            """Search the web. Returns the title, url and a short snippet of each result,
+            best first. The snippets are a few sentences, not the pages: to read a page,
+            fetch its url with the bash tool if there is one.
+
+            Args:
+                query: what to search for, as typed into a search engine.
+                max_results: the most results to return.
+            """
+            count = max(1, min(max_results, tools.web_search.max_results))
+            try:
+                # In a thread: the search blocks, and this runs on the server's event loop.
+                return {"results": await to_thread.run_sync(search_web, query, count)}
+            except SearchError as exc:
+                raise ToolError(str(exc))
+
+    if tools.bash.enabled:
+        @server.tool()
+        async def bash(command: str) -> str:
+            """Run a bash command on the Juno server's machine and return what it printed
+            (stdout and stderr together), followed by "[exit code N]" if it failed. Each
+            call is a new shell started in the same workspace directory: files written
+            there stay for later calls; variables, `cd` and background processes do not.
+            A command is killed when it runs longer than the server allows, so it must not
+            wait for input. Long output has its middle cut out: print less, with head,
+            tail or grep.
+
+            Args:
+                command: the command line, run with `bash -c`.
+            """
+            try:
+                return await to_thread.run_sync(run_bash, command, tools.bash, workspace,
+                                                result_chars)
+            except BashError as exc:
+                raise ToolError(str(exc))
 
     return server
 
