@@ -1,17 +1,22 @@
 // Camera → MediaPipe gesture recognition → keypoint overlay → dictation and send.
 // A *shape* is what the hand looks like (MediaPipe's category name); a *role*
 // is what Juno does with it. Only this table ties the two together.
+// A *gesture* is a movement over several frames (gestures.js); gestures are
+// only shown in the overlay for now and do not drive any role.
 // While the "dictate" role is held, speech is appended to the message box;
 // entering the "send" role submits it.
 import {
   FilesetResolver,
   GestureRecognizer,
 } from "../node_modules/@mediapipe/tasks-vision/vision_bundle.mjs";
+import { flickDetector } from "./gestures.js";
 
 const ROLES = { Pointing_Up: "dictate", Closed_Fist: "send" };
 const COLORS = { dictate: "#00e5ff", send: "#ff3b30", none: "#888" };
 // Frames in a row a role must be seen before it takes effect.
 const HOLD_FRAMES = 4;
+// How long the overlay keeps showing the last gesture.
+const GESTURE_SHOWN_MS = 1000;
 
 const video = document.getElementById("camera");
 const canvas = document.getElementById("overlay");
@@ -32,6 +37,9 @@ let seen = 0; // how many frames in a row
 let base = ""; // the message box when the open dictation segment began
 let segmentOpen = false; // a segment has started and its final text is not in yet
 let sendWaiting = false; // send was asked for while a segment was still open
+const detectFlick = flickDetector();
+let gesture = null; // the last gesture seen
+let gestureAt = 0; // when it was seen
 
 window.juno.onDictation(({ text, final }) => {
   if (text) composer().input.value = base ? `${base} ${text}` : text;
@@ -69,13 +77,17 @@ canvas.width = video.videoWidth;
 canvas.height = video.videoHeight;
 
 function onFrame() {
-  const result = recognizer.recognizeForVideo(video, performance.now());
+  const now = performance.now();
+  const result = recognizer.recognizeForVideo(video, now);
   const shape = result.gestures[0]?.[0].categoryName ?? "no hand";
   const role = ROLES[shape] ?? "none";
   seen = role === candidate ? seen + 1 : 1;
   candidate = role;
   if (seen === HOLD_FRAMES && role !== active) enter(role);
-  label.textContent = `shape: ${shape} · role: ${role} · active: ${active}`;
+  const flick = detectFlick(result.landmarks[0], now);
+  if (flick) [gesture, gestureAt] = [flick, now];
+  const shown = gesture && now - gestureAt < GESTURE_SHOWN_MS ? gesture : "none";
+  label.textContent = `shape: ${shape} · role: ${role} · active: ${active} · gesture: ${shown}`;
   label.style.color = COLORS[role];
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = COLORS[role];
