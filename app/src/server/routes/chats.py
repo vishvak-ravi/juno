@@ -4,6 +4,10 @@ A conversation is the message list the ``juno`` REPL keeps as its history and
 sends to vLLM: OpenAI chat messages, ``{"role": ..., "content": ...}``, oldest
 first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json``.
 
+The model answers with the MCP server's tools (``server.mcp``) and, unless the
+chat starts with a system message of its own, the system prompt in
+``prompts/chat_system.txt``. Neither the prompt nor the tool calls are stored.
+
 The list route returns a ``server.routes.paging.Page``.
 """
 
@@ -13,11 +17,13 @@ import threading
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
+from anyio import from_thread
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, ValidationError
 
 from server.llm import LlmError, complete
+from server.mcp import call_chat_tool, chat_tools
 from server.routes.paging import Page, page_of
 
 logger = logging.getLogger(__name__)
@@ -33,6 +39,9 @@ write_lock = threading.Lock()
 
 # Characters of the first user message kept as a chat's title in the list.
 TITLE_CHARS = 80
+
+# {max_tokens} is the configured reply limit.
+SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "chat_system.txt").read_text()
 
 
 class Message(BaseModel):
@@ -132,12 +141,23 @@ def append_to_chat(chat_id: ChatId, body: NewMessages, request: Request) -> Chat
     multi-turn mode. If the model gives no reply, nothing is stored.
     """
     path = chat_file(request.app.state.chats_dir, chat_id)
+    llm = request.app.state.llm
+    mcp = request.app.state.mcp
+    # This route runs in a worker thread; the MCP server's methods are coroutines.
+    tools = from_thread.run(chat_tools, mcp)
+
+    def call_tool(name: str, arguments: str) -> str:
+        return from_thread.run(call_chat_tool, mcp, name, arguments)
+
     with write_lock:
         chat = read_chat(path) or Chat(id=chat_id, messages=[])
         chat.messages.extend(body.messages)
+        messages = [message.model_dump() for message in chat.messages]
+        if not messages or messages[0]["role"] != "system":
+            prompt = SYSTEM_PROMPT.format(max_tokens=llm.max_tokens)
+            messages.insert(0, {"role": "system", "content": prompt})
         try:
-            reply = complete(request.app.state.llm,
-                             [message.model_dump() for message in chat.messages])
+            reply = complete(llm, messages, tools, call_tool)
         except LlmError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
         chat.messages.append(Message(role="assistant", content=reply))

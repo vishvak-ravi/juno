@@ -13,11 +13,16 @@ from server.app import create_app
 
 
 class FakeModelServer(ThreadingHTTPServer):
-    """Lists one model and answers every completion with "re: <last message>"."""
+    """Lists one model and answers every completion with "re: <last message>".
+
+    While ``tool_calls`` is not empty, a completion is answered with the first
+    of them instead.
+    """
 
     def __init__(self):
         super().__init__(("127.0.0.1", 0), FakeModelHandler)
         self.requests: list[dict] = []  # bodies of the completion requests, in order
+        self.tool_calls: list[dict] = []
 
     @property
     def url(self) -> str:
@@ -45,6 +50,12 @@ class FakeModelHandler(BaseHTTPRequestHandler):
         assert self.path == "/v1/chat/completions"
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.server.requests.append(body)
+        if self.server.tool_calls:
+            call = self.server.tool_calls.pop(0)
+            self.reply({"choices": [{"message": {"role": "assistant", "content": None,
+                                                 "tool_calls": [call]},
+                                     "finish_reason": "tool_calls"}]})
+            return
         content = "re: " + body["messages"][-1]["content"]
         self.reply({"choices": [{"message": {"role": "assistant", "content": content},
                                  "finish_reason": "stop"}]})
@@ -85,12 +96,43 @@ def test_puts_to_the_same_id_append_the_messages_and_the_replies(tmp_path, model
     assert client.get("/chats/abc").json() == conversation
     assert json.loads((tmp_path / "chats" / "abc.json").read_text()) == conversation
 
-    # The model saw the whole conversation each time, with the configured settings.
-    assert [r["messages"] for r in model_server.requests] == [
+    # The model saw the whole conversation each time, after a system prompt
+    # that is not stored, with the configured settings.
+    assert [r["messages"][0]["role"] for r in model_server.requests] == ["system", "system"]
+    assert [r["messages"][1:] for r in model_server.requests] == [
         [question], [question, answer, follow_up]]
     assert model_server.requests[0]["model"] == "fake-model"
     assert model_server.requests[0]["max_tokens"] == 77
     assert model_server.requests[0]["temperature"] == 0.5
+
+
+def test_the_model_can_read_annotations_before_it_answers(tmp_path, model_server):
+    client = client_for(tmp_path, model_server.url)
+    question = {"role": "user", "content": "a question about recent activity"}
+    model_server.tool_calls.append({
+        "id": "call-1", "type": "function",
+        "function": {"name": "list_annotations", "arguments": '{"last_minutes": 60}'}})
+
+    response = client.put("/chats/abc", json={"messages": [question]})
+    assert response.status_code == 200
+
+    # The model was offered the tools, and asked again with the result of its call.
+    first, second = model_server.requests
+    assert "list_annotations" in [tool["function"]["name"] for tool in first["tools"]]
+    result = second["messages"][-1]
+    assert (result["role"], result["tool_call_id"]) == ("tool", "call-1")
+    assert json.loads(result["content"])["annotations"] == []
+    # Only the question and the final answer are kept.
+    assert response.json()["messages"] == [
+        question, {"role": "assistant", "content": "re: " + result["content"]}]
+
+
+def test_a_chat_with_its_own_system_message_keeps_it(tmp_path, model_server):
+    client = client_for(tmp_path, model_server.url)
+    messages = [{"role": "system", "content": "be brief"},
+                {"role": "user", "content": "first question"}]
+    assert client.put("/chats/abc", json={"messages": messages}).status_code == 200
+    assert model_server.requests[0]["messages"] == messages
 
 
 def test_nothing_is_stored_when_the_model_is_unreachable(tmp_path, model_server):

@@ -62,6 +62,10 @@ class LlmConfig(Section):
     temperature: float = 0.7
     # Seconds to wait for a reply.
     timeout_seconds: float = 300.0
+    # Most model calls for one reply while the model keeps calling tools.
+    max_tool_rounds: int = 8
+    # Characters of a tool result the model is shown.
+    tool_result_chars: int = 12000
 
 
 class AnnotateConfig(Section):

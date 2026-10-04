@@ -60,6 +60,7 @@ def create_app(config: Optional[Config] = None,
     app.state.chats_dir = data_dir / "chats"
     app.state.sessions_dir = sessions_dir(data_dir)
     app.state.llm = config.llm
+    app.state.mcp = mcp
     app.state.annotate = config.annotate
     app.state.worker = AnnotationWorker(app.state.sessions_dir, config.annotate,
                                         annotate_request)

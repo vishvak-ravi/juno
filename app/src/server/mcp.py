@@ -7,6 +7,7 @@ read the same files as ``/annotations`` through ``annotate.store``.
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -93,3 +94,24 @@ def create_mcp(sessions_dir: Path) -> MCPServer:
                            for number, frame in enumerate(record.frames, start=1)]}
 
     return server
+
+
+async def chat_tools(server: MCPServer) -> list[dict]:
+    """The server's tools as chat-completions tool definitions."""
+    return [{"type": "function",
+             "function": {"name": tool.name, "description": tool.description or "",
+                          "parameters": tool.input_schema}}
+            for tool in await server.list_tools()]
+
+
+async def call_chat_tool(server: MCPServer, name: str, arguments: str) -> str:
+    """Run one tool call a chat model made; the text to show it, errors included.
+
+    Args:
+        arguments: the call's arguments as the JSON text the model wrote.
+    """
+    try:
+        result = await server.call_tool(name, json.loads(arguments) if arguments else {})
+    except (ToolError, ValueError) as exc:
+        return f"error: {exc}"
+    return "\n".join(block.text for block in result.content if block.type == "text")
