@@ -199,7 +199,9 @@
   const chunk = (sessionId, n, total) =>
     level(`chunk ${n} · rows ${n * CHUNK}–${Math.min((n + 1) * CHUNK, total) - 1}`, async () => {
       const [label, page] = await Promise.all([
-        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) => ({ status: String(error.message || error) })),
+        // 404: nobody has asked for this chunk to be annotated. Anything else is a real error.
+        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) =>
+          ({ status: /\b404\b/.test(String(error.message || error)) ? "not annotated" : String(error.message || error) })),
         api(`/aggregations?session_id=${sessionId}&order=asc&limit=${CHUNK}${n ? `&after=${sessionId}-${pad(n * CHUNK - 1, 6)}` : ""}`),
       ]);
       const { frames, ...rest } = label;  // frames repeat the aggregations below
