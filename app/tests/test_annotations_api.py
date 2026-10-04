@@ -7,17 +7,18 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from annotate.label import Action, Annotation
+from annotate.records import session_dir
 from annotate.store import new_record, write_record
-from juno.config import AnnotateConfig, CaptureConfig, Config, sessions_dir
+from juno.config import AnnotateConfig, CaptureConfig, Config, LlmConfig, devices_dir
 from server.app import create_app
 
-SESSION = "session_20260101_120000"
+SESSION = "laptop-session_20260101_120000"
 MONITOR = {"left": 0, "top": 0, "width": 40, "height": 20}
 
 
 def write_session(tmp_path, rows: int):
     """A session of ``rows`` aggregations, one key press each, a second apart."""
-    session = sessions_dir(tmp_path) / SESSION
+    session = session_dir(devices_dir(tmp_path), SESSION)
     session.mkdir(parents=True)
     lines = []
     for index in range(rows):
@@ -91,7 +92,7 @@ def test_a_put_annotates_the_chunk_once_and_the_result_can_be_read_back(tmp_path
     assert [item["id"] for item in in_range["data"]] == [second]
 
     assert client.put(f"/annotations/{SESSION}-0003").status_code == 404  # only 5 rows
-    assert client.put("/annotations/no_such_session-0000").status_code == 404
+    assert client.put("/annotations/laptop-no_such_session-0000").status_code == 404
     assert client.get(f"/annotations/{SESSION}-0002").status_code == 404  # never requested
 
 
@@ -123,7 +124,7 @@ def test_sessions_and_their_aggregations_can_be_browsed(tmp_path):
     (session,) = client.get("/sessions").json()["data"]
     assert (session["id"], session["aggregations"], session["annotations"]) == (SESSION, 3, 0)
     assert client.get(f"/sessions/{SESSION}").json() == session
-    assert client.get("/sessions/no_such_session").status_code == 404
+    assert client.get("/sessions/laptop-no_such_session").status_code == 404
 
     page = client.get("/aggregations", params={"session_id": SESSION, "order": "asc",
                                                "since": 1001.0}).json()
@@ -167,6 +168,13 @@ def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
         assert [(a["id"], a["actions"], a["text_on_screen"]) for a in listed["annotations"]] == [
             (annotation_id, ["Typed a."], "a")]
 
+        assert listed["devices"] == ["laptop"]
+        assert listed["annotations"][0]["device"] == "laptop"
+        is_error, only = call(client, "list_annotations", {"device": "laptop"})
+        assert not is_error and [a["id"] for a in only["annotations"]] == [annotation_id]
+        is_error, message = call(client, "list_annotations", {"device": "phone"})
+        assert is_error and "laptop" in message
+
         is_error, full = call(client, "get_annotation", {"annotation_id": annotation_id})
         assert not is_error
         assert full["actions"] == [{"start": 1, "end": 2, "caption": "Typed a."}]
@@ -176,9 +184,37 @@ def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
         assert is_error and "list_annotations" in message
 
 
+def test_a_listing_too_long_for_the_agent_keeps_the_newest_and_says_more_is_available(tmp_path):
+    write_session(tmp_path, rows=6)
+
+    def annotate_request(request):
+        return Annotation(actions=[Action(start=1, end=2, caption="Typed a.")],
+                          dense_caption="a" * 400, sanitization=request.sanitization)
+
+    budget = 1500  # room for two of the three annotations
+    config = Config(capture=CaptureConfig(data_dir=tmp_path),
+                    annotate=AnnotateConfig(chunk_size=2),
+                    llm=LlmConfig(tool_result_chars=budget))
+    with TestClient(create_app(config, annotate_request=annotate_request),
+                    base_url="http://127.0.0.1:8765") as client:
+        for chunk in range(3):
+            client.put(f"/annotations/{SESSION}-{chunk:04d}")
+            wait_until_settled(client, f"{SESSION}-{chunk:04d}")
+        response = client.post(
+            "/mcp", headers={"Accept": "application/json, text/event-stream"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                  "params": {"name": "list_annotations", "arguments": {}}})
+        text = response.json()["result"]["content"][0]["text"]
+
+    assert len(text) <= budget
+    listed = json.loads(text)
+    assert [a["id"] for a in listed["annotations"]] == [f"{SESSION}-0002", f"{SESSION}-0001"]
+    assert listed["more_available"] is True
+
+
 def test_an_annotation_left_pending_by_a_stopped_server_is_finished_by_the_next(tmp_path):
     write_session(tmp_path, rows=2)
-    write_record(sessions_dir(tmp_path) / SESSION,
+    write_record(session_dir(devices_dir(tmp_path), SESSION),
                  new_record(SESSION, 0, "gemini/any"))  # queued, then the server stopped
 
     def annotate_request(request):

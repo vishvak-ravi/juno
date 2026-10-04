@@ -18,9 +18,13 @@ llm:
   timeout_seconds: 300
 
 capture:
-  # Base directory; sessions go under screen/sessions/, chats under chats/.
+  # Base directory; the recorder's sessions go under screen/sessions/, the
+  # server's copies of every device's under screen/devices/, chats under chats/.
   # null: $XDG_DATA_HOME/juno, or ~/.local/share/juno.
   data_dir: null
+  # The name this computer's sessions are stored under on the server: lowercase
+  # letters and digits. null: the host name, reduced to those.
+  device_id: linux
   # Platform sources: auto (detect from the platform and session), wayland, x11,
   # macos, fake.
   backend: auto
@@ -49,6 +53,25 @@ annotate:
   max_tokens: 8192
   # Aggregations (screenshots) per request.
   chunk_size: 10
-  # Whether the recorder asks the server to annotate each chunk as it fills.
-  # Every screenshot then goes to the model's provider.
-  live: false
+  # Whether the recorder uploads each aggregation to the server, which annotates
+  # each chunk as it fills. Every screenshot then goes to the model's provider.
+  live: true
+
+predict:
+  # Next-action prediction (`POST /predictions`); the defaults are Tada's.
+  # Annotated actions the model is shown; a prediction needs at least this many.
+  past_len: 50
+  # Actions the model is asked to predict.
+  future_len: 8
+  # Screenshots sent, those of the newest actions. null: text only. The model
+  # server must accept images (vLLM without --language-model-only).
+  num_imgs_per_sample: 5
+  max_tokens: 2048
+  temperature: 1.0
+  # Earlier activity retrieved with BM25, and how many of those are kept after
+  # MMR removes near-duplicates (alpha 1.0: relevance only).
+  top_k: 20
+  mmr_k: 10
+  mmr_alpha: 0.5
+  # How fast older activity loses retrieval score, per day of age.
+  time_decay_lambda: 0.5

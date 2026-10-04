@@ -1,8 +1,8 @@
 """Run the activity recorder: ``python -m capture``.
 
 Settings come from the ``capture`` section of the YAML config (see
-``juno.config``). With ``annotate.live`` set, the server is asked to annotate
-each chunk of the session as it fills (see ``capture.notify``).
+``juno.config``). With ``annotate.live`` set, each aggregation is uploaded to
+the server as it is written (see ``capture.upload``), which annotates it.
 """
 
 from __future__ import annotations
@@ -13,19 +13,23 @@ import sys
 import threading
 from typing import Optional
 
-from capture.notify import ChunkNotifier
 from capture.sources import BackendUnavailable, load_backend
-from juno.config import CaptureConfig, ConfigError, load_config, resolve_data_dir
+from capture.upload import AggregationUploader
+from juno.config import (
+    CaptureConfig,
+    ConfigError,
+    load_config,
+    resolve_data_dir,
+    resolve_device_id,
+)
 from juno.parent_watch import start_parent_watch
 
 
-def main(config: CaptureConfig, annotations_url: Optional[str] = None,
-         chunk_size: Optional[int] = None) -> int:
+def main(config: CaptureConfig, aggregations_url: Optional[str] = None) -> int:
     """
     Args:
-        annotations_url: the server's annotations collection; None records
-            without asking for annotations.
-        chunk_size: aggregations per annotation; required with ``annotations_url``.
+        aggregations_url: the server's aggregations collection, which the
+            session is uploaded to; None records without uploading.
     """
     logging.basicConfig(
         level=logging.DEBUG if config.verbose else logging.INFO,
@@ -53,10 +57,11 @@ def main(config: CaptureConfig, annotations_url: Optional[str] = None,
         save_screenshots=config.screenshots,
         disable=config.disable,
     )
-    notifier = None
-    if annotations_url is not None:
-        notifier = ChunkNotifier(recorder.session_dir, annotations_url, chunk_size)
-        recorder.on_aggregation = notifier.on_aggregation
+    uploader = None
+    if aggregations_url is not None:
+        uploader = AggregationUploader(recorder.session_dir, aggregations_url,
+                                       resolve_device_id(config))
+        recorder.on_aggregation = uploader.on_aggregation
 
     done = threading.Event()
     signals = (signal.SIGINT, signal.SIGTERM)
@@ -76,8 +81,8 @@ def main(config: CaptureConfig, annotations_url: Optional[str] = None,
             signal.signal(signum, signal.SIG_IGN)
         try:
             complete = recorder.stop()
-            if notifier is not None:
-                notifier.close()
+            if uploader is not None:
+                uploader.close()
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
@@ -99,8 +104,7 @@ def run() -> int:
     if not config.annotate.live:
         return main(config.capture)
     return main(config.capture,
-                annotations_url=f"http://{config.server.host}:{config.server.port}/annotations",
-                chunk_size=config.annotate.chunk_size)
+                aggregations_url=f"http://{config.server.host}:{config.server.port}/aggregations")
 
 
 if __name__ == "__main__":

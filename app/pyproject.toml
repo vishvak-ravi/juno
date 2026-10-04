@@ -32,13 +32,14 @@ dependencies = [
     "pydantic",
     "pyyaml",
     "mcp>=2.3.0",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
 dev = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/annotate", "src/capture", "src/juno", "src/server"]
+packages = ["src/annotate", "src/capture", "src/juno", "src/predict", "src/server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
