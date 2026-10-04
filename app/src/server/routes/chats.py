@@ -2,7 +2,7 @@
 
 A conversation is the message list the ``juno`` REPL keeps as its history and
 sends to vLLM: OpenAI chat messages, ``{"role": ..., "content": ...}``, oldest
-first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json``.
+first. Chat ``<id>`` is stored in ``<chats_dir>/<id>.json`` (``server.chat_store``).
 
 The model answers with the MCP server's tools (``server.mcp``) and, unless the
 chat starts with a system message of its own, the system prompt in
@@ -11,8 +11,6 @@ chat starts with a system message of its own, the system prompt in
 The list route returns a ``server.routes.paging.Page``.
 """
 
-import logging
-import os
 import threading
 from pathlib import Path
 from typing import Annotated, Literal, Optional
@@ -20,41 +18,27 @@ from typing import Annotated, Literal, Optional
 from anyio import from_thread
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
+from server.chat_store import (CHAT_ID_MAX_LENGTH, CHAT_ID_PATTERN, Chat, Message, chat_file,
+                               chat_title, read_chat, read_chats, write_chat)
 from server.llm import LlmError, complete
 from server.mcp import call_chat_tool, chat_tools
 from server.routes.paging import Page, page_of
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/chats", tags=["chats"])
 
-# The id becomes a file name, so it may not contain dots or slashes.
-ChatId = Annotated[str, PathParam(pattern=r"^[A-Za-z0-9_-]+$", max_length=128)]
+ChatId = Annotated[str, PathParam(pattern=CHAT_ID_PATTERN, max_length=CHAT_ID_MAX_LENGTH)]
 
 # PUT reads the file, asks the model, appends and writes the file back; two at
 # once must not interleave, so PUTs run one at a time.
 write_lock = threading.Lock()
 
-# Characters of the first user message kept as a chat's title in the list.
-TITLE_CHARS = 80
-
 # {max_tokens} is the configured reply limit.
 SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "chat_system.txt").read_text()
 
 
-class Message(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
 class NewMessages(BaseModel):
-    messages: list[Message]
-
-
-class Chat(BaseModel):
-    id: str
     messages: list[Message]
 
 
@@ -67,49 +51,11 @@ class ChatSummary(BaseModel):
     updated_at: int
 
 
-def chat_file(chats_dir: Path, chat_id: str) -> Path:
-    return chats_dir / f"{chat_id}.json"
-
-
-def read_chat(path: Path) -> Optional[Chat]:
-    """The chat stored at ``path``, or None if there is none yet."""
-    try:
-        return Chat.model_validate_json(path.read_text())
-    except FileNotFoundError:
-        return None
-
-
-def write_chat(path: Path, chat: Chat) -> None:
-    """Replace the file in one step, so a crash cannot leave half a conversation."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(chat.model_dump_json(indent=2))
-    os.replace(temporary, path)
-
-
-def chat_title(chat: Chat) -> Optional[str]:
-    for message in chat.messages:
-        if message.role == "user" and message.content.strip():
-            return message.content.strip().splitlines()[0][:TITLE_CHARS]
-    return None
-
-
 def summarize_chats(chats_dir: Path) -> list[ChatSummary]:
     """One summary per stored chat, in no particular order. Unreadable files are skipped."""
-    summaries = []
-    for path in chats_dir.glob("*.json"):
-        try:
-            chat = read_chat(path)
-            updated_at = int(path.stat().st_mtime)
-        except (OSError, ValidationError) as exc:
-            logger.warning("skipping %s: %s", path, exc)
-            continue
-        if chat is None:  # deleted since the glob
-            continue
-        summaries.append(ChatSummary(id=chat.id, title=chat_title(chat),
-                                     message_count=len(chat.messages),
-                                     updated_at=updated_at))
-    return summaries
+    return [ChatSummary(id=chat.id, title=chat_title(chat), message_count=len(chat.messages),
+                        updated_at=updated_at)
+            for chat, updated_at in read_chats(chats_dir)]
 
 
 @router.get("")

@@ -87,10 +87,11 @@ def create_app(config: Optional[Config] = None,
                                         max_tokens=config.annotate.max_tokens)
 
     data_dir = resolve_data_dir(config.capture)
+    chats_dir = data_dir / "chats"
     predictor = Predictor(config.predict)
-    mcp = create_mcp(devices_dir(data_dir), config.llm.tool_result_chars, config.tools,
-                     workspace_dir(data_dir), claude_results_dir(data_dir), predictor,
-                     config.llm)
+    mcp = create_mcp(devices_dir(data_dir), chats_dir, config.llm.tool_result_chars,
+                     config.tools, workspace_dir(data_dir), claude_results_dir(data_dir),
+                     predictor, config.llm)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -103,7 +104,7 @@ def create_app(config: Optional[Config] = None,
             app.state.worker.stop()
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
-    app.state.chats_dir = data_dir / "chats"
+    app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
     app.state.mcp = mcp

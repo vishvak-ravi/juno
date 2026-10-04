@@ -1,10 +1,13 @@
-"""The MCP server: annotations, predictions, web search and bash as tools an agent can call.
+"""The MCP server: annotations, predictions, past chats, web search and bash as tools an
+agent can call.
 
 Served by the same process as the REST routes, at ``/mcp`` over streamable
 HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The
 annotation tools read the same files as ``/annotations`` through
-``annotate.store`` and ``predict_next_actions`` makes the prediction of
-``POST /predictions`` through ``server.prediction``; ``web_search``, ``bash`` and ``fwd_to_claude`` are there when
+``annotate.store``, ``predict_next_actions`` makes the prediction of
+``POST /predictions`` through ``server.prediction``, and ``search_chats`` and
+``get_chat`` read the same files as ``/chats`` through ``server.chat_store``;
+``web_search``, ``bash`` and ``fwd_to_claude`` are there when
 ``ToolsConfig`` enables them. Whoever can reach ``/mcp`` or ``/chats`` can have
 bash commands run and prompts sent to Claude Code.
 """
@@ -26,6 +29,7 @@ from annotate.records import session_dir
 from annotate.store import AnnotationRecord, list_records, parse_annotation_id, read_record
 from juno.config import LlmConfig, ToolsConfig
 from predict.predictor import Predictor
+from server import chat_store
 from server.claude import ClaudeError, TmuxDest, forward_to_claude
 from server.llm import LlmError
 from server.prediction import NotEnoughData, predict
@@ -39,7 +43,9 @@ INSTRUCTIONS = (
     "took and the text they were reading or writing. Call list_annotations to see recent "
     "activity on every device or on one, and get_annotation with an id from that list for "
     "the keys and clicks behind one annotation. predict_next_actions asks a model what the "
-    "user is likely to do next. web_search finds pages on the web and bash "
+    "user is likely to do next. search_chats finds what was said in the "
+    "user's earlier conversations with Juno's chat model, and get_chat reads one of them. "
+    "web_search finds pages on the web and bash "
     "runs a command on the Juno server's machine, when the server has them turned on."
 )
 
@@ -68,15 +74,17 @@ def result_text(result: dict) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
+def create_mcp(devices_dir: Path, chats_dir: Path, result_chars: int, tools: ToolsConfig,
                workspace: Path, claude_results: Path, predictor: Predictor,
                llm: LlmConfig) -> MCPServer:
-    """The MCP server over the sessions of every device stored in ``devices_dir``.
+    """The MCP server over the sessions of every device stored in ``devices_dir`` and the
+    chats stored in ``chats_dir``.
 
     Args:
         result_chars: the most characters a tool result may take.
-            ``list_annotations`` returns fewer annotations than ``limit`` and
-            ``bash`` cuts the middle out of its output rather than exceed it.
+            ``list_annotations``, ``search_chats`` and ``get_chat`` return fewer
+            items than asked for and ``bash`` cuts the middle out of its output
+            rather than exceed it.
         tools: which of ``web_search``, ``bash`` and ``fwd_to_claude`` the server
             has, and their limits.
         workspace: the directory bash commands start in, and Claude Code too
@@ -180,6 +188,60 @@ def create_mcp(devices_dir: Path, result_chars: int, tools: ToolsConfig,
                    re.findall(r"<action>(.*?)</action>", prediction.actions, re.DOTALL)]
         return {"now": local_time(time.time()),
                 "predicted_actions": actions or [prediction.actions.strip()]}
+
+    @server.tool()
+    def search_chats(query: str, limit: int = 10) -> dict:
+        """Search the user's past chats with Juno for messages about something, best match
+        first. Each match names its chat ("chat_id", "title", and "updated", when the chat
+        last changed), the message ("message", its number in the chat, and "role") and a
+        "snippet" of the message around the words found. A message matches when it has at
+        least one word of the query; a search with no match returns no "matches", so try
+        other words. Read the conversation around a match with get_chat.
+
+        Args:
+            query: words the messages should contain; the order does not matter.
+            limit: the most matches to return.
+        """
+        found = chat_store.search_chats(chats_dir, query, max(1, limit))
+        result = {"matches": [{"chat_id": match["chat_id"], "title": match["title"],
+                               "updated": local_time(match["updated_at"]),
+                               "message": match["message"], "role": match["role"],
+                               "snippet": match["snippet"]} for match in found]}
+        # The worst matches are dropped until the result fits.
+        while result["matches"] and len(result_text(result)) > result_chars:
+            result["matches"].pop()
+        return result
+
+    @server.tool()
+    def get_chat(chat_id: str, first_message: int = 1) -> dict:
+        """One past chat: its messages in order, each with its number in the chat ("message"),
+        "role" and "content". When "more_available" is true the chat goes on after the last
+        message returned: call again with first_message set to the number after it.
+
+        Args:
+            chat_id: a "chat_id" returned by search_chats.
+            first_message: the number of the first message to return.
+        """
+        valid = (len(chat_id) <= chat_store.CHAT_ID_MAX_LENGTH
+                 and re.match(chat_store.CHAT_ID_PATTERN, chat_id))
+        chat = chat_store.read_chat(chat_store.chat_file(chats_dir, chat_id)) if valid else None
+        if chat is None:
+            raise ToolError(f"no chat with id {chat_id}; use a chat_id from search_chats")
+        numbered = [{"message": number, "role": message.role, "content": message.content}
+                    for number, message in enumerate(chat.messages, start=1)
+                    if number >= first_message and message.role != "system"]
+        result = {"chat_id": chat.id, "title": chat_store.chat_title(chat),
+                  "more_available": False, "messages": numbered}
+        # The latest are dropped until the result fits; one message too long to fit is cut.
+        while len(result["messages"]) > 1 and len(result_text(result)) > result_chars:
+            result["messages"].pop()
+            result["more_available"] = True
+        over = len(result_text(result)) - result_chars
+        if over > 0:
+            last = result["messages"][0]
+            # Escapes in the JSON text make it longer than the content, so cut twice the excess.
+            last["content"] = last["content"][:max(0, len(last["content"]) - 2 * over)] + " [cut]"
+        return result
 
     if tools.web_search.enabled:
         @server.tool()

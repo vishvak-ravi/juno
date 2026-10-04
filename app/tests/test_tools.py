@@ -1,4 +1,4 @@
-"""The bash and web_search tools: on their own, over MCP, and from a chat."""
+"""The bash, web_search and past-chat tools: on their own, over MCP, and from a chat."""
 
 import json
 import shutil
@@ -13,7 +13,7 @@ from juno.config import BashConfig, CaptureConfig, Config, LlmConfig, ToolsConfi
 from server.app import create_app
 from server.search import SearchError
 from server.shell import run_bash
-from test_chats import model_server  # noqa: F401  (fixture)
+from test_chats import model_server, store_chat  # noqa: F401  (model_server is a fixture)
 
 needs_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
 UNSANDBOXED = BashConfig(sandbox=False)
@@ -121,3 +121,72 @@ def test_the_model_can_run_a_command_before_it_answers(tmp_path, model_server): 
     result = model_server.requests[1]["messages"][-1]
     assert (result["role"], result["content"]) == ("tool", "42\n")
     assert response.json()["messages"][-1]["content"] == "re: 42\n"
+
+
+def test_an_agent_finds_a_past_chat_and_reads_it_over_mcp(tmp_path):
+    store_chat(tmp_path, "garden", [
+        {"role": "system", "content": "be brief about tomatoes"},
+        {"role": "user", "content": "when should the tomatoes be planted"},
+        {"role": "assistant", "content": "Plant tomatoes after the last frost."}], 1000)
+    store_chat(tmp_path, "travel", [
+        {"role": "user", "content": "which train goes to the coast"},
+        {"role": "assistant", "content": "The morning train."}], 2000)
+    (tmp_path / "chats" / "broken.json").write_text("not json")
+
+    with app_client(tmp_path, ToolsConfig()) as client:
+        def call(name, arguments):
+            return mcp_request(client, "tools/call", {"name": name, "arguments": arguments})
+
+        found = json.loads(call("search_chats", {"query": "Tomatoes frost"})["content"][0]["text"])
+        nothing = json.loads(call("search_chats", {"query": "submarine"})["content"][0]["text"])
+        one = json.loads(call("search_chats", {"query": "train", "limit": 1})["content"][0]["text"])
+        chat = json.loads(call("get_chat", {"chat_id": "garden"})["content"][0]["text"])
+        rest = json.loads(call("get_chat", {"chat_id": "garden", "first_message": 3})
+                          ["content"][0]["text"])
+        missing = call("get_chat", {"chat_id": "nowhere"})
+        outside = call("get_chat", {"chat_id": "../chats/garden"})
+
+    # The message with both words comes first; system messages are not searched.
+    assert [(m["chat_id"], m["message"], m["role"]) for m in found["matches"]] == [
+        ("garden", 3, "assistant"), ("garden", 2, "user")]
+    assert found["matches"][0]["title"] == "when should the tomatoes be planted"
+    assert found["matches"][0]["snippet"] == "Plant tomatoes after the last frost."
+    assert nothing == {"matches": []}
+    assert len(one["matches"]) == 1 and one["matches"][0]["chat_id"] == "travel"
+    assert chat == {"chat_id": "garden", "title": "when should the tomatoes be planted",
+                    "more_available": False, "messages": [
+                        {"message": 2, "role": "user",
+                         "content": "when should the tomatoes be planted"},
+                        {"message": 3, "role": "assistant",
+                         "content": "Plant tomatoes after the last frost."}]}
+    assert [m["message"] for m in rest["messages"]] == [3]
+    assert missing["isError"] and "no chat with id nowhere" in missing["content"][0]["text"]
+    assert outside["isError"]
+
+
+def test_past_chat_results_stay_within_the_result_limit(tmp_path):
+    long = "filler " * 300 + "lighthouse " + "filler " * 300
+    store_chat(tmp_path, "long", [{"role": "user", "content": long},
+                                  {"role": "assistant", "content": long},
+                                  {"role": "user", "content": "the lighthouse again"}], 1000)
+    config = Config(capture=CaptureConfig(data_dir=tmp_path),
+                    llm=LlmConfig(base_url="http://localhost:1", tool_result_chars=1500))
+    with TestClient(create_app(config), base_url="http://127.0.0.1:8765") as client:
+        def call(name, arguments):
+            return mcp_request(client, "tools/call",
+                               {"name": name, "arguments": arguments})["content"][0]["text"]
+
+        found = call("search_chats", {"query": "lighthouse"})
+        first = call("get_chat", {"chat_id": "long"})
+        last = call("get_chat", {"chat_id": "long", "first_message": 3})
+
+    assert len(found) <= 1500 and len(first) <= 1500
+    # A snippet shows the part of a long message around the word found.
+    snippet = json.loads(found)["matches"][-1]["snippet"]
+    assert "lighthouse" in snippet and snippet.startswith("…") and snippet.endswith("…")
+    # The first message alone is too long: it is cut, and the rest is left for another call.
+    first = json.loads(first)
+    assert first["more_available"] is True
+    assert [m["message"] for m in first["messages"]] == [1]
+    assert first["messages"][0]["content"].endswith(" [cut]")
+    assert json.loads(last)["more_available"] is False
