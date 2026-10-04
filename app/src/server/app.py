@@ -13,6 +13,7 @@ from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
 from juno.config import Config, devices_dir, load_config, resolve_data_dir
 from predict.predictor import Predictor
+from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
 from server.routes.aggregations import router as aggregations_router
 from server.routes.annotations import router as annotations_router
@@ -31,10 +32,28 @@ async def get_status():
     return {"status": "ok"}
 
 
+@router.get("/integrity")
+def get_integrity(request: Request) -> StoreReport:
+    """What the store holds per device and session, and everything wrong with it."""
+    state = request.app.state
+    return check_store(state.devices_dir, state.annotate.chunk_size)
+
+
 @router.get("/queue")
 def get_queue(request: Request) -> QueueStatus:
     """How many chunks are waiting to be annotated, and how many calls are in flight."""
     return request.app.state.worker.status()
+
+
+def log_store_report(report: StoreReport) -> None:
+    for device in report.devices:
+        logger.info("store: %s has %d sessions, %d rows; of %d chunks %d done, %d pending, "
+                    "%d failed, %d not requested", device.id, device.sessions, device.rows,
+                    device.chunks, device.done, device.pending, device.failed,
+                    device.not_requested)
+    for issue in report.issues:
+        logger.warning("store: %s in %s (%s): %s", issue.kind, issue.session_id,
+                       issue.subject, issue.detail)
 
 
 # The phone client: one page that calls the routes below from the address it was opened at.
@@ -71,6 +90,7 @@ def create_app(config: Optional[Config] = None,
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        log_store_report(check_store(app.state.devices_dir, config.annotate.chunk_size))
         app.state.worker.start()
         try:
             async with mcp.session_manager.run():

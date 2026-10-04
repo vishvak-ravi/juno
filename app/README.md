@@ -105,7 +105,8 @@ calls in flight, taking chunks a recorder just filled first, then ones asked
 for with `PUT /annotations/{id}`, then (with `annotate.backfill`) every other
 chunk in its store without a finished annotation, most recent first. A call the
 provider was too busy for is made again, up to `annotate.max_attempts` times.
-`GET /api/queue` shows what is waiting and in flight.
+`GET /api/queue` shows what is waiting and in flight; `GET /api/integrity`
+shows, per device and session, what arrived and what is annotated.
 
 `uv run python -m capture.upload` copies every session already recorded on this
 computer to the server, without asking for annotations; run it again to
