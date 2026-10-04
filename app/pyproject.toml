@@ -24,6 +24,7 @@ dependencies = [
     # The YAML config (`juno.config`).
     "pydantic",
     "pyyaml",
+    "mcp>=2.3.0",
 ]
 
 [project.optional-dependencies]
