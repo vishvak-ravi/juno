@@ -6,12 +6,17 @@ cursor in; ``object: "list"``, ``data``, ``first_id``, ``last_id`` and
 ``after``.
 """
 
-from typing import Generic, Literal, Optional, Sequence, TypeVar
+from typing import Annotated, Generic, Literal, Optional, Sequence, TypeVar
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from pydantic import BaseModel
 
+from annotate.records import DEVICE_ID_PATTERN
+
 Item = TypeVar("Item")
+
+# ``?device=<device id>`` on a list route: only that device's items.
+DeviceFilter = Annotated[Optional[str], Query(pattern=f"^{DEVICE_ID_PATTERN}$")]
 
 
 class Page(BaseModel, Generic[Item]):

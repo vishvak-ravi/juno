@@ -7,13 +7,13 @@ annotation as ``pending``; ``GET`` the same URL (the ``Location`` header) to
 see it become ``done`` or ``failed``.
 """
 
-from pathlib import Path
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
+from starlette.datastructures import State
 
-from annotate.records import AGGREGATIONS_FILE
+from annotate.records import count_rows, session_dir
 from annotate.store import (
     ANNOTATION_ID,
     AnnotationRecord,
@@ -23,41 +23,50 @@ from annotate.store import (
     read_record,
     write_record,
 )
-from server.routes.paging import Page, page_of
+from server.routes.paging import DeviceFilter, Page, page_of
 
 router = APIRouter(prefix="/annotations", tags=["annotations"])
 
 AnnotationId = Annotated[str, PathParam(pattern=ANNOTATION_ID.pattern, max_length=128)]
 
 
-def count_rows(session_dir: Path) -> int:
-    """How many aggregations the session has recorded so far."""
-    try:
-        with open(session_dir / AGGREGATIONS_FILE, "rb") as rows:
-            return sum(1 for line in rows if line.strip())
-    except FileNotFoundError:
-        return 0
+def queue_chunk(state: State, session_id: str, chunk: int) -> AnnotationRecord:
+    """The chunk's annotation, queued unless it is done or already waiting.
+
+    A chunk that is new, failed, or was left pending by a server that stopped
+    gets a fresh pending record and goes to the worker.
+    """
+    directory = session_dir(state.devices_dir, session_id)
+    record = read_record(directory, chunk)
+    if record is not None and (record.status == "done"
+                               or state.worker.is_waiting(session_id, chunk)):
+        return record
+    record = new_record(session_id, chunk, state.annotate.model)
+    write_record(directory, record)
+    state.worker.submit(session_id, chunk)
+    return record
 
 
 @router.get("")
 def list_annotations(
     request: Request,
     session_id: Optional[str] = None,
+    device: DeviceFilter = None,
     since: Annotated[Optional[float], Query(description="Unix seconds")] = None,
     until: Annotated[Optional[float], Query(description="Unix seconds")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     order: Literal["asc", "desc"] = "desc",
     after: Optional[str] = None,
 ) -> Page[AnnotationRecord]:
-    """Annotations, newest first by default, optionally of one session or a time range."""
-    records = list_records(request.app.state.sessions_dir, session_id, since, until)
+    """Annotations, newest first by default, optionally of one session, device or time range."""
+    records = list_records(request.app.state.devices_dir, session_id, since, until, device)
     return page_of(records, limit, order, after)
 
 
 @router.get("/{annotation_id}")
 def get_annotation(annotation_id: AnnotationId, request: Request) -> AnnotationRecord:
     session_id, chunk = parse_annotation_id(annotation_id)
-    record = read_record(request.app.state.sessions_dir / session_id, chunk)
+    record = read_record(session_dir(request.app.state.devices_dir, session_id), chunk)
     if record is None:
         raise HTTPException(status_code=404, detail=f"no annotation with id {annotation_id}")
     return record
@@ -74,19 +83,13 @@ def request_annotation(annotation_id: AnnotationId, request: Request,
     """
     state = request.app.state
     session_id, chunk = parse_annotation_id(annotation_id)
-    session_dir = state.sessions_dir / session_id
-    if count_rows(session_dir) <= chunk * state.annotate.chunk_size:
+    if count_rows(session_dir(state.devices_dir, session_id)) <= chunk * state.annotate.chunk_size:
         raise HTTPException(status_code=404,
                             detail=f"session {session_id} has no chunk {chunk}")
 
-    record = read_record(session_dir, chunk)
-    if record is not None and record.status == "done":
+    record = queue_chunk(state, session_id, chunk)
+    if record.status == "done":
         return record
-    if record is None or not state.worker.is_waiting(session_id, chunk):
-        # New, failed, or left pending by a server that stopped: (re)queue it.
-        record = new_record(session_id, chunk, state.annotate.model)
-        write_record(session_dir, record)
-        state.worker.submit(session_id, chunk)
     response.status_code = 202
     response.headers["Location"] = f"/annotations/{annotation_id}"
     return record

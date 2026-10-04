@@ -69,6 +69,15 @@ in OpenAI's list shape: `?limit=` (1-100, default 20), `?order=desc|asc` (by
 last change, default `desc`) and `?after=<id>` for the next page; the response
 is `{"object": "list", "data", "first_id", "last_id", "has_more"}`.
 
+`POST /predictions` (optionally `?device=<device_id>`) returns
+`{actions, retrieved, timestamp}`: the model's prediction of the user's next
+`predict.future_len` actions as an `<actions>` block of `<action>` tags, made
+the way Tada's prompted user model makes it, from the last `predict.past_len`
+annotated actions, the screenshots of the newest `predict.num_imgs_per_sample`
+and earlier activity retrieved with BM25 (`retrieved`). It answers 409 until
+that many actions are annotated. The screenshots need a model server that
+accepts images.
+
 There are no command-line flags. All three read [`config.yaml`](config.yaml)
 from the working directory, or the file named by `JUNO_CONFIG_PATH`. For a
 synthetic session that needs no access, set `backend: fake` and `duration: 10`
@@ -81,6 +90,20 @@ Sessions go to `~/.local/share/juno/screen/sessions/session_<timestamp>/`
 (`capture.data_dir` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
 screenshots scaled to 100 dpi, mouse moves not recorded. On a 4K screen those
 defaults are heavy; `scale: 0.5` with `buffer_seconds: 10` is much lighter.
+
+With `annotate.live` set, the recorder also uploads each aggregation and its
+screenshot to the server in `server.host` (`PUT /aggregations/{id}`), which can
+be another machine. The server keeps every device's sessions under
+`<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
+fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
+`?device=<device_id>`. A session's id on the server is
+`<device_id>-session_<timestamp>`. On a machine that only records, run
+`uv run python -m capture` instead of `python -m juno`.
+
+`uv run python -m capture.upload` copies every session already recorded on this
+computer to the server, without asking for annotations; run it again to
+continue a copy that stopped. Set `capture.device_id` first: the id is part of
+every session id the server stores.
 
 ## Adding a backend
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from annotate.label import Annotation
-from annotate.records import read_aggregations
+from annotate.records import read_aggregations, session_dir
 from annotate.request import AnnotationRequest, chunk_request
 from annotate.sanitize import sanitize
 from annotate.store import AnnotationRecord, list_records, read_record, write_record
@@ -25,12 +25,12 @@ from juno.config import AnnotateConfig
 logger = logging.getLogger(__name__)
 
 
-def annotated(record: AnnotationRecord, session_dir: Path, chunk_size: int,
+def annotated(record: AnnotationRecord, directory: Path, chunk_size: int,
               annotate_request: Callable[[AnnotationRequest], Annotation]) -> AnnotationRecord:
     """``record`` after its one model call: done with the output, or failed with the reason."""
     update: dict = {}
     try:
-        request = chunk_request(read_aggregations(session_dir), record.chunk, chunk_size)
+        request = chunk_request(read_aggregations(directory), record.chunk, chunk_size)
         if request is None:
             raise ValueError("the chunk has no aggregation with a screenshot")
         request = sanitize(request)
@@ -46,14 +46,14 @@ def annotated(record: AnnotationRecord, session_dir: Path, chunk_size: int,
 
 class AnnotationWorker:
 
-    def __init__(self, sessions_dir: Path, config: AnnotateConfig,
+    def __init__(self, devices_dir: Path, config: AnnotateConfig,
                  annotate_request: Callable[[AnnotationRequest], Annotation]):
         """
         Args:
-            sessions_dir: where the session directories are.
+            devices_dir: where the server stores every device's sessions.
             annotate_request: the model call for one sanitized request.
         """
-        self.sessions_dir = sessions_dir
+        self.devices_dir = devices_dir
         self.config = config
         self.annotate_request = annotate_request
         self._queue: queue.Queue[tuple[str, int]] = queue.Queue()
@@ -80,7 +80,7 @@ class AnnotationWorker:
 
     def resume_pending(self) -> int:
         """Queue every annotation a previous server left pending; returns how many."""
-        pending = [record for record in list_records(self.sessions_dir)
+        pending = [record for record in list_records(self.devices_dir)
                    if record.status == "pending"]
         for record in pending:
             self.submit(record.session_id, record.chunk)
@@ -90,11 +90,11 @@ class AnnotationWorker:
         while True:
             session_id, chunk = self._queue.get()
             try:
-                session_dir = self.sessions_dir / session_id
-                record = read_record(session_dir, chunk)
+                directory = session_dir(self.devices_dir, session_id)
+                record = read_record(directory, chunk)
                 if record is not None and record.status == "pending":
-                    write_record(session_dir, annotated(
-                        record, session_dir, self.config.chunk_size, self.annotate_request))
+                    write_record(directory, annotated(
+                        record, directory, self.config.chunk_size, self.annotate_request))
             except Exception:
                 logger.exception("annotation worker failed on %s chunk %d", session_id, chunk)
             finally:

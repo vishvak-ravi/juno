@@ -2,8 +2,8 @@
 
 Chunk ``n`` of a session is rows ``n * chunk_size`` up to ``(n + 1) * chunk_size``
 of its ``raw_aggregations.jsonl``. Its annotation has the id
-``<session id>-<n as four digits>`` and is stored in
-``<session dir>/annotations/<n as four digits>.json``. The file holds what was
+``<session id>-<n as four digits>`` (session ids as in ``annotate.records``) and
+is stored in ``<session dir>/annotations/<n as four digits>.json``. The file holds what was
 sent (frames, after sanitizing), how it was sanitized, the model, and what came
 back, so two models or two sanitizers can be compared on the same chunk later.
 """
@@ -20,18 +20,21 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ValidationError
 
 from annotate.label import Annotation
+from annotate.records import SESSION_ID_PATTERN, session_dirs
 from annotate.request import AnnotationFrame
 
 logger = logging.getLogger(__name__)
 
 ANNOTATIONS_DIR = "annotations"
-ANNOTATION_ID = re.compile(r"^(?P<session_id>[A-Za-z0-9_]+)-(?P<chunk>\d{4,})$")
+ANNOTATION_ID = re.compile(rf"^(?P<session_id>{SESSION_ID_PATTERN})-(?P<chunk>\d{{4,}})$")
 
 Status = Literal["pending", "done", "failed"]
 
 
 class AnnotationRecord(BaseModel):
     id: str
+    # The device whose activity this describes; the start of ``session_id``.
+    device_id: str
     session_id: str
     chunk: int
     # pending: waiting for the model. failed: ``error`` says why; a new PUT retries.
@@ -66,7 +69,8 @@ def annotation_file(session_dir: Path, chunk: int) -> Path:
 
 def new_record(session_id: str, chunk: int, model: str) -> AnnotationRecord:
     now = time.time()
-    return AnnotationRecord(id=annotation_id(session_id, chunk), session_id=session_id,
+    return AnnotationRecord(id=annotation_id(session_id, chunk),
+                            device_id=session_id.split("-", 1)[0], session_id=session_id,
                             chunk=chunk, status="pending", created_at=now, updated_at=now,
                             model=model)
 
@@ -88,22 +92,25 @@ def write_record(session_dir: Path, record: AnnotationRecord) -> None:
     os.replace(temporary, path)
 
 
-def list_records(sessions_dir: Path, session_id: Optional[str] = None,
-                 since: Optional[float] = None,
-                 until: Optional[float] = None) -> list[AnnotationRecord]:
-    """Stored annotations, oldest first; unreadable files are skipped.
+def list_records(devices_dir: Path, session_id: Optional[str] = None,
+                 since: Optional[float] = None, until: Optional[float] = None,
+                 device_id: Optional[str] = None) -> list[AnnotationRecord]:
+    """Stored annotations, oldest first within each session; unreadable files are skipped.
 
-    ``since`` and ``until`` (Unix seconds) keep the annotations whose frames
-    overlap that range. An annotation with no frames yet has no time and is
-    dropped when either is given.
+    ``session_id`` and ``device_id`` keep the annotations of that session or
+    device. ``since`` and ``until`` (Unix seconds) keep the annotations whose
+    frames overlap that range. An annotation with no frames yet has no time
+    and is dropped when either is given.
     """
-    pattern = f"{session_id or '*'}/{ANNOTATIONS_DIR}/*.json"
     records = []
-    for path in sessions_dir.glob(pattern):
+    for path in (path for directory in session_dirs(devices_dir, device_id)
+                 for path in (directory / ANNOTATIONS_DIR).glob("*.json")):
         try:
             record = AnnotationRecord.model_validate_json(path.read_text())
         except (OSError, ValidationError) as exc:
             logger.warning("skipping %s: %s", path, exc)
+            continue
+        if session_id is not None and record.session_id != session_id:
             continue
         if since is not None and (record.end_time is None or record.end_time < since):
             continue

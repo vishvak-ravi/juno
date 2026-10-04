@@ -11,11 +11,13 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate
 from annotate.request import AnnotationRequest
-from juno.config import Config, load_config, resolve_data_dir, sessions_dir
+from juno.config import Config, devices_dir, load_config, resolve_data_dir
+from predict.predictor import Predictor
 from server.mcp import MCP_PATH, create_mcp
 from server.routes.aggregations import router as aggregations_router
 from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
+from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
 from server.worker import AnnotationWorker
 
@@ -47,7 +49,7 @@ def create_app(config: Optional[Config] = None,
     Args:
         config: the app settings; read from the YAML config file if None.
             Chats are stored under ``chats/`` in the capture data directory,
-            next to the recorder's ``screen/``.
+            uploaded sessions under ``screen/devices/``.
         annotate_request: the model call for one sanitized annotation request;
             by default ``annotate.label.annotate`` with the configured model.
     """
@@ -59,7 +61,7 @@ def create_app(config: Optional[Config] = None,
                             max_tokens=config.annotate.max_tokens)
 
     data_dir = resolve_data_dir(config.capture)
-    mcp = create_mcp(sessions_dir(data_dir))
+    mcp = create_mcp(devices_dir(data_dir), config.llm.tool_result_chars)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -71,11 +73,12 @@ def create_app(config: Optional[Config] = None,
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.state.chats_dir = data_dir / "chats"
-    app.state.sessions_dir = sessions_dir(data_dir)
+    app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
     app.state.mcp = mcp
     app.state.annotate = config.annotate
-    app.state.worker = AnnotationWorker(app.state.sessions_dir, config.annotate,
+    app.state.predictor = Predictor(config.predict)
+    app.state.worker = AnnotationWorker(app.state.devices_dir, config.annotate,
                                         annotate_request)
     app.include_router(router)
     app.include_router(web_router)
@@ -83,6 +86,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(sessions_router)
     app.include_router(aggregations_router)
     app.include_router(annotations_router)
+    app.include_router(predictions_router)
     # After the routes: the MCP app answers MCP_PATH and nothing else.
     # Requests must name this server by an address it is reached at (blocks DNS rebinding).
     names = {config.server.host, "127.0.0.1", "localhost"}

@@ -7,6 +7,8 @@ The file is ``config.yaml`` in the working directory, or the path in
 from __future__ import annotations
 
 import os
+import re
+import socket
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +36,9 @@ class CaptureConfig(Section):
     # Base directory; sessions go under screen/sessions/, chats under chats/.
     # None: default_data_dir().
     data_dir: Optional[Path] = None
+    # The name this computer's sessions are stored under on the server: lowercase
+    # letters and digits. None: the host name, reduced to those.
+    device_id: Optional[str] = Field(default=None, pattern=r"^[a-z0-9]+$")
     # Platform sources to use; "auto" detects them from the session.
     backend: str = "auto"
     fps: int = 5
@@ -76,9 +81,29 @@ class AnnotateConfig(Section):
     max_tokens: int = 8192
     # Aggregations (screenshots) per request.
     chunk_size: int = 10
-    # Whether the recorder asks the server to annotate each chunk as it fills.
-    # Every screenshot then goes to the model's provider.
+    # Whether the recorder uploads each aggregation to the server, which
+    # annotates each chunk as it fills. Every screenshot then goes to the
+    # model's provider.
     live: bool = False
+
+
+class PredictConfig(Section):
+    # Next-action prediction (`POST /predictions`); the defaults are Tada's.
+    # Annotated actions the model is shown; a prediction needs at least this many.
+    past_len: int = 50
+    # Actions the model is asked to predict.
+    future_len: int = 8
+    # Screenshots sent, those of the newest actions. None: text only.
+    num_imgs_per_sample: Optional[int] = 5
+    max_tokens: int = 2048
+    temperature: float = 1.0
+    # Earlier activity retrieved with BM25, and how many of those are kept
+    # after MMR removes near-duplicates (alpha 1.0: relevance only).
+    top_k: int = 20
+    mmr_k: int = 10
+    mmr_alpha: float = 0.5
+    # How fast older activity loses retrieval score, per day of age.
+    time_decay_lambda: float = 0.5
 
 
 class Config(Section):
@@ -88,6 +113,7 @@ class Config(Section):
     llm: LlmConfig = Field(default_factory=LlmConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
+    predict: PredictConfig = Field(default_factory=PredictConfig)
 
 
 def default_data_dir() -> Path:
@@ -100,9 +126,24 @@ def resolve_data_dir(config: CaptureConfig) -> Path:
     return config.data_dir.expanduser() if config.data_dir else default_data_dir()
 
 
+def resolve_device_id(config: CaptureConfig) -> str:
+    """The id this computer's sessions are stored under on the server."""
+    if config.device_id:
+        return config.device_id
+    device_id = re.sub(r"[^a-z0-9]", "", socket.gethostname().lower())
+    if not device_id:
+        raise ConfigError("the host name has no letter or digit; set capture.device_id")
+    return device_id
+
+
 def sessions_dir(data_dir: Path) -> Path:
-    """Where recorded sessions live under the base directory ``data_dir``."""
+    """Where the recorder writes its sessions under the base directory ``data_dir``."""
     return data_dir / "screen" / "sessions"
+
+
+def devices_dir(data_dir: Path) -> Path:
+    """Where the server stores the sessions uploaded to it, one directory per device."""
+    return data_dir / "screen" / "devices"
 
 
 def config_path() -> Path:

@@ -16,7 +16,7 @@ The bar is: when the user reads your answer, it should be obvious you actually l
 
 ## Available data
 
-**Activity stream**: `list_annotations` — the chronological record of what the user did, newest first. Each annotation has: id, start, end, actions (what the user did), text_on_screen (what they were reading or writing). The result also carries `now` (the current local time) and `more_available`.
+**Activity stream**: `list_annotations` — the chronological record of what the user did, newest first. Each annotation has: id, device (the computer it happened on), start, end, actions (what the user did), text_on_screen (what they were reading or writing). The result also carries `now` (the current local time), `devices` (every computer there is activity from) and `more_available`. Without `device` the list covers every computer, ordered by time; pass `device` for one computer only.
 **One annotation in detail**: `get_annotation` — the keys, clicks and scrolls behind one annotation, by its id. The result is large; use it only when the question needs exactly what was typed or clicked.
 
 Some starting points:
