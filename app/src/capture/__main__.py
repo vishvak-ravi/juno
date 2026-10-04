@@ -1,7 +1,8 @@
 """Run the activity recorder: ``python -m capture``.
 
 Settings come from the ``capture`` section of the YAML config (see
-``juno.config``).
+``juno.config``). With ``annotate.live`` set, the server is asked to annotate
+each chunk of the session as it fills (see ``capture.notify``).
 """
 
 from __future__ import annotations
@@ -10,13 +11,22 @@ import logging
 import signal
 import sys
 import threading
+from typing import Optional
 
+from capture.notify import ChunkNotifier
 from capture.sources import BackendUnavailable, load_backend
 from juno.config import CaptureConfig, ConfigError, load_config, resolve_data_dir
 from juno.parent_watch import start_parent_watch
 
 
-def main(config: CaptureConfig) -> int:
+def main(config: CaptureConfig, annotations_url: Optional[str] = None,
+         chunk_size: Optional[int] = None) -> int:
+    """
+    Args:
+        annotations_url: the server's annotations collection; None records
+            without asking for annotations.
+        chunk_size: aggregations per annotation; required with ``annotations_url``.
+    """
     logging.basicConfig(
         level=logging.DEBUG if config.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -43,6 +53,10 @@ def main(config: CaptureConfig) -> int:
         save_screenshots=config.screenshots,
         disable=config.disable,
     )
+    notifier = None
+    if annotations_url is not None:
+        notifier = ChunkNotifier(recorder.session_dir, annotations_url, chunk_size)
+        recorder.on_aggregation = notifier.on_aggregation
 
     done = threading.Event()
     signals = (signal.SIGINT, signal.SIGTERM)
@@ -62,6 +76,8 @@ def main(config: CaptureConfig) -> int:
             signal.signal(signum, signal.SIG_IGN)
         try:
             complete = recorder.stop()
+            if notifier is not None:
+                notifier.close()
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
@@ -75,12 +91,16 @@ def main(config: CaptureConfig) -> int:
 
 def run() -> int:
     try:
-        config = load_config().capture
+        config = load_config()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     start_parent_watch()
-    return main(config)
+    if not config.annotate.live:
+        return main(config.capture)
+    return main(config.capture,
+                annotations_url=f"http://{config.server.host}:{config.server.port}/annotations",
+                chunk_size=config.annotate.chunk_size)
 
 
 if __name__ == "__main__":
