@@ -45,15 +45,17 @@ def wait_for(condition) -> bool:
 def start_app(tmp_path, port, **capture) -> subprocess.Popen:
     """Start the app on a fake-backend config; its stderr (and its children's) is piped."""
     config = {
-        "server": {"host": HOST, "port": port},
+        "server": {"port": port},
         "capture": {"backend": "fake", "data_dir": str(tmp_path), "fps": 20,
                     "screenshots": False, **capture},
+        "annotate": {"live": False},
     }
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(config))
     return subprocess.Popen(
         [sys.executable, "-m", "juno"],
-        env={**os.environ, "JUNO_CONFIG_PATH": str(path)},
+        # Set here, so a JUNO_SERVER_HOST in a .env file does not apply.
+        env={**os.environ, "JUNO_CONFIG_PATH": str(path), "JUNO_SERVER_HOST": HOST},
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
     )
 

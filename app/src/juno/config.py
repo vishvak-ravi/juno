@@ -2,6 +2,8 @@
 
 The file is ``config.yaml`` in the working directory, or the path in
 ``JUNO_CONFIG_PATH``. Keys left out of the file take the defaults below.
+Settings that differ between devices are not in the file: they are read from
+the environment (or a .env file), see ``server_host`` and ``resolve_device_id``.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 CONFIG_PATH_ENV = "JUNO_CONFIG_PATH"
+SERVER_HOST_ENV = "JUNO_SERVER_HOST"
+DEVICE_ID_ENV = "JUNO_DEVICE_ID"
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
@@ -28,7 +32,6 @@ class Section(BaseModel):
 
 
 class ServerConfig(Section):
-    host: str = "127.0.0.1"
     port: int = 8765
 
 
@@ -36,9 +39,6 @@ class CaptureConfig(Section):
     # Base directory; sessions go under screen/sessions/, chats under chats/.
     # None: default_data_dir().
     data_dir: Optional[Path] = None
-    # The name this computer's sessions are stored under on the server: lowercase
-    # letters and digits. None: the host name, reduced to those.
-    device_id: Optional[str] = Field(default=None, pattern=r"^[a-z0-9]+$")
     # Platform sources to use; "auto" detects them from the session.
     backend: str = "auto"
     fps: int = 5
@@ -95,7 +95,7 @@ class ClaudeConfig(Section):
     # Whether the chat model may forward prompts to Claude Code in tmux. Claude
     # runs as the server's user, outside the bash sandbox, and is billed to the
     # account `claude` is logged in to.
-    enabled: bool = False
+    enabled: bool = True
     # The Claude Code executable.
     command: str = "claude"
     # The model of a new conversation when the call names none: an alias such
@@ -135,7 +135,7 @@ class AnnotateConfig(Section):
     # Whether the recorder uploads each aggregation to the server, which
     # annotates each chunk as it fills. Every screenshot then goes to the
     # model's provider.
-    live: bool = False
+    live: bool = True
     # Model calls the server keeps in flight at once.
     max_concurrency: int = 4
     # Calls made for one chunk before its annotation is left failed. A call is
@@ -198,13 +198,24 @@ def resolve_data_dir(config: CaptureConfig) -> Path:
     return config.data_dir.expanduser() if config.data_dir else default_data_dir()
 
 
-def resolve_device_id(config: CaptureConfig) -> str:
-    """The id this computer's sessions are stored under on the server."""
-    if config.device_id:
-        return config.device_id
+def server_host() -> str:
+    """The address the server listens on and recorders upload to: JUNO_SERVER_HOST."""
+    return os.environ.get(SERVER_HOST_ENV) or "127.0.0.1"
+
+
+def resolve_device_id() -> str:
+    """The id this computer's sessions are stored under on the server.
+
+    JUNO_DEVICE_ID (lowercase letters and digits), or the host name reduced to those.
+    """
+    device_id = os.environ.get(DEVICE_ID_ENV)
+    if device_id:
+        if not re.fullmatch(r"[a-z0-9]+", device_id):
+            raise ConfigError(f"{DEVICE_ID_ENV} must be lowercase letters and digits")
+        return device_id
     device_id = re.sub(r"[^a-z0-9]", "", socket.gethostname().lower())
     if not device_id:
-        raise ConfigError("the host name has no letter or digit; set capture.device_id")
+        raise ConfigError(f"the host name has no letter or digit; set {DEVICE_ID_ENV}")
     return device_id
 
 

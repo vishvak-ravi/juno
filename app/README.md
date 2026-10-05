@@ -79,7 +79,9 @@ that many actions are annotated. The screenshots need a model server that
 accepts images.
 
 There are no command-line flags. All three read [`config.yaml`](config.yaml)
-from the working directory, or the file named by `JUNO_CONFIG_PATH`. For a
+from the working directory, or the file named by `JUNO_CONFIG_PATH`. What
+differs between devices, the server host and the device id, is read from `.env`
+instead (see [`.env.example`](.env.example)). For a
 synthetic session that needs no access, set `backend: fake` and `duration: 10`
 under `capture`.
 
@@ -92,7 +94,7 @@ screenshots scaled to 100 dpi, mouse moves not recorded. On a 4K screen those
 defaults are heavy; `scale: 0.5` with `buffer_seconds: 10` is much lighter.
 
 With `annotate.live` set, the recorder also uploads each aggregation and its
-screenshot to the server in `server.host` (`PUT /aggregations/{id}`), which can
+screenshot to the server at `JUNO_SERVER_HOST` (`PUT /aggregations/{id}`), which can
 be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
 fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
@@ -110,7 +112,7 @@ shows, per device and session, what arrived and what is annotated.
 
 `uv run python -m capture.upload` copies every session already recorded on this
 computer to the server, without asking for annotations; run it again to
-continue a copy that stopped. Set `capture.device_id` first: the id is part of
+continue a copy that stopped. Set `JUNO_DEVICE_ID` first: the id is part of
 every session id the server stores.
 
 ## Adding a backend

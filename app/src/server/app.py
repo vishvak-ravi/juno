@@ -12,7 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
 from juno.config import (Config, claude_results_dir, devices_dir, load_config,
-                         resolve_data_dir, workspace_dir)
+                         resolve_data_dir, server_host, workspace_dir)
 from predict.predictor import Predictor
 from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
@@ -125,7 +125,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(predictions_router)
     # After the routes: the MCP app answers MCP_PATH and nothing else.
     # Requests must name this server by an address it is reached at (blocks DNS rebinding).
-    names = {config.server.host, "127.0.0.1", "localhost"}
+    names = {server_host(), "127.0.0.1", "localhost"}
     allowed_hosts = sorted(names | {f"{name}:*" for name in names})
     app.mount("/", mcp.streamable_http_app(
         streamable_http_path=MCP_PATH, stateless_http=True, json_response=True,

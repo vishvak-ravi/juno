@@ -13,6 +13,8 @@ import sys
 import threading
 from typing import Optional
 
+from dotenv import find_dotenv, load_dotenv
+
 from capture.sources import BackendUnavailable, load_backend
 from capture.upload import AggregationUploader
 from juno.config import (
@@ -21,6 +23,7 @@ from juno.config import (
     load_config,
     resolve_data_dir,
     resolve_device_id,
+    server_host,
 )
 from juno.parent_watch import start_parent_watch
 
@@ -60,7 +63,7 @@ def main(config: CaptureConfig, aggregations_url: Optional[str] = None) -> int:
     uploader = None
     if aggregations_url is not None:
         uploader = AggregationUploader(recorder.session_dir, aggregations_url,
-                                       resolve_device_id(config))
+                                       resolve_device_id())
         recorder.on_aggregation = uploader.on_aggregation
 
     done = threading.Event()
@@ -95,6 +98,8 @@ def main(config: CaptureConfig, aggregations_url: Optional[str] = None) -> int:
 
 
 def run() -> int:
+    # This device's settings may live in a .env file.
+    load_dotenv(find_dotenv(usecwd=True))
     try:
         config = load_config()
     except ConfigError as exc:
@@ -104,7 +109,7 @@ def run() -> int:
     if not config.annotate.live:
         return main(config.capture)
     return main(config.capture,
-                aggregations_url=f"http://{config.server.host}:{config.server.port}/aggregations")
+                aggregations_url=f"http://{server_host()}:{config.server.port}/aggregations")
 
 
 if __name__ == "__main__":

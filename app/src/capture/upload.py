@@ -24,12 +24,14 @@ import threading
 from pathlib import Path
 
 import httpx
+from dotenv import find_dotenv, load_dotenv
 
 from juno.config import (
     ConfigError,
     load_config,
     resolve_data_dir,
     resolve_device_id,
+    server_host,
     sessions_dir,
 )
 
@@ -155,13 +157,15 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         stream=sys.stderr)
+    # This device's settings may live in a .env file.
+    load_dotenv(find_dotenv(usecwd=True))
     try:
         config = load_config()
-        device_id = resolve_device_id(config.capture)
+        device_id = resolve_device_id()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    url = f"http://{config.server.host}:{config.server.port}/aggregations"
+    url = f"http://{server_host()}:{config.server.port}/aggregations"
     recorded_dir = sessions_dir(resolve_data_dir(config.capture))
     if not copy_sessions(recorded_dir, url, device_id):
         print("error: not everything was copied; run again to continue", file=sys.stderr)

@@ -114,5 +114,4 @@ def test_the_model_forwards_a_prompt_only_when_enabled(config, tmp_path):
     result = json.loads(call(ToolsConfig(claude=config)))
     assert result["reply"] == "default: one"
     assert result["tmux_dest"]["name"] == "from-chat"
-    # Off by default.
-    assert call(ToolsConfig()).startswith("error:")
+    assert call(ToolsConfig(claude=ClaudeConfig(enabled=False))).startswith("error:")
