@@ -126,7 +126,7 @@ K1 is the only one to optimize. K2–K4 are pass/fail gates for the MVP.
   compute server over SSH), *server* (context store + model router).
 - Models: intent and captioning follow the NAP series I/O; grader trains the
   intent model; executor is a general agent.
-- Reference implementation: [`tada/`](tada/) (General User Models) — see
+- Reference implementation: [Tada](https://github.com/GeneralUserModels/tada) (General User Models) — see
   [Learning Next Action Predictors](https://arxiv.org/abs/2603.05923) and
   [Creating General User Models from Computer Use](https://arxiv.org/abs/2505.10831).
 

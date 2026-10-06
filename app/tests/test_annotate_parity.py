@@ -1,9 +1,9 @@
 """The model input we build must be the one Tada's own labeler sends.
 
-The reference is Tada's ``Labeler.label_chunk`` itself, loaded from the
-``tada/`` checkout next to ``app/`` and run up to its ``litellm.completion``
-call, which is captured instead of sent. Without that checkout these tests
-are skipped.
+The reference is Tada's ``Labeler.label_chunk`` itself, run up to its
+``litellm.completion`` call, which is captured instead of sent. ``tests/tada/``
+holds the Tada files it needs, unmodified, from github.com/GeneralUserModels/tada
+at 25a28f7 (Apache-2.0, see ``tests/tada/LICENSE``).
 
 Three sources of aggregations are checked: a recording through the Wayland
 sources with a simulated portal helper and simulated kernel input, a recording
@@ -39,8 +39,7 @@ from juno.config import AnnotateConfig
 
 from test_recorder import ManualInput, type_and_click
 
-TADA_SRC = Path(__file__).resolve().parents[2] / "tada" / "src"
-LABELER_FILE = TADA_SRC / "connectors" / "screen" / "napsack" / "labeler.py"
+TADA_DIR = Path(__file__).with_name("tada")
 FAKE_HELPER = str(Path(__file__).with_name("fake_helper.py"))
 MONITOR = {"left": 100, "top": 0, "width": 200, "height": 100}
 
@@ -68,15 +67,13 @@ class TadaLabeler:
 
 @pytest.fixture
 def tada(monkeypatch):
-    if not LABELER_FILE.exists():
-        pytest.skip(f"no Tada checkout at {TADA_SRC}")
     # labeler.py imports shared.model_catalog and stubs napsack's Tinfoil client.
-    catalog = load_module("shared.model_catalog", TADA_SRC / "shared" / "model_catalog.py")
+    catalog = load_module("shared.model_catalog", TADA_DIR / "model_catalog.py")
     monkeypatch.setitem(sys.modules, "shared", types.ModuleType("shared"))
     monkeypatch.setitem(sys.modules, "shared.model_catalog", catalog)
     monkeypatch.setitem(sys.modules, "napsack.label.clients.tinfoil",
                         types.SimpleNamespace(TinfoilClient=object))
-    module = load_module("tada_labeler", LABELER_FILE)
+    module = load_module("tada_labeler", TADA_DIR / "labeler.py")
 
     calls = []
 
@@ -344,7 +341,7 @@ def test_a_chunk_out_of_time_order_is_where_we_differ(tada, tmp_path):
 
 
 def test_the_request_tada_sends_is_the_one_these_tests_assume(tada, tmp_path):
-    """Pins what Tada passes besides the messages, so a change in ``tada/`` shows up here."""
+    """Pins what Tada passes besides the messages, so a change in ``tests/tada/`` shows up here."""
     rows = [row(tmp_path, 10.0, [event(10.5, "key_press", {"key": "a"})])]
     sent = tada.sent([as_processed(r) for r in rows])
     assert sent["model"].startswith("gemini/")
