@@ -8,10 +8,15 @@ The model answers with the tools of ``server.tools`` and, unless the
 chat starts with a system message of its own, the system prompt in
 ``prompts/chat_system.txt``. Neither the prompt nor the tool calls are stored.
 
+A reply can take minutes while the model calls tools. ``/chats/{id}/activity``
+says whether one is being made and which tool the model is waiting for, so a
+client can show that while its PUT is unanswered, or after it lost the connection.
+
 The list route returns a ``server.routes.paging.Page``.
 """
 
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
@@ -34,11 +39,35 @@ ChatId = Annotated[str, PathParam(pattern=CHAT_ID_PATTERN, max_length=CHAT_ID_MA
 # once must not interleave, so PUTs run one at a time.
 write_lock = threading.Lock()
 
+
+
+@dataclass(eq=False)
+class Reply:
+    """One PUT that has not been answered yet."""
+    # The messages being replied to; they are stored only together with the reply.
+    messages: list[Message]
+    # The tool the model is waiting for; None while the model itself is working.
+    tool: Optional[str] = None
+
+
+# The unanswered PUTs of each chat, oldest first, for the activity route.
+replies: dict[str, list[Reply]] = {}
+replies_lock = threading.Lock()
+
 # {max_tokens} is the configured reply limit.
 SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "chat_system.txt").read_text()
 
 
 class NewMessages(BaseModel):
+    messages: list[Message]
+
+
+class ChatActivity(BaseModel):
+    # Whether a reply to this chat is being made, or waiting for its turn to be.
+    replying: bool
+    # The tool the model is waiting for; None while the model itself is working.
+    tool: Optional[str]
+    # The messages being replied to, which GET /chats/{id} does not return yet.
     messages: list[Message]
 
 
@@ -79,6 +108,17 @@ def get_chat(chat_id: ChatId, request: Request) -> Chat:
     return chat
 
 
+@router.get("/{chat_id}/activity")
+def get_chat_activity(chat_id: ChatId) -> ChatActivity:
+    """What is being done for the chat right now. A chat nobody is waiting on, stored or
+    not, is not replying."""
+    with replies_lock:
+        current = list(replies.get(chat_id, []))
+    return ChatActivity(replying=bool(current),
+                        tool=next((reply.tool for reply in current if reply.tool), None),
+                        messages=[message for reply in current for message in reply.messages])
+
+
 @router.put("/{chat_id}")
 def append_to_chat(chat_id: ChatId, body: NewMessages, request: Request) -> Chat:
     """Append the messages and the model's reply to them, creating the chat if needed.
@@ -89,23 +129,37 @@ def append_to_chat(chat_id: ChatId, body: NewMessages, request: Request) -> Chat
     path = chat_file(request.app.state.chats_dir, chat_id)
     llm = request.app.state.llm
     chat_tools = request.app.state.chat_tools
-    tools = tool_definitions(chat_tools)
+    # Listed before the lock is taken: a PUT waiting for its turn is a reply on its way too.
+    in_progress = Reply(messages=body.messages)
+    with replies_lock:
+        replies.setdefault(chat_id, []).append(in_progress)
 
     def call_tool(name: str, arguments: str) -> str:
-        # This route runs in a worker thread; the tools are run by a coroutine.
-        return from_thread.run(call_chat_tool, chat_tools, name, arguments)
-
-    with write_lock:
-        chat = read_chat(path) or Chat(id=chat_id, messages=[])
-        chat.messages.extend(body.messages)
-        messages = [message.model_dump() for message in chat.messages]
-        if not messages or messages[0]["role"] != "system":
-            prompt = SYSTEM_PROMPT.format(max_tokens=llm.max_tokens)
-            messages.insert(0, {"role": "system", "content": prompt})
+        in_progress.tool = name
         try:
-            reply = complete(llm, messages, tools, call_tool)
-        except LlmError as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-        chat.messages.append(Message(role="assistant", content=reply))
-        write_chat(path, chat)
+            # This route runs in a worker thread; the tools are run by a coroutine.
+            return from_thread.run(call_chat_tool, chat_tools, name, arguments)
+        finally:
+            in_progress.tool = None
+
+    try:
+        tools = tool_definitions(chat_tools)
+        with write_lock:
+            chat = read_chat(path) or Chat(id=chat_id, messages=[])
+            chat.messages.extend(body.messages)
+            messages = [message.model_dump() for message in chat.messages]
+            if not messages or messages[0]["role"] != "system":
+                prompt = SYSTEM_PROMPT.format(max_tokens=llm.max_tokens)
+                messages.insert(0, {"role": "system", "content": prompt})
+            try:
+                reply = complete(llm, messages, tools, call_tool)
+            except LlmError as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            chat.messages.append(Message(role="assistant", content=reply))
+            write_chat(path, chat)
+    finally:
+        with replies_lock:
+            replies[chat_id].remove(in_progress)
+            if not replies[chat_id]:
+                del replies[chat_id]
     return chat

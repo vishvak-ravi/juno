@@ -8,8 +8,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from fastapi.testclient import TestClient
 
+from anyio import to_thread
+
 from juno.config import CaptureConfig, Config, LlmConfig
 from server.app import create_app
+from server.routes import chats
 
 
 class FakeModelServer(ThreadingHTTPServer):
@@ -125,6 +128,51 @@ def test_the_model_can_read_annotations_before_it_answers(tmp_path, model_server
     # Only the question and the final answer are kept.
     assert response.json()["messages"] == [
         question, {"role": "assistant", "content": "re: " + result["content"]}]
+
+
+def test_activity_names_the_tool_a_reply_is_waiting_for(tmp_path, model_server, monkeypatch):
+    client = client_for(tmp_path, model_server.url)
+    question = {"role": "user", "content": "a question about recent activity"}
+    model_server.tool_calls.append({
+        "id": "call-1", "type": "function",
+        "function": {"name": "list_annotations", "arguments": "{}"}})
+    idle = {"replying": False, "tool": None, "messages": []}
+    assert client.get("/chats/abc/activity").json() == idle
+
+    # The tool does not return until the test has looked at the activity.
+    called, finish = threading.Event(), threading.Event()
+
+    async def slow_tool(mcp, name, arguments):
+        called.set()
+        await to_thread.run_sync(finish.wait)
+        return "nothing"
+
+    monkeypatch.setattr(chats, "call_chat_tool", slow_tool)
+    responses = []
+    put = threading.Thread(target=lambda: responses.append(
+        client.put("/chats/abc", json={"messages": [question]})))
+    put.start()
+    try:
+        assert called.wait(timeout=10)
+        assert client.get("/chats/abc/activity").json() == {
+            "replying": True, "tool": "list_annotations", "messages": [question]}
+        # The question is stored only with its reply, and other chats are not waiting.
+        assert client.get("/chats/abc").status_code == 404
+        assert client.get("/chats/other/activity").json() == idle
+    finally:
+        finish.set()
+        put.join(timeout=10)
+
+    assert responses[0].status_code == 200
+    assert client.get("/chats/abc/activity").json() == idle
+
+
+def test_activity_ends_when_the_reply_fails(tmp_path):
+    client = client_for(tmp_path, "http://127.0.0.1:1")
+    question = {"role": "user", "content": "first question"}
+    assert client.put("/chats/abc", json={"messages": [question]}).status_code == 502
+    assert client.get("/chats/abc/activity").json() == {
+        "replying": False, "tool": None, "messages": []}
 
 
 def test_a_chat_with_its_own_system_message_keeps_it(tmp_path, model_server):

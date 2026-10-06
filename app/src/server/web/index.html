@@ -44,7 +44,14 @@
   .message { max-width: 85%; width: fit-content; margin: 0 0 .5rem; padding: .5rem .75rem; border-radius: 1rem; background: var(--raw);
              white-space: pre-wrap; overflow-wrap: anywhere; }
   .message.user { margin-left: auto; color: #fff; background: var(--accent); }
-  .message.pending { opacity: .6; }
+  /* The reply on its way: moving dots, then what is being waited for. */
+  .message.waiting { display: flex; align-items: center; gap: .5rem; color: var(--dim); }
+  .dots { display: flex; gap: .2rem; }
+  .dots span { width: .4rem; height: .4rem; border-radius: 50%; background: currentColor; animation: dot 1.2s ease-in-out infinite; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dot { 0%, 80%, 100% { opacity: .3; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .dots span { animation: none; opacity: .6; } }
   .message.error { color: var(--error); background: none; padding-left: 0; }
   /* Assistant replies, read as markdown. */
   .md { white-space: normal; }
@@ -239,40 +246,138 @@
     ? el("div", { className: "message assistant" }, markdown(content))
     : el("div", { className: `message ${role}`, textContent: content });
   const toBottom = () => { view.scrollTop = view.scrollHeight; };
+  // A chat exists on the server only once its first message is sent, so 404 is a new chat.
+  const stored = (id) => api(`/chats/${id}`).catch((error) => {
+    if (error.status === 404) return { messages: [] };
+    throw error;
+  });
   let chatId = null;
-  const chat = async (id) => {
-    // A chat exists on the server only once its first message is sent, so 404 is a new chat.
-    const { messages } = await api(`/chats/${id}`).catch((error) => {
-      if (error.status === 404) return { messages: [] };
-      throw error;
-    });
-    requestAnimationFrame(toBottom);
-    return messages.map(bubble);
+  // Counts the screens shown, so work started on one can tell that it was left.
+  let screen = 0;
+  // How many messages of the chat on screen the server has stored.
+  let storedCount = 0;
+  function show(messages) {
+    storedCount = messages.length;
+    view.replaceChildren(...messages.map(bubble));
+  }
+
+  // A reply takes as long as the tools the model calls, up to minutes. What the
+  // user is waiting for meanwhile, by the tool GET /chats/{id}/activity names.
+  const WAITS = {
+    list_annotations: "Reading your activity",
+    get_annotation: "Reading your activity",
+    predict_next_actions: "Predicting what you'll do next",
+    search_chats: "Looking through past chats",
+    get_chat: "Looking through past chats",
+    web_search: "Searching the web",
+    bash: "Running a command",
+    fwd_to_claude: "Asking Claude Code",
   };
-  composer.onsubmit = async (event) => {
-    event.preventDefault();
-    const content = input.value.trim();
-    const id = chatId;
-    if (!content || sendButton.disabled) return;
+  const POLL_MS = 1000;
+  // Polls in a row that may fail before the server counts as out of reach.
+  const POLL_FAILURES = 10;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // The bubble a reply takes the place of: moving dots and what is being waited for.
+  function waiting() {
+    const label = el("span");
+    const dots = el("span", { className: "dots" }, el("span"), el("span"), el("span"));
+    const node = el("div", { className: "message waiting" }, dots, label);
+    node.setAttribute("role", "status");
+    const say = (text) => { if (label.textContent !== text) label.textContent = text; };
+    const tool = (name) => say(name ? WAITS[name] || "Working" : "Thinking");
+    tool(null);
+    return { node, say, tool };
+  }
+
+  // Keeps `indicator` saying what chat `id` is waiting for. Resolves when the server
+  // is no longer making a reply, or when `watching()` turns false.
+  async function watch(id, indicator, watching) {
+    for (let failures = 0; ;) {
+      await sleep(POLL_MS);
+      if (!watching()) return;
+      try {
+        const activity = await api(`/chats/${id}/activity`);
+        if (!activity.replying || !watching()) return;
+        indicator.tool(activity.tool);
+        failures = 0;
+      } catch (error) {
+        if (++failures === POLL_FAILURES) throw error;
+        indicator.say("Reconnecting");
+      }
+    }
+  }
+
+  // Waits for the reply to chat `id`, with `indicator` on screen after the `sent`
+  // bubbles it answers, and shows it. `request` is the PUT that asked for the reply;
+  // without one, the chat was opened with the reply already on its way.
+  async function answer(id, { indicator, sent, content, request }) {
+    const here = screen;
+    const had = storedCount;
+    let pending = true;
     // Only the button is disabled: disabling the field would close the keyboard.
-    input.value = "";
     sendButton.disabled = true;
-    view.querySelectorAll(".error").forEach((node) => node.remove());
-    const sent = bubble({ role: "user", content });
-    const waiting = bubble({ role: "pending", content: "…" });
-    view.append(sent, waiting);
-    toBottom();
+    const idle = watch(id, indicator, () => pending && screen === here);
+    idle.catch(() => {});  // reread reports it, when the reply depends on it
+    // Without the PUT's answer, the reply is read from the chat once the server is done.
+    const reread = async () => {
+      await idle;
+      const chat = await stored(id);
+      if (chat.messages.length <= had) throw new Error("The reply did not arrive.");
+      return chat;
+    };
+    let messages, failure;
     try {
-      const { messages } = await send(id, content);
-      if (chatId === id) view.replaceChildren(...messages.map(bubble));
+      // A PUT that fails without an answer says nothing about the reply: iOS drops the
+      // requests of a page it suspends, and the server works on.
+      ({ messages } = await (request
+        ? request.catch((error) => { if (error instanceof ApiError) throw error; return reread(); })
+        : reread()));
     } catch (error) {
+      failure = error;
+    }
+    pending = false;
+    if (screen !== here) return;
+    if (messages) {
+      show(messages);
+    } else {
       // The server keeps nothing on failure, so the message goes back in the box.
-      sent.remove();
-      waiting.replaceWith(bubble({ role: "error", content: message_of(error) }));
-      if (chatId === id && !input.value) input.value = content;
+      sent.forEach((node) => node.remove());
+      indicator.node.replaceWith(bubble({ role: "error", content: message_of(failure) }));
+      if (!input.value) input.value = content;
     }
     sendButton.disabled = false;
     toBottom();
+  }
+
+  const chat = async (id) => {
+    const here = screen;
+    // Activity first: when it says no reply is on its way, the chat read after it is whole.
+    const activity = await api(`/chats/${id}/activity`);
+    const { messages } = await stored(id);
+    if (screen !== here) return [];
+    storedCount = messages.length;
+    sendButton.disabled = false;
+    requestAnimationFrame(toBottom);
+    if (!activity.replying) return messages.map(bubble);
+    // The reply was asked for elsewhere, or here before the page was reloaded.
+    const indicator = waiting();
+    indicator.tool(activity.tool);
+    const sent = activity.messages.map(bubble);
+    answer(id, { indicator, sent, content: activity.messages.at(-1)?.content ?? "", request: null });
+    return [...messages.map(bubble), ...sent, indicator.node];
+  };
+  composer.onsubmit = (event) => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!content || sendButton.disabled) return;
+    input.value = "";
+    view.querySelectorAll(".error").forEach((node) => node.remove());
+    const indicator = waiting();
+    const sent = [bubble({ role: "user", content })];
+    view.append(...sent, indicator.node);
+    toBottom();
+    answer(chatId, { indicator, sent, content, request: send(chatId, content) });
   };
 
   // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
@@ -318,6 +423,9 @@
     const hash = location.hash;
     const [, kind, id] = hash.match(/^#\/(chats|sessions)\/([A-Za-z0-9_-]+)$/) || [];
     chatId = kind === "chats" ? id : null;
+    screen++;
+    // Until the chat is on screen: a message sent before then would be drawn over.
+    sendButton.disabled = true;
     back.hidden = !kind;
     composer.hidden = kind !== "chats";
     title.textContent = kind === "chats" ? "Chat" : kind === "sessions" ? id : "Juno";

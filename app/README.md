@@ -60,7 +60,10 @@ the message list the `juno` REPL sends to vLLM (`{"role", "content"}` items).
 `PUT /chats/{id}` with `{"messages": [...]}` appends them, sends the whole
 conversation to the model server in `llm.base_url` (vLLM, as started by `juno`)
 and appends its reply; the chat is created if needed. `GET /chats/{id}` returns
-it. Each chat is one JSON file, `<data_dir>/chats/<id>.json`, next to the
+it. While a PUT is unanswered, `GET /chats/{id}/activity` returns
+`{replying, tool, messages}`: whether a reply is being made, the tool the model
+is waiting for (or null) and the messages being replied to, which are stored
+only with the reply. Each chat is one JSON file, `<data_dir>/chats/<id>.json`, next to the
 recorder's `<data_dir>/screen/`.
 
 `GET /chats` lists the stored chats as `{id, title, message_count, updated_at}`
