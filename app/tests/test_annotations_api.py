@@ -131,10 +131,10 @@ def test_sessions_and_their_aggregations_can_be_browsed(tmp_path):
     assert [item["id"] for item in page["data"]] == [f"{SESSION}-000001", f"{SESSION}-000002"]
     assert page["data"][0]["events"][0]["details"] == {"key": "a"}
 
-    screenshot = client.get(f"/aggregations/{SESSION}-000001/screenshot")
+    screenshot = client.get(f"/events/{SESSION}-000001/screenshot")
     assert screenshot.status_code == 200
     assert screenshot.headers["content-type"] == "image/png"
-    assert client.get(f"/aggregations/{SESSION}-000003").status_code == 404
+    assert client.get(f"/events/{SESSION}-000003").status_code == 404
 
 
 def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):

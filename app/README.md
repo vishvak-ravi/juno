@@ -97,12 +97,21 @@ screenshots scaled to 100 dpi, mouse moves not recorded. On a 4K screen those
 defaults are heavy; `scale: 0.5` with `buffer_seconds: 10` is much lighter.
 
 With `annotate.live` set, the recorder also uploads each aggregation and its
-screenshot to the server at `JUNO_SERVER_HOST` (`PUT /aggregations/{id}`), which can
+screenshot to the server at `JUNO_SERVER_HOST` (`PUT /events/{id}`), which can
 be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
 fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
 `?device=<device_id>`. A session's id on the server is
-`<device_id>-session_<timestamp>`. On a machine that only records, run
+`<device_id>-session_<timestamp>`.
+
+`GET /events` is what the devices recorded as one list, ordered by
+`(timestamp, id)` across devices, in the list shape above (`?device=`,
+`?since=`/`?until=` in Unix seconds). An event is one stored row:
+`{id, device_id, timestamp, screenshot_url, inputs, caption}`, where `caption`
+is the model's annotation of the frame made from that row. `GET`, `PATCH`
+(`{"caption": ...}`; `null` restores the model's) and `DELETE /events/{id}`
+act on one. Edits and deletes are kept in the session's `event_edits.json`;
+the row and its screenshot stay on disk with every field the recorder wrote. On a machine that only records, run
 `uv run python -m capture` instead of `python -m juno`.
 
 The server annotates on one thread with up to `annotate.max_concurrency` model

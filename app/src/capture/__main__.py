@@ -28,10 +28,10 @@ from juno.config import (
 from juno.parent_watch import start_parent_watch
 
 
-def main(config: CaptureConfig, aggregations_url: Optional[str] = None) -> int:
+def main(config: CaptureConfig, events_url: Optional[str] = None) -> int:
     """
     Args:
-        aggregations_url: the server's aggregations collection, which the
+        events_url: the server's events collection, which the
             session is uploaded to; None records without uploading.
     """
     logging.basicConfig(
@@ -61,8 +61,8 @@ def main(config: CaptureConfig, aggregations_url: Optional[str] = None) -> int:
         disable=config.disable,
     )
     uploader = None
-    if aggregations_url is not None:
-        uploader = AggregationUploader(recorder.session_dir, aggregations_url,
+    if events_url is not None:
+        uploader = AggregationUploader(recorder.session_dir, events_url,
                                        resolve_device_id())
         recorder.on_aggregation = uploader.on_aggregation
 
@@ -109,7 +109,7 @@ def run() -> int:
     if not config.annotate.live:
         return main(config.capture)
     return main(config.capture,
-                aggregations_url=f"http://{server_host()}:{config.server.port}/aggregations")
+                events_url=f"http://{server_host()}:{config.server.port}/events")
 
 
 if __name__ == "__main__":

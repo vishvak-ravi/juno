@@ -50,7 +50,7 @@ def app_for(tmp_path):
 
 
 def put(client, session, index):
-    return client.put(f"/aggregations/{session}-{index:06d}",
+    return client.put(f"/events/{session}-{index:06d}",
                       data={"aggregation": row(index, f"/recorder/disk/{index}.png")},
                       files={"screenshot": (f"{index}.png", png(), "image/png")})
 
@@ -71,7 +71,7 @@ def test_uploaded_rows_are_stored_with_their_screenshots_and_a_full_chunk_is_ann
         assert client.get(f"/annotations/{SESSION}-0000").status_code == 404
         assert put(client, SESSION, 1).status_code == 201
 
-        screenshot = client.get(f"/aggregations/{SESSION}-000001/screenshot")
+        screenshot = client.get(f"/events/{SESSION}-000001/screenshot")
         assert screenshot.status_code == 200
         assert screenshot.content == png()
         session = client.get(f"/sessions/{SESSION}").json()
@@ -136,7 +136,7 @@ def test_sessions_already_recorded_are_copied_unannotated_and_a_second_copy_adds
     recorded = tmp_path / "recorder"
     write_recorded(recorded / "session_20260101_120000", rows=3)
     write_recorded(recorded / "session_20260102_120000", rows=2)
-    url = f"http://127.0.0.1:{port}/aggregations"
+    url = f"http://127.0.0.1:{port}/events"
     try:
         with httpx.Client(base_url=f"http://127.0.0.1:{port}") as client:
             # The server already has the first row of one session.
@@ -160,7 +160,7 @@ def test_the_uploader_sends_every_complete_row_in_order_with_its_screenshot(tmp_
 
     recorded = tmp_path / "recorder" / "session_20260101_120000"
     recorded.mkdir(parents=True)
-    uploader = AggregationUploader(recorded, f"http://127.0.0.1:{port}/aggregations", "laptop")
+    uploader = AggregationUploader(recorded, f"http://127.0.0.1:{port}/events", "laptop")
     try:
         uploader.on_aggregation()  # no file yet
         with open(recorded / "raw_aggregations.jsonl", "a") as file:
@@ -180,7 +180,7 @@ def test_the_uploader_sends_every_complete_row_in_order_with_its_screenshot(tmp_
             assert [item["id"] for item in stored] == [f"{SESSION}-{n:06d}" for n in range(3)]
             # The stored rows point at the server's copies, not the recorder's files.
             assert all(str(tmp_path / "server") in item["screenshot_path"] for item in stored)
-            assert client.get(f"/aggregations/{SESSION}-000002/screenshot").content == png()
+            assert client.get(f"/events/{SESSION}-000002/screenshot").content == png()
     finally:
         server.should_exit = True
         thread.join(timeout=5.0)

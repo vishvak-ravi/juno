@@ -19,6 +19,7 @@ from server.mcp import MCP_PATH, create_mcp
 from server.routes.aggregations import router as aggregations_router
 from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
+from server.routes.events import router as events_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
 from server.tools import create_chat_tools, session_tools
@@ -120,6 +121,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(web_router)
     app.include_router(chats_router)
     app.include_router(sessions_router)
+    app.include_router(events_router)
     app.include_router(aggregations_router)
     app.include_router(annotations_router)
     app.include_router(predictions_router)

@@ -303,7 +303,7 @@
     const d = level(`${number ? `Frame ${number}` : "no screenshot"} · row ${a.row} · ${time(a.timestamp)} · ${a.reason} · ${a.num_events} events`,
       async () => [img, el("ul", {}, ...events.map(event)), json(rest)]);
     // The screenshot is fetched only when the frame is opened.
-    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `${BASE}/aggregations/${a.id}/screenshot`; });
+    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `${BASE}/events/${a.id}/screenshot`; });
     return d;
   }
 

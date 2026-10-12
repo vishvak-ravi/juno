@@ -1,8 +1,8 @@
 """Sends recorded sessions to the server, one aggregation at a time.
 
 Row ``n`` of a session's ``raw_aggregations.jsonl`` goes out as
-``PUT <aggregations_url>/<device id>-<session name>-<n>`` with the row and its
-screenshot (see ``server.routes.aggregations``).
+``PUT <events_url>/<device id>-<session name>-<n>`` with the row and its
+screenshot (see ``server.routes.events``).
 
 While recording, the recorder calls ``AggregationUploader.on_aggregation``
 after each aggregation is written. The uploader's own thread then sends every
@@ -50,7 +50,7 @@ def complete_rows(session_dir: Path) -> list[bytes]:
     return written[:written.rfind(b"\n") + 1].splitlines()
 
 
-def upload_rows(session_dir: Path, aggregations_url: str, session_id: str, sent: int,
+def upload_rows(session_dir: Path, events_url: str, session_id: str, sent: int,
                 annotate: bool = True,
                 timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> int:
     """Send the session's rows from row ``sent`` on, stopping at the first that fails.
@@ -66,7 +66,7 @@ def upload_rows(session_dir: Path, aggregations_url: str, session_id: str, sent:
     rows = complete_rows(session_dir)
     while sent < len(rows):
         row = rows[sent]
-        url = f"{aggregations_url}/{session_id}-{sent:06d}"
+        url = f"{events_url}/{session_id}-{sent:06d}"
         screenshot_path = json.loads(row).get("screenshot_path")
         # (None, text) is a plain form field; the body is multipart either way.
         files = {"aggregation": (None, row.decode())}
@@ -93,16 +93,16 @@ def upload_rows(session_dir: Path, aggregations_url: str, session_id: str, sent:
 
 class AggregationUploader:
 
-    def __init__(self, session_dir: Path, aggregations_url: str, device_id: str,
+    def __init__(self, session_dir: Path, events_url: str, device_id: str,
                  timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS):
         """
         Args:
-            aggregations_url: the server's aggregations collection, e.g.
-                ``http://127.0.0.1:8765/aggregations``.
+            events_url: the server's events collection, e.g.
+                ``http://127.0.0.1:8765/events``.
             device_id: the name the server stores this computer's sessions under.
         """
         self.session_dir = Path(session_dir)
-        self.aggregations_url = aggregations_url.rstrip("/")
+        self.events_url = events_url.rstrip("/")
         self.session_id = f"{device_id}-{self.session_dir.name}"
         self.timeout_seconds = timeout_seconds
         self._sent = 0  # rows the server has
@@ -126,7 +126,7 @@ class AggregationUploader:
             self._wake.clear()
             closing = self._closing
             try:
-                self._sent = upload_rows(self.session_dir, self.aggregations_url,
+                self._sent = upload_rows(self.session_dir, self.events_url,
                                          self.session_id, self._sent,
                                          timeout_seconds=self.timeout_seconds)
             except Exception:
@@ -135,7 +135,7 @@ class AggregationUploader:
                 return
 
 
-def copy_sessions(recorded_dir: Path, aggregations_url: str, device_id: str) -> bool:
+def copy_sessions(recorded_dir: Path, events_url: str, device_id: str) -> bool:
     """Send every session in ``recorded_dir`` to the server, oldest first, unannotated.
 
     A session the server already has part of continues after the rows it has.
@@ -146,7 +146,7 @@ def copy_sessions(recorded_dir: Path, aggregations_url: str, device_id: str) -> 
         rows = len(complete_rows(session_dir))
         session_id = f"{device_id}-{session_dir.name}"
         # Offering the last row first makes the server name the row it is missing (409).
-        sent = upload_rows(session_dir, aggregations_url, session_id,
+        sent = upload_rows(session_dir, events_url, session_id,
                            max(rows - 1, 0), annotate=False)
         print(f"{session_id}: {sent} of {rows} aggregations on the server", file=sys.stderr)
         complete = complete and sent == rows
@@ -165,7 +165,7 @@ def main() -> int:
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    url = f"http://{server_host()}:{config.server.port}/aggregations"
+    url = f"http://{server_host()}:{config.server.port}/events"
     recorded_dir = sessions_dir(resolve_data_dir(config.capture))
     if not copy_sessions(recorded_dir, url, device_id):
         print("error: not everything was copied; run again to continue", file=sys.stderr)
