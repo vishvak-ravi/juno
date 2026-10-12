@@ -43,7 +43,6 @@ from annotate.records import (
     session_id_of,
 )
 from annotate.store import read_record
-from server.routes.annotations import queue_chunk
 from server.routes.paging import DeviceFilter, Page
 from server.worker import Priority
 
@@ -290,7 +289,7 @@ def upload_event(event_id: EventId, request: Request, response: Response,
     201 when the row is stored. 200, storing nothing, if the session already
     has that row. 409 if rows before it are missing; ``expected_row`` in the
     detail is the one to send next. With ``annotate`` false the row is only
-    stored; its chunk can be annotated later with ``PUT /annotations/{id}``.
+    stored; with ``annotate.backfill`` the server annotates its chunk later.
     """
     state = request.app.state
     directory, row = locate(state.devices_dir, event_id)
@@ -326,7 +325,7 @@ def upload_event(event_id: EventId, request: Request, response: Response,
 
     chunk_size = state.annotate.chunk_size
     if annotate and (row + 1) % chunk_size == 0:
-        queue_chunk(state, session_id, row // chunk_size, Priority.LIVE)
+        state.worker.request(session_id, row // chunk_size, Priority.LIVE)
     response.status_code = 201
     return find(request, event_id, include_deleted=True)
 

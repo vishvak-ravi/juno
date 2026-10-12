@@ -73,7 +73,7 @@ last change, default `desc`) and `?after=<id>` for the next page; the response
 is `{"object": "list", "data", "first_id", "last_id", "has_more"}`.
 
 `POST /predictions` (optionally `?device=<device_id>`) returns
-`{actions, retrieved, timestamp}`: the model's prediction of the user's next
+`{actions, retrieved, timestamp}`: the intent model's prediction of the user's next
 `predict.future_len` actions as an `<actions>` block of `<action>` tags, made
 the way Tada's prompted user model makes it, from the last `predict.past_len`
 annotated actions, the screenshots of the newest `predict.num_imgs_per_sample`
@@ -100,9 +100,10 @@ With `annotate.live` set, the recorder also uploads each aggregation and its
 screenshot to the server at `JUNO_SERVER_HOST` (`PUT /events/{id}`), which can
 be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
-fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
-`?device=<device_id>`. A session's id on the server is
-`<device_id>-session_<timestamp>`.
+fills. A session's id on the server is `<device_id>-session_<timestamp>`; sessions
+and annotations have no routes of their own, and reach clients only as events.
+On a machine that only records, run `uv run python -m capture` instead of
+`python -m juno`.
 
 `GET /events` is what the devices recorded as one list, ordered by
 `(timestamp, id)` across devices, in the list shape above (`?device=`,
@@ -111,12 +112,10 @@ fills; `/sessions`, `/aggregations` and `/annotations` read from there and take
 is the model's annotation of the frame made from that row. `GET`, `PATCH`
 (`{"caption": ...}`; `null` restores the model's) and `DELETE /events/{id}`
 act on one. Edits and deletes are kept in the session's `event_edits.json`;
-the row and its screenshot stay on disk with every field the recorder wrote. On a machine that only records, run
-`uv run python -m capture` instead of `python -m juno`.
+the row and its screenshot stay on disk with every field the recorder wrote.
 
 The server annotates on one thread with up to `annotate.max_concurrency` model
-calls in flight, taking chunks a recorder just filled first, then ones asked
-for with `PUT /annotations/{id}`, then (with `annotate.backfill`) every other
+calls in flight, taking chunks a recorder just filled first, then (with `annotate.backfill`) every other
 chunk in its store without a finished annotation, most recent first. A call the
 provider was too busy for is made again, up to `annotate.max_attempts` times.
 `GET /api/queue` shows what is waiting and in flight; `GET /api/integrity`

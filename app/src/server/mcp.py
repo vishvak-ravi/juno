@@ -2,8 +2,7 @@
 
 Served by the same process as the REST routes, at ``/mcp`` over streamable
 HTTP, so any MCP client connects with ``http://<host>:<port>/mcp``. The
-annotation tools read the same files as ``/annotations`` through
-``annotate.store``, and ``predict_next_actions`` makes the prediction of
+annotation tools read the annotation files through ``annotate.store``, and ``predict_next_actions`` makes the prediction of
 ``POST /predictions`` through ``server.prediction``. Juno's other tools (past
 chats, web search, bash, Claude Code) are only for its own chat model: an
 agent has its own.

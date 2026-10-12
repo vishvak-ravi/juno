@@ -9,6 +9,7 @@ from PIL import Image
 
 from annotate.label import Action, Annotation
 from annotate.records import read_aggregations, session_dir
+from annotate.store import read_record
 from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
 
@@ -51,13 +52,14 @@ def client_for(tmp_path, actions=()):
     return TestClient(create_app(config, annotate_request=annotate_request))
 
 
-def wait_for_annotation(client, annotation_id):
+def wait_for_annotation(data_dir, session, chunk):
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        if client.get(f"/annotations/{annotation_id}").json().get("status") == "done":
+        record = read_record(session_dir(devices_dir(data_dir), session), chunk)
+        if record is not None and record.status == "done":
             return
         time.sleep(0.02)
-    raise AssertionError(f"{annotation_id} was not annotated")
+    raise AssertionError(f"chunk {chunk} of {session} was not annotated")
 
 
 def test_events_of_every_device_come_back_as_one_list_ordered_by_time(tmp_path):
@@ -100,7 +102,7 @@ def test_a_caption_lands_on_the_rows_its_frames_were_made_from(tmp_path):
     with client_for(tmp_path, [Action(start=1, end=1, caption="Clicked.")]) as client:
         put(client, LAPTOP, 0, 1000.0, screenshot=False)
         put(client, LAPTOP, 1, 1001.0)
-        wait_for_annotation(client, f"{LAPTOP}-0000")
+        wait_for_annotation(tmp_path, LAPTOP, 0)
 
         events = client.get("/events", params={"order": "asc"}).json()["data"]
         assert [(e["screenshot_url"] is not None, e["caption"]) for e in events] == [
@@ -111,7 +113,7 @@ def test_a_users_caption_replaces_the_models_until_it_is_cleared(tmp_path):
     with client_for(tmp_path, [Action(start=1, end=2, caption="Clicked.")]) as client:
         put(client, LAPTOP, 0, 1000.0)
         put(client, LAPTOP, 1, 1001.0)
-        wait_for_annotation(client, f"{LAPTOP}-0000")
+        wait_for_annotation(tmp_path, LAPTOP, 0)
         event_id = f"{LAPTOP}-000000"
 
         patched = client.patch(f"/events/{event_id}", json={"caption": "Opened the menu."})

@@ -66,7 +66,7 @@ class Priority(IntEnum):
     """Why a chunk is queued; a lower one is annotated first."""
 
     LIVE = 0       # a recorder just uploaded the chunk's last row
-    REQUESTED = 1  # someone asked for it with PUT /annotations/{id}
+    REQUESTED = 1  # asked for directly with ``AnnotationWorker.request``
     BACKFILL = 2   # the server found it in its store
 
 

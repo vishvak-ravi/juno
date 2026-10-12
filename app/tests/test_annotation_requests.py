@@ -1,4 +1,4 @@
-"""The annotation routes, with the model call replaced by a function."""
+"""Annotating a stored chunk through the server's worker, with the model call replaced by a function."""
 
 import json
 import time
@@ -8,7 +8,7 @@ from PIL import Image
 
 from annotate.label import Action, Annotation
 from annotate.records import session_dir
-from annotate.store import new_record, write_record
+from annotate.store import list_records, new_record, read_record, write_record
 from juno.config import AnnotateConfig, CaptureConfig, Config, LlmConfig, devices_dir
 from server.app import create_app
 
@@ -42,17 +42,18 @@ def client_for(tmp_path, annotate_request) -> TestClient:
     return TestClient(create_app(config, annotate_request=annotate_request))
 
 
-def wait_until_settled(client, annotation_id):
+def wait_until_settled(tmp_path, chunk):
+    """The chunk's stored annotation once it is no longer pending."""
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        record = client.get(f"/annotations/{annotation_id}").json()
-        if record["status"] != "pending":
+        record = read_record(session_dir(devices_dir(tmp_path), SESSION), chunk)
+        if record is not None and record.status != "pending":
             return record
         time.sleep(0.02)
-    raise AssertionError(f"{annotation_id} stayed pending")
+    raise AssertionError(f"chunk {chunk} stayed pending")
 
 
-def test_a_put_annotates_the_chunk_once_and_the_result_can_be_read_back(tmp_path):
+def test_a_request_annotates_the_chunk_once_and_the_result_is_stored(tmp_path):
     write_session(tmp_path, rows=5)
     sent = []
 
@@ -61,42 +62,31 @@ def test_a_put_annotates_the_chunk_once_and_the_result_can_be_read_back(tmp_path
         return Annotation(actions=[Action(start=1, end=2, caption="Typed a.")],
                           dense_caption="a", sanitization=request.sanitization)
 
-    client = client_for(tmp_path, annotate_request)
-    first, second = f"{SESSION}-0000", f"{SESSION}-0001"
+    worker = client_for(tmp_path, annotate_request).app.state.worker
 
-    response = client.put(f"/annotations/{second}")
-    assert response.status_code == 202
-    assert response.headers["Location"] == f"/annotations/{second}"
-    assert response.json()["status"] == "pending"
-
-    record = wait_until_settled(client, second)
-    assert record["status"] == "done"
-    assert record["annotation"]["actions"][0]["caption"] == "Typed a."
-    assert record["annotation"]["sanitization"]["algorithm"] == "typed-key-regex"
-    assert (record["start_time"], record["end_time"]) == (1002.0, 1003.0)
-    assert [frame["label"] for frame in record["frames"]] == ["Frame 1", "Frame 2"]
+    assert worker.request(SESSION, 1).status == "pending"
+    record = wait_until_settled(tmp_path, 1)
+    assert record.status == "done"
+    assert record.annotation.actions[0].caption == "Typed a."
+    assert record.annotation.sanitization.algorithm == "typed-key-regex"
+    assert (record.start_time, record.end_time) == (1002.0, 1003.0)
+    assert [frame.label for frame in record.frames] == ["Frame 1", "Frame 2"]
     # Rows 2 and 3 of the session, and nothing sent unsanitized.
     assert [frame.timestamp for frame in sent[0].frames] == [1002.0, 1003.0]
     assert sent[0].sanitization is not None
 
-    # Repeating the PUT returns the stored annotation without another model call.
-    again = client.put(f"/annotations/{second}")
-    assert again.status_code == 200 and again.json() == record
+    # Asking again returns the stored annotation without another model call.
+    assert worker.request(SESSION, 1) == record
     assert len(sent) == 1
 
-    client.put(f"/annotations/{first}")
-    wait_until_settled(client, first)
-    listed = client.get("/annotations", params={"order": "asc"}).json()
-    assert [item["id"] for item in listed["data"]] == [first, second]
-    in_range = client.get("/annotations", params={"since": 1002.5}).json()
-    assert [item["id"] for item in in_range["data"]] == [second]
-
-    assert client.put(f"/annotations/{SESSION}-0003").status_code == 404  # only 5 rows
-    assert client.put("/annotations/laptop-no_such_session-0000").status_code == 404
-    assert client.get(f"/annotations/{SESSION}-0002").status_code == 404  # never requested
+    worker.request(SESSION, 0)
+    wait_until_settled(tmp_path, 0)
+    stored = devices_dir(tmp_path)
+    assert [r.chunk for r in list_records(stored)] == [0, 1]
+    assert [r.chunk for r in list_records(stored, since=1002.5)] == [1]
 
 
-def test_a_failed_model_call_is_recorded_and_a_new_put_retries_it(tmp_path):
+def test_a_failed_model_call_is_recorded_and_a_new_request_retries_it(tmp_path):
     write_session(tmp_path, rows=2)
     outcomes = [RuntimeError("rate limited"), None]
 
@@ -106,35 +96,14 @@ def test_a_failed_model_call_is_recorded_and_a_new_put_retries_it(tmp_path):
             raise outcome
         return Annotation(actions=[], dense_caption="", sanitization=request.sanitization)
 
-    client = client_for(tmp_path, annotate_request)
-    annotation_id = f"{SESSION}-0000"
+    worker = client_for(tmp_path, annotate_request).app.state.worker
 
-    client.put(f"/annotations/{annotation_id}")
-    failed = wait_until_settled(client, annotation_id)
-    assert failed["status"] == "failed" and failed["error"] == "RuntimeError: rate limited"
+    worker.request(SESSION, 0)
+    failed = wait_until_settled(tmp_path, 0)
+    assert failed.status == "failed" and failed.error == "RuntimeError: rate limited"
 
-    assert client.put(f"/annotations/{annotation_id}").status_code == 202
-    assert wait_until_settled(client, annotation_id)["status"] == "done"
-
-
-def test_sessions_and_their_aggregations_can_be_browsed(tmp_path):
-    write_session(tmp_path, rows=3)
-    client = client_for(tmp_path, annotate_request=None)
-
-    (session,) = client.get("/sessions").json()["data"]
-    assert (session["id"], session["aggregations"], session["annotations"]) == (SESSION, 3, 0)
-    assert client.get(f"/sessions/{SESSION}").json() == session
-    assert client.get("/sessions/laptop-no_such_session").status_code == 404
-
-    page = client.get("/aggregations", params={"session_id": SESSION, "order": "asc",
-                                               "since": 1001.0}).json()
-    assert [item["id"] for item in page["data"]] == [f"{SESSION}-000001", f"{SESSION}-000002"]
-    assert page["data"][0]["events"][0]["details"] == {"key": "a"}
-
-    screenshot = client.get(f"/events/{SESSION}-000001/screenshot")
-    assert screenshot.status_code == 200
-    assert screenshot.headers["content-type"] == "image/png"
-    assert client.get(f"/events/{SESSION}-000003").status_code == 404
+    assert worker.request(SESSION, 0).status == "pending"
+    assert wait_until_settled(tmp_path, 0).status == "done"
 
 
 def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
@@ -160,8 +129,8 @@ def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
 
     # The MCP endpoint only answers requests addressed to the server's own host.
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        client.put(f"/annotations/{annotation_id}")
-        wait_until_settled(client, annotation_id)
+        client.app.state.worker.request(SESSION, 0)
+        wait_until_settled(tmp_path, 0)
 
         is_error, listed = call(client, "list_annotations", {"limit": 5})
         assert not is_error
@@ -198,8 +167,8 @@ def test_a_listing_too_long_for_the_agent_keeps_the_newest_and_says_more_is_avai
     with TestClient(create_app(config, annotate_request=annotate_request),
                     base_url="http://127.0.0.1:8765") as client:
         for chunk in range(3):
-            client.put(f"/annotations/{SESSION}-{chunk:04d}")
-            wait_until_settled(client, f"{SESSION}-{chunk:04d}")
+            client.app.state.worker.request(SESSION, chunk)
+            wait_until_settled(tmp_path, chunk)
         response = client.post(
             "/mcp", headers={"Accept": "application/json, text/event-stream"},
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -221,4 +190,4 @@ def test_an_annotation_left_pending_by_a_stopped_server_is_finished_by_the_next(
         return Annotation(actions=[], dense_caption="", sanitization=request.sanitization)
 
     with client_for(tmp_path, annotate_request) as client:  # startup runs
-        assert wait_until_settled(client, f"{SESSION}-0000")["status"] == "done"
+        assert wait_until_settled(tmp_path, 0).status == "done"

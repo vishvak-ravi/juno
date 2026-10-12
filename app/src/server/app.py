@@ -16,12 +16,9 @@ from juno.config import (Config, claude_results_dir, devices_dir, load_config,
 from predict.predictor import Predictor
 from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
-from server.routes.aggregations import router as aggregations_router
-from server.routes.annotations import router as annotations_router
 from server.routes.chats import router as chats_router
 from server.routes.events import router as events_router
 from server.routes.predictions import router as predictions_router
-from server.routes.sessions import router as sessions_router
 from server.tools import create_chat_tools, session_tools
 from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
@@ -120,10 +117,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(router)
     app.include_router(web_router)
     app.include_router(chats_router)
-    app.include_router(sessions_router)
     app.include_router(events_router)
-    app.include_router(aggregations_router)
-    app.include_router(annotations_router)
     app.include_router(predictions_router)
     # After the routes: the MCP app answers MCP_PATH and nothing else.
     # Requests must name this server by an address it is reached at (blocks DNS rebinding).

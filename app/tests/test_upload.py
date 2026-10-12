@@ -11,8 +11,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from annotate.label import Action, Annotation
+from annotate.records import read_aggregations, session_dir
+from annotate.store import read_record
 from capture.upload import AggregationUploader, copy_sessions
-from juno.config import AnnotateConfig, CaptureConfig, Config
+from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
 
 SESSION = "laptop-session_20260101_120000"
@@ -55,6 +57,15 @@ def put(client, session, index):
                       files={"screenshot": (f"{index}.png", png(), "image/png")})
 
 
+def annotation(data_dir, session, chunk):
+    """The chunk's stored annotation record, or None."""
+    return read_record(session_dir(devices_dir(data_dir), session), chunk)
+
+
+def event_ids(client, **params):
+    return [e["id"] for e in client.get("/events", params={"order": "asc", **params}).json()["data"]]
+
+
 def wait_for(condition, what):
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
@@ -68,27 +79,26 @@ def test_uploaded_rows_are_stored_with_their_screenshots_and_a_full_chunk_is_ann
     with TestClient(app_for(tmp_path)) as client:
         assert put(client, SESSION, 0).status_code == 201
         # Nothing is annotated until the chunk's last row is there.
-        assert client.get(f"/annotations/{SESSION}-0000").status_code == 404
+        assert annotation(tmp_path, SESSION, 0) is None
         assert put(client, SESSION, 1).status_code == 201
 
         screenshot = client.get(f"/events/{SESSION}-000001/screenshot")
         assert screenshot.status_code == 200
         assert screenshot.content == png()
-        session = client.get(f"/sessions/{SESSION}").json()
-        assert (session["device_id"], session["aggregations"]) == ("laptop", 2)
+        assert event_ids(client) == [f"{SESSION}-000000", f"{SESSION}-000001"]
 
-        wait_for(lambda: client.get(f"/annotations/{SESSION}-0000").json().get("status") == "done",
+        wait_for(lambda: getattr(annotation(tmp_path, SESSION, 0), "status", None) == "done",
                  "the annotation of the full chunk")
-        annotation = client.get(f"/annotations/{SESSION}-0000").json()
-        assert annotation["device_id"] == "laptop"
-        assert len(annotation["frames"]) == 2
+        record = annotation(tmp_path, SESSION, 0)
+        assert record.device_id == "laptop"
+        assert len(record.frames) == 2
 
 
 def test_a_repeated_row_is_not_stored_twice_and_a_row_out_of_order_is_refused(tmp_path):
     with TestClient(app_for(tmp_path)) as client:
         assert put(client, SESSION, 0).status_code == 201
         assert put(client, SESSION, 0).status_code == 200
-        assert client.get(f"/sessions/{SESSION}").json()["aggregations"] == 1
+        assert event_ids(client) == [f"{SESSION}-000000"]
 
         skipped = put(client, SESSION, 2)
         assert skipped.status_code == 409
@@ -102,13 +112,11 @@ def test_each_device_has_its_own_sessions_even_with_the_same_session_name(tmp_pa
             assert put(client, SESSION, index).status_code == 201
         assert put(client, other, 0).status_code == 201
 
-        both = client.get("/sessions", params={"order": "asc"}).json()["data"]
-        assert [(s["id"], s["aggregations"]) for s in both] == [(other, 1), (SESSION, 2)]
-        only = client.get("/aggregations", params={"device": "desktop"}).json()["data"]
-        assert [item["id"] for item in only] == [f"{other}-000000"]
-        wait_for(lambda: client.get(f"/annotations/{SESSION}-0000").json().get("status") == "done",
+        assert event_ids(client, device="desktop") == [f"{other}-000000"]
+        assert event_ids(client, device="laptop") == [f"{SESSION}-000000", f"{SESSION}-000001"]
+        wait_for(lambda: getattr(annotation(tmp_path, SESSION, 0), "status", None) == "done",
                  "the annotation of the full chunk")
-        assert client.get("/annotations", params={"device": "desktop"}).json()["data"] == []
+        assert annotation(tmp_path, other, 0) is None
 
 
 def running_server(tmp_path):
@@ -145,11 +153,11 @@ def test_sessions_already_recorded_are_copied_unannotated_and_a_second_copy_adds
             assert copy_sessions(recorded, url, "laptop")
             assert copy_sessions(recorded, url, "laptop")
 
-            sessions = client.get("/sessions", params={"order": "asc"}).json()["data"]
-            assert [(s["id"], s["aggregations"], s["annotations"]) for s in sessions] == [
-                (SESSION, 3, 0), ("laptop-session_20260102_120000", 2, 0)]
-            # A copied chunk is annotated when asked for.
-            assert client.put(f"/annotations/{SESSION}-0000").status_code == 202
+            copied = "laptop-session_20260102_120000"
+            stored = devices_dir(tmp_path / "server")
+            assert [len(read_aggregations(session_dir(stored, session)))
+                    for session in (SESSION, copied)] == [3, 2]
+            assert annotation(tmp_path / "server", SESSION, 0) is None
     finally:
         server.should_exit = True
         thread.join(timeout=5.0)
@@ -175,11 +183,10 @@ def test_the_uploader_sends_every_complete_row_in_order_with_its_screenshot(tmp_
         uploader.close()
 
         with httpx.Client(base_url=f"http://127.0.0.1:{port}") as client:
-            stored = client.get("/aggregations", params={"session_id": SESSION,
-                                                         "order": "asc"}).json()["data"]
-            assert [item["id"] for item in stored] == [f"{SESSION}-{n:06d}" for n in range(3)]
+            assert event_ids(client) == [f"{SESSION}-{n:06d}" for n in range(3)]
             # The stored rows point at the server's copies, not the recorder's files.
-            assert all(str(tmp_path / "server") in item["screenshot_path"] for item in stored)
+            stored = read_aggregations(session_dir(devices_dir(tmp_path / "server"), SESSION))
+            assert all(str(tmp_path / "server") in row.screenshot_path for row in stored)
             assert client.get(f"/events/{SESSION}-000002/screenshot").content == png()
     finally:
         server.should_exit = True
