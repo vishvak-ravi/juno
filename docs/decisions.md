@@ -2,6 +2,15 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-12: Switches in a file on the server
+
+Whether each device records, and whether the server annotates, is kept in
+`<data_dir>/control.json` on the server, not in `config.yaml`. The server is the
+only process that writes it; other devices read and change it through
+`/control`, and recorders poll it. This is v1; a database and proper
+distributed state come later. Annotation has one switch, the server's, because
+the queue runs there; devices have only a recording switch.
+
 ## 2026-10-12: Annotation model
 
 Annotation (`annotate.model`) runs on `gemini/gemini-3.1-flash-lite` on the

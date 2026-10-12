@@ -63,6 +63,16 @@ fills. A session's id on the server is `<device_id>-session_<timestamp>`.
 On a machine that only records, run `uv run python -m capture` instead of
 `python -m juno`.
 
+The recorder also reports to the server every `control.poll_seconds`
+(`PUT /control/devices/<device_id>/report`) and records only while that
+device's switch is on; its first report adds the device. Turning the switch off
+ends the session, and turning it on starts a new one. If the server can't be
+reached, the recorder keeps doing what it was doing. The server's own switch
+pauses the annotation queue: queued chunks stay pending until it is on again.
+Both switches are on the clients' Status page (`GET /control`, `PATCH
+/control/server`, `PATCH /control/devices/<device_id>`) and are stored in
+`<data_dir>/control.json` on the server.
+
 Edits and deletes of events are kept in the session's `event_edits.json`; the
 row and its screenshot stay on disk with every field the recorder wrote.
 

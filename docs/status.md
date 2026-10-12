@@ -11,6 +11,7 @@
 | `macos` backend: mss frames, pynput input and pointer | done, verified on macOS 15.6 |
 | `x11` backend: same sources as `macos` | written, not yet run on X11 |
 | `fake` backend (generated frames, scripted input) | done |
+| Recording and annotation switches (`/control`, Status page) | done; restarting a session tested only on the `fake` backend |
 
 The model server (vLLM) is started by `juno`, a symlink to `~/gemma_chat.py`,
 which is not in this repository.
