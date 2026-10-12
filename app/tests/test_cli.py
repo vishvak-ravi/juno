@@ -1,8 +1,12 @@
 import signal
+import threading
+
+import httpx
 
 from capture.__main__ import main
 from capture.check import check_session, latest_session
-from juno.config import CaptureConfig
+from juno.config import CaptureConfig, ControlConfig
+from test_upload import running_server, wait_for
 
 
 def test_unavailable_backend_exits_with_a_clear_error(tmp_path, capsys):
@@ -25,3 +29,35 @@ def test_fake_backend_records_a_session_that_passes_the_check(tmp_path, capsys):
     assert report.events["key_press"] >= 3
     assert report.events["mouse_scroll"] >= 2
     assert "mouse_move" not in report.events
+
+
+def test_switching_a_device_off_and_on_ends_its_session_and_starts_a_new_one(tmp_path, monkeypatch,
+                                                                            capsys):
+    monkeypatch.setenv("JUNO_DEVICE_ID", "laptop")
+    server, thread, port = running_server(tmp_path)
+    url = f"http://127.0.0.1:{port}"
+
+    def reported():
+        device = httpx.get(f"{url}/control").json()["devices"].get("laptop") or {}
+        return (device.get("reported") or {}).get("capture")
+
+    def switch():
+        wait_for(lambda: reported() == "running", "recording")
+        httpx.patch(f"{url}/control/devices/laptop", json={"capture": False})
+        wait_for(lambda: reported() == "paused", "the pause")
+        httpx.patch(f"{url}/control/devices/laptop", json={"capture": True})
+        wait_for(lambda: reported() == "running", "recording again")
+
+    switching = threading.Thread(target=switch)
+    switching.start()
+    try:
+        code = main(CaptureConfig(backend="fake", data_dir=tmp_path / "recorder", fps=20,
+                                  duration=8.0),
+                    server_url=url, control=ControlConfig(poll_seconds=0.2))
+    finally:
+        switching.join()
+        server.should_exit = True
+        thread.join(timeout=5.0)
+
+    assert code == 0
+    assert len(capsys.readouterr().out.split()) == 2
