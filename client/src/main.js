@@ -40,6 +40,19 @@ ipcMain.handle("api:get", async (_event, route) => {
   return response.json();
 });
 
+// PATCH a server route with a JSON body, for the switches on the status page; same reason.
+ipcMain.handle("api:patch", async (_event, route, body) => {
+  const response = await fetch(SERVER_URL + route, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${await response.text()}`);
+  }
+  return response.json();
+});
+
 // The dictation helper (native/dictate.swift, built by `npm run native`) takes
 // "start"/"stop" lines and prints one JSON line per recognition update.
 function startDictation() {

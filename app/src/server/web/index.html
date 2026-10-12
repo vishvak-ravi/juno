@@ -43,6 +43,10 @@
   #pinned li + li { margin-top: .25rem; }
   #pinned button { padding: .6rem .75rem; border-bottom: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
   button.more { margin-top: .5rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+  /* One switch on the status screen: the label and its checkbox, what it reports below. */
+  li.switch { padding: .6rem 0; border-bottom: 1px solid var(--line); }
+  li.switch label { display: flex; justify-content: space-between; align-items: center; }
+  li.switch input { width: 1.25rem; height: 1.25rem; }
 
   /* A chat: bubbles, the user's on the right. */
   .message { max-width: 85%; width: fit-content; margin: 0 0 .5rem; padding: .5rem .75rem; border-radius: 1rem; background: var(--raw);
@@ -111,6 +115,7 @@
   //
   // Screens, by location.hash:  (none) the timeline row and the chat list
   //                             #/timeline    every device's events, newest first
+  //                             #/status      recording and annotation, with their switches
   //                             #/predictions       graded benchmark predictions, newest first
   //                             #/predictions/<id>  one of them in full
   //                             #/chats/<id>  one chat and its message box
@@ -237,7 +242,8 @@
   const home = async () => [
     el("ul", { id: "pinned" },
       row("Timeline", "Every device's events, newest first", "#/timeline"),
-      row("Predictions", "Graded benchmark predictions, newest first", "#/predictions")),
+      row("Predictions", "Graded benchmark predictions, newest first", "#/predictions"),
+      row("Status", "Recording and annotation, with their switches", "#/status")),
     el("h2", { textContent: "Chats" }),
     await paged("/chats", (chat) =>
       row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`))];
@@ -393,6 +399,66 @@
     ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: e.screenshot_url })] : [])));
   const timeline = async () => [await paged("/events", timelineEvent)];
 
+  // Status: GET /control. The server's annotation switch, then one recording switch
+  // per device. A switch shows what was asked for, the line below it what the queue
+  // or the device last reported. The screen asks again every poll_seconds.
+  const patch = (path, body) => api(path, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  function switchRow(label, on, note, set) {
+    const box = el("input", { type: "checkbox", checked: on });
+    const line = el("small", { textContent: note });
+    box.onchange = async () => {
+      const shown = screen;
+      box.disabled = true;
+      try {
+        const control = await set(box.checked);
+        if (screen === shown) view.replaceChildren(...controlView(control));
+      } catch (error) {
+        box.checked = !box.checked;
+        box.disabled = false;
+        line.textContent = message_of(error);
+      }
+    };
+    return el("li", { className: "switch" }, el("label", {}, label, box), line);
+  }
+  const queueNote = ({ annotate, queue }) => [
+    `${queue.queued.live} live · ${queue.queued.requested} requested · ${queue.queued.backfill} backfill`,
+    `${queue.running} running`,
+    ...(annotate ? [] : ["paused"]),
+    ...(queue.paused_seconds > 0 ? [`waiting ${Math.ceil(queue.paused_seconds)} s for the provider`] : [])].join(" · ");
+  function deviceNote(d) {
+    if (!d.online) return d.reported_at ? `offline · last seen ${time(d.reported_at)}` : "offline";
+    const running = d.reported.capture === "running";
+    const doing = running ? `recording ${d.reported.session_id}` : "not recording";
+    return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
+  }
+  const controlView = (control) => {
+    const devices = Object.entries(control.devices);
+    return [
+      el("h2", { textContent: "Server" }),
+      el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
+                             (on) => patch("/control/server", { annotate: on }))),
+      el("h2", { textContent: "Recording" }),
+      devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
+                                                                         (on) => patch(`/control/devices/${id}`, { capture: on }))))
+        : el("small", { textContent: "No device has reported yet." })];
+  };
+  async function controlScreen() {
+    const shown = screen;
+    const control = await api("/control");
+    // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
+    const refresh = () => setTimeout(async () => {
+      if (screen !== shown) return;
+      try {
+        const next = await api("/control");
+        if (screen === shown && !view.querySelector("input:disabled")) view.replaceChildren(...controlView(next));
+      } catch {}
+      refresh();
+    }, control.poll_seconds * 1000);
+    refresh();
+    return controlView(control);
+  }
+
   // Predictions: GET /predictions, every benchmark run's graded predictions,
   // newest first. A row opens a screen with the prediction above what actually
   // came next, what the predictor was sent (screenshots, then text), and each
@@ -441,7 +507,7 @@
   // Shows the screen location.hash names.
   function route() {
     const hash = location.hash;
-    const [, kind, id] = hash.match(/^#\/(timeline|predictions)$/)
+    const [, kind, id] = hash.match(/^#\/(timeline|predictions|status)$/)
       || hash.match(/^#\/(chats|predictions)\/([A-Za-z0-9_-]+)$/) || [];
     chatId = kind === "chats" ? id : null;
     screen++;
@@ -451,10 +517,10 @@
     // Back from one prediction goes to the list of them; from anything else, home.
     parent = kind === "predictions" && id ? "#/predictions" : "";
     composer.hidden = kind !== "chats";
-    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline"
+    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline" : kind === "status" ? "Status"
       : kind === "predictions" ? (id ? "Prediction" : "Predictions") : "Juno";
     view.replaceChildren();
-    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline
+    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline : kind === "status" ? controlScreen
       : kind === "predictions" ? (id ? () => prediction(id) : predictions) : home,
          () => location.hash === hash);
   }

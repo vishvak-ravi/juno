@@ -31,6 +31,8 @@
   #pinned { margin-bottom: 1.5rem; }
   #pinned li + li { margin-top: .25rem; }
   #pinned button { padding: .4rem .6rem; border: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
+  /* One switch on the status page: the checkbox and label, what it reports below. */
+  li.switch { padding: .4rem 0; border-bottom: 1px solid var(--line); }
   button.more { padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
   section > button.more { margin-top: .5rem; }
   h2 button.more { margin-left: .5rem; font-weight: normal; }
@@ -85,11 +87,12 @@
     <ul id="pinned">
       <li><button id="timeline">Timeline<br><small>Every device's events, newest first</small></button></li>
       <li><button id="predictions">Predictions<br><small>Graded benchmark predictions, newest first</small></button></li>
+      <li><button id="status">Status<br><small>Recording and annotation, with their switches</small></button></li>
     </ul>
     <h2>Chats <button id="new-chat" class="more">New</button></h2>
     <section id="chats"></section>
   </nav>
-  <div id="detail"><p class="status">Pick the timeline, predictions or a chat.</p></div>
+  <div id="detail"><p class="status">Pick the timeline, predictions, status or a chat.</p></div>
 </main>
 
 <script>
@@ -124,6 +127,11 @@
         error: null, reward: 0.66, accuracy: 0.55, formatting: 0.78, validation_errors: [], unparsed_replies: [] }],
       first_id: "laptop-session_20261003_091500-20261004_100000-0000", last_id: "laptop-session_20261003_091500-20261004_100000-0000", has_more: false },
   };
+  EXAMPLE["/control"] = {
+    server: { annotate: true, queue: { queued: { live: 1, requested: 0, backfill: 12 }, running: 2, paused_seconds: 0 } },
+    devices: { laptop: { capture: true, reported: { capture: "running", session_id: "laptop-session_20261003_091500" },
+                         reported_at: 1791100200, online: true } },
+    poll_seconds: 5 };
   EXAMPLE["/predictions/laptop-session_20261003_091500-20261004_100000-0000"] = {
     ...EXAMPLE["/predictions?limit=20"].data[0],
     messages: [{ role: "user", content: [{ type: "text", text: "You will analyze user behavior and predict what the user will do next. Below are the actions the user took.\n\n<actions>\n    <action>Types a letter in the editor.</action>\n</actions>\n\nPredict the next 2 actions the user will take." }] }],
@@ -147,6 +155,10 @@
       return EXAMPLE[path];
     }
   };
+  const patch = (path, body) => window.juno && window.juno.patch
+    ? window.juno.patch(path, body)
+    : fetch(BASE + path, { method: "PATCH", headers: { "Content-Type": "application/json" },
+                           body: JSON.stringify(body) }).then(checked);
   // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
   const send = (chatId, content) => window.juno && window.juno.sendChat
     ? window.juno.sendChat(chatId, content)
@@ -370,6 +382,66 @@
       const list = el("section");
       await paged(list, "/predictions", graded);
       return [el("h2", { textContent: "Predictions" }), list];
+    });
+  };
+
+  // Status: GET /control. The server's annotation switch, then one recording switch
+  // per device. A switch shows what was asked for, the line below it what the queue
+  // or the device last reported. The page asks again every poll_seconds while open.
+  const statusButton = document.getElementById("status");
+  function switchRow(label, on, note, set) {
+    const box = el("input", { type: "checkbox", checked: on });
+    const line = el("small", { textContent: note });
+    box.onchange = async () => {
+      box.disabled = true;
+      try {
+        const control = await set(box.checked);
+        if (current === statusButton) detail.replaceChildren(...controlView(control));
+      } catch (error) {
+        box.checked = !box.checked;
+        box.disabled = false;
+        line.textContent = String(error.message || error);
+      }
+    };
+    return el("li", { className: "switch" }, el("label", {}, box, ` ${label}`), el("br"), line);
+  }
+  const queueNote = ({ annotate, queue }) => [
+    `${queue.queued.live} live · ${queue.queued.requested} requested · ${queue.queued.backfill} backfill`,
+    `${queue.running} running`,
+    ...(annotate ? [] : ["paused"]),
+    ...(queue.paused_seconds > 0 ? [`waiting ${Math.ceil(queue.paused_seconds)} s for the provider`] : [])].join(" · ");
+  function deviceNote(d) {
+    if (!d.online) return d.reported_at ? `offline · last seen ${time(d.reported_at)}` : "offline";
+    const running = d.reported.capture === "running";
+    const doing = running ? `recording ${d.reported.session_id}` : "not recording";
+    return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
+  }
+  const controlView = (control) => {
+    const devices = Object.entries(control.devices);
+    return [
+      el("h2", { textContent: "Server" }),
+      el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
+                             (on) => patch("/control/server", { annotate: on }))),
+      el("h2", { textContent: "Recording" }),
+      devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
+                                                                         (on) => patch(`/control/devices/${id}`, { capture: on }))))
+        : el("small", { textContent: "No device has reported yet." })];
+  };
+  statusButton.onclick = () => {
+    select(statusButton);
+    load(detail, async () => {
+      const control = await api("/control");
+      // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
+      const refresh = () => setTimeout(async () => {
+        if (current !== statusButton) return;
+        try {
+          const next = await api("/control");
+          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...controlView(next));
+        } catch {}
+        refresh();
+      }, control.poll_seconds * 1000);
+      refresh();
+      return controlView(control);
     });
   };
 

@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("juno", {
   sendChat: (chatId, content) => ipcRenderer.invoke("chat:send", chatId, content),
   get: (route) => ipcRenderer.invoke("api:get", route),
+  patch: (route, body) => ipcRenderer.invoke("api:patch", route, body),
   // Open (true) or close (false) a dictation segment; onDictation receives
   // {text, final} for it, text being the whole segment so far.
   dictate: (on) => ipcRenderer.send("dictation:set", on),
