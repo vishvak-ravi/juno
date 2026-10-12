@@ -177,6 +177,14 @@ class PredictConfig(Section):
     time_decay_lambda: float = 0.5
 
 
+class ControlConfig(Section):
+    # Seconds between a recorder's reports to the server, each of which also
+    # tells it whether to record; the status page refreshes as often.
+    poll_seconds: float = 5.0
+    # Seconds without a report after which a device shows as offline.
+    offline_seconds: float = 30.0
+
+
 class Config(Section):
     # Seconds a process gets to exit after SIGTERM before it is killed.
     stop_timeout_seconds: float = 30.0
@@ -186,6 +194,7 @@ class Config(Section):
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
+    control: ControlConfig = Field(default_factory=ControlConfig)
 
 
 def default_data_dir() -> Path:
@@ -227,6 +236,11 @@ def sessions_dir(data_dir: Path) -> Path:
 def devices_dir(data_dir: Path) -> Path:
     """Where the server stores the sessions uploaded to it, one directory per device."""
     return data_dir / "screen" / "devices"
+
+
+def control_file(data_dir: Path) -> Path:
+    """The server's switches and each device's last report (`server.control`)."""
+    return data_dir / "control.json"
 
 
 def workspace_dir(data_dir: Path) -> Path:

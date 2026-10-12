@@ -120,3 +120,10 @@ predict:
   mmr_alpha: 0.5
   # How fast older activity loses retrieval score, per day of age.
   time_decay_lambda: 0.5
+
+control:
+  # Seconds between a recorder's reports to the server, each of which also tells
+  # it whether to record; the status page refreshes as often.
+  poll_seconds: 5
+  # Seconds without a report after which a device shows as offline.
+  offline_seconds: 30
