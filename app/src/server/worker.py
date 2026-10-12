@@ -14,6 +14,10 @@ With ``annotate.backfill`` on, the thread also looks through the store every
 ``annotate.scan_interval_seconds`` (``find_work``) and queues every chunk
 without a finished annotation.
 
+Clearing the server's ``annotate`` switch (``set_annotating``) pauses the
+tasks before their next call; what is queued stays queued, and records stay
+pending.
+
 A call that fails because the provider was busy is made again later, up to
 ``annotate.max_attempts`` times, and every call waits out the delay the busy
 provider earned, so a rate limit slows the whole worker instead of being hit
@@ -130,11 +134,12 @@ def build_request(directory: Path, chunk: int, chunk_size: int) -> tuple[Annotat
 class AnnotationWorker:
 
     def __init__(self, devices_dir: Path, config: AnnotateConfig,
-                 annotate_request: AnnotateRequest):
+                 annotate_request: AnnotateRequest, annotating: bool = True):
         """
         Args:
             devices_dir: where the server stores every device's sessions.
             annotate_request: the model call for one sanitized request.
+            annotating: whether calls are made; False starts the worker paused.
         """
         self.devices_dir = devices_dir
         self.config = config
@@ -147,10 +152,12 @@ class AnnotationWorker:
         self._running: set[tuple[str, int]] = set()
         self._order = itertools.count()  # breaks ties between queue entries
         self._paused_until = 0.0  # time.monotonic() before which no call starts
+        self._annotating = annotating
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._queue: Optional[asyncio.PriorityQueue] = None
         self._stop: Optional[asyncio.Event] = None
+        self._resume: Optional[asyncio.Event] = None  # set while calls are made
 
     # -- called from any thread ---------------------------------------------
 
@@ -223,6 +230,12 @@ class AnnotationWorker:
                  next(self._order), key)
         self._loop.call_soon_threadsafe(self._queue.put_nowait, entry)
 
+    def set_annotating(self, on: bool) -> None:
+        """Resume (True) or pause (False) the calls; calls in flight finish either way."""
+        self._annotating = on
+        self._ensure_started()
+        self._loop.call_soon_threadsafe(self._resume.set if on else self._resume.clear)
+
     def status(self) -> QueueStatus:
         with self._lock:
             queued = {priority.name.lower(): 0 for priority in Priority}
@@ -248,6 +261,9 @@ class AnnotationWorker:
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.PriorityQueue()
         self._stop = asyncio.Event()
+        self._resume = asyncio.Event()
+        if self._annotating:
+            self._resume.set()
         self._tasks = [self._loop.create_task(self._work())
                        for _ in range(self.config.max_concurrency)]
         ready.set()
@@ -280,6 +296,7 @@ class AnnotationWorker:
     async def _work(self) -> None:
         while True:
             *_, key = await self._queue.get()
+            await self._resume.wait()
             with self._lock:
                 # An entry left behind by a chunk that moved up, or was finished.
                 if key not in self._waiting or key in self._running:

@@ -14,6 +14,7 @@ from annotate.request import AnnotationRequest
 from juno.config import (Config, claude_results_dir, control_file, devices_dir, load_config,
                          resolve_data_dir, server_host, workspace_dir)
 from predict.predictor import Predictor
+from server.control import read_state
 from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
 from server.routes.chats import router as chats_router
@@ -115,8 +116,9 @@ def create_app(config: Optional[Config] = None,
     app.state.predictor = predictor
     app.state.control = config.control
     app.state.control_file = control_file(data_dir)
-    app.state.worker = AnnotationWorker(app.state.devices_dir, config.annotate,
-                                        annotate_request)
+    app.state.worker = AnnotationWorker(
+        app.state.devices_dir, config.annotate, annotate_request,
+        annotating=read_state(app.state.control_file).server.annotate)
     app.include_router(router)
     app.include_router(web_router)
     app.include_router(chats_router)

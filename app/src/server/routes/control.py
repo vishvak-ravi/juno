@@ -78,7 +78,9 @@ def get_control(request: Request) -> ControlView:
 def patch_server(body: ServerPatch, request: Request) -> ControlView:
     def change(state: ControlState) -> None:
         state.server.annotate = body.annotate
-    return view(request, change_state(request.app.state.control_file, change))
+    state = change_state(request.app.state.control_file, change)
+    request.app.state.worker.set_annotating(state.server.annotate)
+    return view(request, state)
 
 
 @router.patch("/devices/{device_id}")

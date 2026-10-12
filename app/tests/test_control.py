@@ -1,14 +1,11 @@
 """The control API: switches clients set, and what recorders report and are told."""
 
-from fastapi.testclient import TestClient
+import time
 
-from juno.config import CaptureConfig, Config
-from server.app import create_app
-
-
-def client_for(tmp_path) -> TestClient:
-    return TestClient(create_app(Config(capture=CaptureConfig(data_dir=tmp_path)),
-                                 annotate_request=lambda request: None))
+from annotate.records import session_dir
+from annotate.store import read_record
+from juno.config import devices_dir
+from test_events import LAPTOP, client_for, put, wait_for_annotation
 
 
 def report(client, device, capture="running", session_id=None):
@@ -64,3 +61,18 @@ def test_the_server_section_shows_the_annotation_queue(tmp_path):
     server = client_for(tmp_path).get("/control").json()["server"]
     assert server["annotate"] is True
     assert server["queue"]["running"] == 0
+
+
+def test_with_annotation_off_chunks_wait_until_it_is_on_again(tmp_path):
+    client = client_for(tmp_path)
+    client.patch("/control/server", json={"annotate": False})
+    put(client, LAPTOP, 0, 1000.0)
+    put(client, LAPTOP, 1, 1001.0)
+
+    time.sleep(0.3)
+    record = read_record(session_dir(devices_dir(tmp_path), LAPTOP), 0)
+    assert record.status == "pending"
+    assert client.get("/control").json()["server"]["queue"]["queued"]["live"] == 1
+
+    client.patch("/control/server", json={"annotate": True})
+    wait_for_annotation(tmp_path, LAPTOP, 0)
