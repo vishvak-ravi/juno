@@ -11,14 +11,16 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
-from juno.config import (Config, claude_results_dir, control_file, devices_dir, load_config,
-                         resolve_data_dir, server_host, workspace_dir)
+from juno.config import (Config, claude_results_dir, control_file, devices_dir,
+                         draw_sessions_dir, load_config, resolve_data_dir, server_host,
+                         workspace_dir)
 from predict.predictor import Predictor
 from server.control import read_state
 from server.integrity import StoreReport, check_store
 from server.mcp import MCP_PATH, create_mcp
 from server.routes.chats import router as chats_router
 from server.routes.control import router as control_router
+from server.routes.draw import router as draw_router
 from server.routes.events import router as events_router
 from server.routes.predictions import router as predictions_router
 from server.tools import create_chat_tools, session_tools
@@ -116,6 +118,9 @@ def create_app(config: Optional[Config] = None,
     app.state.predictor = predictor
     app.state.control = config.control
     app.state.control_file = control_file(data_dir)
+    app.state.capture = config.capture
+    app.state.draw = config.draw
+    app.state.draw_sessions_dir = draw_sessions_dir(data_dir)
     app.state.worker = AnnotationWorker(
         app.state.devices_dir, config.annotate, annotate_request,
         annotating=read_state(app.state.control_file).server.annotate)
@@ -123,6 +128,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(web_router)
     app.include_router(chats_router)
     app.include_router(control_router)
+    app.include_router(draw_router)
     app.include_router(events_router)
     app.include_router(predictions_router)
     # After the routes: the MCP app answers MCP_PATH and nothing else.

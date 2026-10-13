@@ -185,6 +185,11 @@ class ControlConfig(Section):
     offline_seconds: float = 30.0
 
 
+class DrawConfig(Section):
+    # The device id the server records the /draw page's sessions under.
+    device_id: str = Field(default="tablet", pattern=r"^[a-z0-9]+$")
+
+
 class Config(Section):
     # Seconds a process gets to exit after SIGTERM before it is killed.
     stop_timeout_seconds: float = 30.0
@@ -195,6 +200,7 @@ class Config(Section):
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
     control: ControlConfig = Field(default_factory=ControlConfig)
+    draw: DrawConfig = Field(default_factory=DrawConfig)
 
 
 def default_data_dir() -> Path:
@@ -231,6 +237,11 @@ def resolve_device_id() -> str:
 def sessions_dir(data_dir: Path) -> Path:
     """Where the recorder writes its sessions under the base directory ``data_dir``."""
     return data_dir / "screen" / "sessions"
+
+
+def draw_sessions_dir(data_dir: Path) -> Path:
+    """Where the server records the /draw page's sessions before uploading them to itself."""
+    return data_dir / "screen" / "draw"
 
 
 def devices_dir(data_dir: Path) -> Path:

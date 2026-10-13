@@ -127,3 +127,8 @@ control:
   poll_seconds: 5
   # Seconds without a report after which a device shows as offline.
   offline_seconds: 30
+
+draw:
+  # The device id the server records the /draw page's sessions under; its
+  # recording switch is on the Status page like any recorder's.
+  device_id: tablet
