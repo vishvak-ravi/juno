@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<!-- Pinch zoom off: every touch on the canvas is drawing. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<!-- Opened from the iOS Home Screen, the page runs full screen, without Safari's bars. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Draw" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<title>Draw</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  body { display: flex; flex-direction: column; height: 100dvh;
+         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+  #tools { display: flex; gap: .75rem; align-items: center; justify-content: center; background: #111;
+           padding: calc(.5rem + env(safe-area-inset-top)) .75rem .5rem; }
+  #tools button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 3px solid transparent; padding: 0;
+                  background: var(--colour, #333); color: #ddd; font: 600 .7rem system-ui, sans-serif; cursor: pointer; }
+  #tools button[aria-pressed="true"] { border-color: #888; }
+  #tools .gap { width: 1.5rem; }
+  #canvas { flex: 1; min-height: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<div id="tools">
+  <button data-tool="draw" aria-pressed="true">Draw</button>
+  <button data-tool="erase" aria-pressed="false">Erase</button>
+  <span class="gap"></span>
+  <button data-colour="#ffffff" style="--colour:#ffffff" aria-label="White" aria-pressed="true"></button>
+  <button data-colour="#ff3b30" style="--colour:#ff3b30" aria-label="Red" aria-pressed="false"></button>
+  <button data-colour="#34c759" style="--colour:#34c759" aria-label="Green" aria-pressed="false"></button>
+  <button data-colour="#0a84ff" style="--colour:#0a84ff" aria-label="Blue" aria-pressed="false"></button>
+</div>
+<canvas id="canvas"></canvas>
+<script>
+// A black canvas to draw on with the pencil or a finger. The canvas is sent to
+// the server's /draw/socket with every pointer event (see server/routes/draw.py),
+// which records it like a desktop recorder records a screen. Nothing is kept on
+// the page: loading it again starts a blank canvas and a new session.
+
+const canvas = document.getElementById('canvas');
+const context = canvas.getContext('2d');
+const ratio = window.devicePixelRatio || 1;
+// Line widths in CSS pixels; a pencil's pressure scales the drawing width.
+const DRAW_WIDTH = 4;
+const ERASE_WIDTH = 40;
+
+let tool = 'draw';
+let colour = '#ffffff';
+let penSeen = false;  // once a pencil is used, finger and palm touches are ignored
+let stroke = null;    // { id, x, y } of the pointer drawing now
+
+// The canvas is sized once, in device pixels, to the space it has at load.
+const bounds = canvas.getBoundingClientRect();
+canvas.width = Math.round(bounds.width * ratio);
+canvas.height = Math.round(bounds.height * ratio);
+canvas.style.width = `${bounds.width}px`;
+canvas.style.height = `${bounds.height}px`;
+context.fillStyle = '#000';
+context.fillRect(0, 0, canvas.width, canvas.height);
+context.lineCap = 'round';
+context.lineJoin = 'round';
+
+function press(group, value) {
+  for (const button of document.querySelectorAll(`#tools [data-${group}]`)) {
+    button.setAttribute('aria-pressed', String(button.dataset[group] === value));
+  }
+}
+
+for (const button of document.querySelectorAll('#tools button')) {
+  button.addEventListener('click', () => {
+    if (button.dataset.colour) {
+      colour = button.dataset.colour;
+      press('colour', colour);
+      tool = 'draw';
+    } else {
+      tool = button.dataset.tool;
+    }
+    press('tool', tool);
+  });
+}
+
+// --- Sending: messages leave in the order they were made; a frame is the canvas when it was asked for.
+
+let socket = null;
+let frameInterval = 200;
+let dirty = false;        // the canvas changed since the last frame was taken
+const outbox = [];        // promises of strings or Blobs, in order
+let sending = false;
+
+function connect() {
+  socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/draw/socket`);
+  socket.addEventListener('open', () => {
+    socket.send(JSON.stringify({ width: canvas.width, height: canvas.height }));
+  });
+  socket.addEventListener('message', (message) => {
+    const { fps } = JSON.parse(message.data);
+    frameInterval = 1000 / fps;
+    sendFrame();
+    setInterval(() => { if (dirty) sendFrame(); }, frameInterval);
+  });
+}
+
+function enqueue(item) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  outbox.push(item);
+  drain();
+}
+
+async function drain() {
+  if (sending) return;
+  sending = true;
+  while (outbox.length) {
+    const data = await outbox.shift();
+    if (data && socket.readyState === WebSocket.OPEN) socket.send(data);
+  }
+  sending = false;
+}
+
+function sendFrame() {
+  dirty = false;
+  enqueue(new Promise((resolve) => canvas.toBlob(resolve, 'image/png')));
+}
+
+function sendPointer(type, x, y) {
+  enqueue(Promise.resolve(JSON.stringify({ type, x: Math.round(x), y: Math.round(y) })));
+}
+
+// --- Drawing.
+
+function point(event) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: (event.clientX - rect.left) * ratio, y: (event.clientY - rect.top) * ratio };
+}
+
+function lineWidth(event) {
+  if (tool === 'erase') return ERASE_WIDTH * ratio;
+  // A mouse reports 0.5 while pressed; only a pencil's pressure varies.
+  const pressure = event.pointerType === 'pen' && event.pressure > 0 ? event.pressure * 2 : 1;
+  return DRAW_WIDTH * ratio * pressure;
+}
+
+function segment(from, to, event) {
+  context.strokeStyle = tool === 'erase' ? '#000' : colour;
+  context.lineWidth = lineWidth(event);
+  context.beginPath();
+  context.moveTo(from.x, from.y);
+  context.lineTo(to.x, to.y);
+  context.stroke();
+  dirty = true;
+}
+
+function ignored(event) {
+  if (event.pointerType === 'pen') penSeen = true;
+  return penSeen && event.pointerType === 'touch';
+}
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (stroke || ignored(event)) return;
+  event.preventDefault();
+  canvas.setPointerCapture(event.pointerId);
+  // What the canvas showed before the stroke goes out ahead of it.
+  if (dirty) sendFrame();
+  const at = point(event);
+  stroke = { id: event.pointerId, ...at };
+  sendPointer('down', at.x, at.y);
+  segment(at, at, event);
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  if (ignored(event)) return;
+  if (!stroke || event.pointerId !== stroke.id) {
+    if (!stroke && event.pointerType === 'mouse') { const at = point(event); sendPointer('move', at.x, at.y); }
+    return;
+  }
+  event.preventDefault();
+  const samples = event.getCoalescedEvents ? event.getCoalescedEvents() : [event];
+  for (const sample of samples.length ? samples : [event]) {
+    const at = point(sample);
+    segment(stroke, at, sample);
+    stroke.x = at.x;
+    stroke.y = at.y;
+  }
+  sendPointer('move', stroke.x, stroke.y);
+});
+
+function endStroke(event) {
+  if (!stroke || event.pointerId !== stroke.id) return;
+  sendPointer('up', stroke.x, stroke.y);
+  stroke = null;
+  sendFrame();
+}
+canvas.addEventListener('pointerup', endStroke);
+canvas.addEventListener('pointercancel', endStroke);
+
+// iOS starts text selection, the magnifier or a scroll on a long press otherwise.
+for (const name of ['touchstart', 'touchmove']) {
+  canvas.addEventListener(name, (event) => event.preventDefault(), { passive: false });
+}
+
+connect();
+</script>
+</body>
+</html>

@@ -73,6 +73,14 @@ Both switches are on the clients' Status page (`GET /control`, `PATCH
 /control/server`, `PATCH /control/devices/<device_id>`) and are stored in
 `<data_dir>/control.json` on the server.
 
+A tablet records by opening `http://<server>:8765/draw`: a black canvas to
+draw on, sent with each pointer event over `/draw/socket`. The server runs the
+recorder for it (`server.draw`) on the `capture.sources.pushed` backend, writes
+the session under `<data_dir>/screen/draw/` and uploads it to itself through
+`PUT /events` as the device `draw.device_id`, so it is stored, annotated and
+switched on and off like a computer's. Each page load is a blank canvas and a
+new session.
+
 Edits and deletes of events are kept in the session's `event_edits.json`; the
 row and its screenshot stay on disk with every field the recorder wrote.
 

@@ -17,6 +17,7 @@ server** (one machine), the **recorder** (every computer you use) and the
 | Annotation model | Gemini API, nothing to host | `GEMINI_API_KEY` in `app/.env` | | | |
 | Desktop client: chat window and browser | any computer | `npm start` (`client/`) | yes | untested | yes, with dictation |
 | Phone | none | | | | |
+| Tablet drawing page, recorded as device `draw.device_id` | served by the API server | open `http://<server>:8765/draw` | | | |
 
 ## Setup (once per machine)
 

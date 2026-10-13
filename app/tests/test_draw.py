@@ -1,4 +1,4 @@
-"""The tablet drawing socket: what is drawn reaches /events like any recorder's session."""
+"""The tablet drawing page: what it draws reaches /events like any recorder's session."""
 
 import io
 import json
@@ -7,6 +7,7 @@ import time
 
 import httpx
 import uvicorn
+from fastapi.testclient import TestClient
 from PIL import Image
 from websockets.sync.client import connect
 
@@ -50,7 +51,7 @@ def draw_strokes(port, strokes: int) -> None:
             time.sleep(1.0)
 
 
-def test_strokes_sent_to_the_socket_are_stored_as_the_tablet_s_events(tmp_path):
+def test_strokes_drawn_on_the_page_are_stored_as_the_tablet_s_events(tmp_path):
     server, thread, port = serve(tmp_path)
     try:
         draw_strokes(port, strokes=2)
@@ -70,9 +71,9 @@ def test_strokes_sent_to_the_socket_are_stored_as_the_tablet_s_events(tmp_path):
             shot = client.get(events[0]["screenshot_url"])
             assert Image.open(io.BytesIO(shot.content)).size == (WIDTH, HEIGHT)
 
-            # The socket's device has a switch like any recorder, and is paused once it closes.
+            # The page's device has a switch like any recorder, and is paused once it closes.
             wait_for(lambda: client.get("/control").json()["devices"]["tablet"]["reported"]
-                     ["capture"] == "paused", "the closed socket reporting paused")
+                     ["capture"] == "paused", "the closed page reporting paused")
     finally:
         server.should_exit = True
         thread.join(timeout=10)
@@ -91,3 +92,9 @@ def test_nothing_is_recorded_while_the_tablet_s_switch_is_off(tmp_path):
         server.should_exit = True
         thread.join(timeout=10)
 
+
+def test_the_server_serves_the_drawing_page(tmp_path):
+    with TestClient(create_app(Config(capture=CaptureConfig(data_dir=tmp_path)))) as client:
+        response = client.get("/draw")
+        assert response.status_code == 200
+        assert "<canvas" in response.text

@@ -1,5 +1,13 @@
 # Status
 
+## 2026-10-13: Tablet drawing page
+
+| Piece | State |
+|---|---|
+| `/draw` page: canvas, colours, draw and erase, pencil pressure | written, run only in tests; not yet opened on an iPad |
+| Server-side recorder for it (`server.draw`, `capture.sources.pushed`) | done, tested end to end with a socket client |
+| Canvas size after the tablet rotates | fixed at load; rotating needs a reload |
+
 ## 2026-10-12: Capture backends
 
 | Piece | State |

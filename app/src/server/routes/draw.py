@@ -1,13 +1,14 @@
-"""``/draw/socket``: a tablet's canvas, recorded like any other device.
+"""``/draw``: a drawing page for a tablet, recorded like any other device.
 
-A client opens ``/draw/socket`` and sends, in order:
+``GET /draw`` is the page (``server/web/draw.html``). It opens
+``/draw/socket`` and sends, in order:
 
 1. ``{"width": W, "height": H}``: its canvas size in pixels, once;
 2. pointer events as ``{"type": "down" | "up" | "move", "x": X, "y": Y}`` in
    canvas pixels, and the canvas as a PNG (a binary message) whenever it changed.
 
 The server answers the first message with ``{"fps": N}``, how often a frame is
-worth sending, and records the canvas with ``server.draw.DrawRecorder`` until the
+worth sending, and records the page with ``server.draw.DrawRecorder`` until the
 socket closes. Events are timed when they arrive, on the same clock as the
 recorder's frames.
 """
@@ -15,10 +16,12 @@ recorder's frames.
 import asyncio
 import io
 import logging
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, WebSocket
+from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field, ValidationError
 
@@ -28,6 +31,8 @@ from server.draw import DrawRecorder
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["draw"])
+
+DRAW_PAGE = Path(__file__).resolve().parent.parent / "web" / "draw.html"
 
 
 class Canvas(BaseModel):
@@ -45,6 +50,12 @@ def decode_frame(png: bytes) -> np.ndarray:
     """The PNG as an H x W x 3 RGB array."""
     with Image.open(io.BytesIO(png)) as image:
         return np.asarray(image.convert("RGB"))
+
+
+@router.get("/draw", include_in_schema=False)
+def get_draw_page() -> FileResponse:
+    # no-cache: a copy saved to the Home Screen asks for the current page each time.
+    return FileResponse(DRAW_PAGE, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @router.websocket("/draw/socket")

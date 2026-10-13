@@ -2,6 +2,17 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-13: Tablet drawing recorded by the server
+
+A tablet can't run `python -m capture`, so `/draw` (a black canvas, four
+colours, draw and erase) streams its canvas and pointer events over a socket
+and the server runs the same `Recorder` for it on a pushed-input backend
+(`capture.sources.pushed`). Its sessions go through `PUT /events` like any
+recorder's, under the device `draw.device_id`. Pencil and finger strokes are
+recorded as `Button.left` presses; taps on the toolbar are not recorded and the
+toolbar is not in the frames. This is a prototype of the iPad as an event
+writer, which `requirements.md` lists as cut.
+
 ## 2026-10-12: Switches in a file on the server
 
 Whether each device records, and whether the server annotates, is kept in
