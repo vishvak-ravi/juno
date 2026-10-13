@@ -14,6 +14,7 @@ from annotate.request import AnnotationFrame
 from annotate.sanitize import Sanitization
 from annotate.store import new_record, write_record
 from juno.config import CaptureConfig, Config, LlmConfig, PredictConfig, devices_dir
+from predict.benchmarks import GradedRow, GraderSettings, PredictorSettings, run_file
 from server.app import create_app
 from test_tools import mcp_request
 
@@ -218,3 +219,84 @@ def test_an_agent_asks_for_a_prediction_over_mcp(tmp_path, model_server):
     assert too_few["isError"] and "not enough data (1/4)" in too_few["content"][0]["text"]
     assert unknown["isError"] and "the devices are: laptop, phone" in unknown["content"][0]["text"]
     assert len(model_server.requests) == 1
+
+
+def write_graded(tmp_path, run: str, graded_at: list[float], device: str = "laptop",
+                 image_path=None) -> None:
+    """A benchmark run's file with one row per ``graded_at`` time, the first with a screenshot."""
+    session_id = f"{device}-session_20260101_120000"
+    directory = session_dir(devices_dir(tmp_path), session_id)
+    if image_path is None:
+        image_path = directory / "screenshots" / "1.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (40, 20), "white").save(image_path)
+    path = run_file(directory, run)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for index, at in enumerate(graded_at):
+        content = [{"type": "text", "text": "Predict the next 2 actions."}]
+        if index == 0:
+            content.insert(0, {"type": "image_url", "image_url": {"url": image_path.as_uri()}})
+        rows.append(GradedRow(
+            session_id=session_id, run=run, index=index, graded_at=at, dataset="d.jsonl",
+            predictor=PredictorSettings(model="hosted_vllm/predictor"),
+            grader=GraderSettings(model="gemini/grader"), cutoff_ts=1000.0, future_len=2,
+            messages=[{"role": "user", "content": content}], retrieved="",
+            ground_truth="<actions><action>A</action><action>B</action></actions>",
+            prediction="<actions><action>A</action><action>C</action></actions>",
+            reward=0.6, accuracy=0.5, formatting=0.7,
+            accuracy_prompt="judge accuracy", accuracy_reply='{"candidates": [{"score": 0.5}]}',
+            formatting_prompt="judge formatting", formatting_reply='{"score": 0.7}'))
+    path.write_text("".join(row.model_dump_json() + "\n" for row in rows))
+
+
+def test_graded_predictions_of_every_run_are_listed_most_recent_first(tmp_path):
+    write_graded(tmp_path, "20260101_120000", [10.0, 30.0])
+    write_graded(tmp_path, "20260102_120000", [20.0], device="desktop")
+    client = client_for(tmp_path, "http://127.0.0.1:9")
+
+    page = client.get("/predictions", params={"limit": 2}).json()
+
+    assert [row["graded_at"] for row in page["data"]] == [30.0, 20.0]
+    assert page["data"][0]["id"] == "laptop-session_20260101_120000-20260101_120000-0001"
+    assert page["data"][0]["predictor"]["model"] == "hosted_vllm/predictor"
+    assert page["data"][0]["grader"]["model"] == "gemini/grader"
+    assert "messages" not in page["data"][0]
+    assert page["has_more"]
+    rest = client.get("/predictions", params={"after": page["last_id"]}).json()
+    assert [row["graded_at"] for row in rest["data"]] == [10.0]
+    assert not rest["has_more"]
+    desktop = client.get("/predictions", params={"device": "desktop"}).json()
+    assert [row["device_id"] for row in desktop["data"]] == ["desktop"]
+
+
+def test_a_graded_prediction_shows_what_each_model_was_sent(tmp_path):
+    write_graded(tmp_path, "20260101_120000", [10.0])
+    client = client_for(tmp_path, "http://127.0.0.1:9")
+    graded_id = "laptop-session_20260101_120000-20260101_120000-0000"
+
+    row = client.get(f"/predictions/{graded_id}").json()
+
+    image, text = row["messages"][0]["content"]
+    assert image["image_url"]["url"] == f"/predictions/{graded_id}/images/0"
+    assert text["text"] == "Predict the next 2 actions."
+    assert row["accuracy_prompt"] == "judge accuracy"
+    assert row["formatting_reply"] == '{"score": 0.7}'
+    screenshot = client.get(f"/predictions/{graded_id}/images/0")
+    assert screenshot.status_code == 200
+    assert screenshot.headers["content-type"] == "image/png"
+    assert client.get(f"/predictions/{graded_id}/images/1").status_code == 404
+    assert client.get(
+        "/predictions/laptop-session_20260101_120000-20260101_120000-0009").status_code == 404
+
+
+def test_a_screenshot_outside_the_store_is_not_served(tmp_path):
+    outside = tmp_path / "elsewhere.png"
+    Image.new("RGB", (4, 4)).save(outside)
+    write_graded(tmp_path, "20260101_120000", [10.0], image_path=outside)
+    client = client_for(tmp_path, "http://127.0.0.1:9")
+
+    response = client.get(
+        "/predictions/laptop-session_20260101_120000-20260101_120000-0000/images/0")
+
+    assert response.status_code == 404

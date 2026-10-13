@@ -38,7 +38,7 @@
   li button { display: block; width: 100%; text-align: left; padding: .6rem 0; border-bottom: 1px solid var(--line); color: inherit;
               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   small, .status { color: var(--dim); }
-  /* The pinned row (Timeline), set apart from the chats below it. */
+  /* The pinned rows (Timeline, Predictions), set apart from the chats below them. */
   #pinned { margin-bottom: 1.5rem; }
   #pinned li + li { margin-top: .25rem; }
   #pinned button { padding: .6rem .75rem; border-bottom: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
@@ -81,6 +81,14 @@
   article p { margin: 0; white-space: pre-wrap; }
   li.event { padding: .15rem 0; white-space: pre; }
   img { display: block; max-width: 100%; margin-top: .5rem; }
+  /* One graded prediction: the prediction above what actually happened next. */
+  pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  details { border-bottom: 1px solid var(--line); padding: .5rem 0; }
+  summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
+  /* What the predictor was sent: its screenshots as thumbnails; a tap shows one full width. */
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: .5rem; }
+  .shots img { margin: 0; border: 1px solid var(--line); }
+  .shots img.big { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -103,6 +111,8 @@
   //
   // Screens, by location.hash:  (none) the timeline row and the chat list
   //                             #/timeline    every device's events, newest first
+  //                             #/predictions       graded benchmark predictions, newest first
+  //                             #/predictions/<id>  one of them in full
   //                             #/chats/<id>  one chat and its message box
 
   class ApiError extends Error {
@@ -223,10 +233,11 @@
     return out;
   }
 
-  // The first screen: the pinned row, then the chat list.
+  // The first screen: the pinned rows, then the chat list.
   const home = async () => [
     el("ul", { id: "pinned" },
-      row("Timeline", "Every device's events, newest first", "#/timeline")),
+      row("Timeline", "Every device's events, newest first", "#/timeline"),
+      row("Predictions", "Graded benchmark predictions, newest first", "#/predictions")),
     el("h2", { textContent: "Chats" }),
     await paged("/chats", (chat) =>
       row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`))];
@@ -382,24 +393,74 @@
     ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: e.screenshot_url })] : [])));
   const timeline = async () => [await paged("/events", timelineEvent)];
 
+  // Predictions: GET /predictions, every benchmark run's graded predictions,
+  // newest first. A row opens a screen with the prediction above what actually
+  // came next, what the predictor was sent (screenshots, then text), and each
+  // judge's prompt and reply (GET /predictions/{id}).
+  const score = (value) => value == null ? "–" : value.toFixed(2);
+  const pres = (text) => el("pre", { className: "wrap", textContent: text ?? "" });
+  const judge = (name, prompt, reply) => prompt == null ? [] : [
+    el("details", {}, el("summary", { textContent: `${name} judge prompt` }), pres(prompt)),
+    el("h3", { textContent: `${name} judge reply` }), pres(reply)];
+  function predictorInput(messages) {
+    const parts = messages.flatMap((m) => Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]);
+    const shots = parts.filter((part) => part.type === "image_url").map((part) => {
+      const img = el("img", { alt: "", loading: "lazy", src: part.image_url.url });
+      img.onclick = () => img.classList.toggle("big");
+      return img;
+    });
+    return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
+            ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
+  }
+  const predictions = async () => [await paged("/predictions", (g) => row(
+    `${g.error ? "failed" : `reward ${score(g.reward)}`} · ${time(g.graded_at)}`,
+    `${g.error ? "" : `accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)} · `}${g.predictor.model} → ${g.grader.model}`,
+    `#/predictions/${g.id}`))];
+  const prediction = async (id) => {
+    const g = await api(`/predictions/${id}`);
+    const { predictor: p, grader } = g;
+    const problems = [g.error, ...g.validation_errors,
+                      ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
+      .filter(Boolean);
+    return [
+      ...problems.map(status),
+      el("h3", { textContent: `Reward ${score(g.reward)} · accuracy ${score(g.accuracy)} · formatting ${score(g.formatting)}` }),
+      el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction."),
+      el("h3", { textContent: "Actually next" }), pres(g.ground_truth),
+      el("h3", { textContent: `Predictor input · ${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · max_tokens ${p.max_tokens} · temperature ${p.temperature}` }),
+      ...predictorInput(g.messages),
+      el("h3", { textContent: `Grader · ${grader.model}${grader.api_base ? ` at ${grader.api_base}` : ""}` }),
+      ...judge("Accuracy", g.accuracy_prompt, g.accuracy_reply),
+      ...judge("Formatting", g.formatting_prompt, g.formatting_reply),
+      el("h3", { textContent: "Sample" }),
+      pres(JSON.stringify({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
+                            cutoff: time(g.cutoff_ts), future_len: g.future_len }, null, 2)),
+    ];
+  };
+
   // Shows the screen location.hash names.
   function route() {
     const hash = location.hash;
-    const [, kind, id] = hash.match(/^#\/(timeline)$/)
-      || hash.match(/^#\/(chats)\/([A-Za-z0-9_-]+)$/) || [];
+    const [, kind, id] = hash.match(/^#\/(timeline|predictions)$/)
+      || hash.match(/^#\/(chats|predictions)\/([A-Za-z0-9_-]+)$/) || [];
     chatId = kind === "chats" ? id : null;
     screen++;
     // Until the chat is on screen: a message sent before then would be drawn over.
     sendButton.disabled = true;
     back.hidden = !kind;
+    // Back from one prediction goes to the list of them; from anything else, home.
+    parent = kind === "predictions" && id ? "#/predictions" : "";
     composer.hidden = kind !== "chats";
-    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline" : "Juno";
+    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline"
+      : kind === "predictions" ? (id ? "Prediction" : "Predictions") : "Juno";
     view.replaceChildren();
-    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline : home,
+    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline
+      : kind === "predictions" ? (id ? () => prediction(id) : predictions) : home,
          () => location.hash === hash);
   }
+  let parent = "";
   window.addEventListener("hashchange", route);
-  back.onclick = () => { location.hash = ""; };
+  back.onclick = () => { location.hash = parent; };
   document.getElementById("new").onclick = () => { location.hash = `#/chats/${newId()}`; };
   route();
 </script>

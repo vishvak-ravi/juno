@@ -27,7 +27,7 @@
   li button { display: block; width: 100%; text-align: left; padding: .4rem 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
   li button[aria-current="true"] { font-weight: 600; }
   small, .status { color: var(--dim); }
-  /* The pinned row (Timeline), set apart from the chats below it. */
+  /* The pinned rows (Timeline, Predictions), set apart from the chats below them. */
   #pinned { margin-bottom: 1.5rem; }
   #pinned li + li { margin-top: .25rem; }
   #pinned button { padding: .4rem .6rem; border: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
@@ -57,6 +57,14 @@
   /* Each open level sits inside its parent's region. */
   .nest { margin: .25rem 0 0 .5rem; padding-left: .75rem; border-left: 2px solid var(--line); }
   img { display: block; max-width: 100%; margin-top: .5rem; }
+  /* A prediction beside what actually happened next. */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  @media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
+  .compare pre, pre.wrap { white-space: pre-wrap; }
+  /* What the predictor was sent: its screenshots as thumbnails; a click shows one full width. */
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .5rem; }
+  .shots img { margin: 0; cursor: zoom-in; border: 1px solid var(--line); }
+  .shots img.big { grid-column: 1 / -1; cursor: zoom-out; }
 
   /* The camera with the hand keypoints (hand.js), mirrored like a mirror. */
   #hand { position: fixed; right: 1rem; top: 1rem; width: 240px; background: var(--bg); }
@@ -76,11 +84,12 @@
   <nav>
     <ul id="pinned">
       <li><button id="timeline">Timeline<br><small>Every device's events, newest first</small></button></li>
+      <li><button id="predictions">Predictions<br><small>Graded benchmark predictions, newest first</small></button></li>
     </ul>
     <h2>Chats <button id="new-chat" class="more">New</button></h2>
     <section id="chats"></section>
   </nav>
-  <div id="detail"><p class="status">Pick the timeline or a chat.</p></div>
+  <div id="detail"><p class="status">Pick the timeline, predictions or a chat.</p></div>
 </main>
 
 <script>
@@ -105,7 +114,22 @@
         inputs: [{ type: "key_press", timestamp: 1791100100.0, key: "a" }, { type: "key_release", timestamp: 1791100100.1, key: "a" }],
         caption: null }],
       first_id: "laptop-session_20261003_091500-000001", last_id: "laptop-session_20261003_091500-000000", has_more: false },
+    "/predictions?limit=20": { object: "list", data: [
+      { id: "laptop-session_20261003_091500-20261004_100000-0000", device_id: "laptop", session_id: "laptop-session_20261003_091500",
+        run: "20261004_100000", index: 0, graded_at: 1791200000, dataset: "datasets/20261004_095500.jsonl",
+        predictor: { model: "hosted_vllm/local-model", api_base: "http://localhost:8000/v1", max_tokens: 2048, temperature: 1.0 },
+        grader: { model: "gemini/gemini-3.1-flash-lite", api_base: null }, cutoff_ts: 1791100200.5, future_len: 2,
+        ground_truth: "<actions>\n    <action>Clicks into the terminal.</action>\n    <action>Runs the tests.</action>\n</actions>",
+        prediction: "<actions>\n    <action>Clicks into the terminal.</action>\n    <action>Opens the README.</action>\n</actions>",
+        error: null, reward: 0.66, accuracy: 0.55, formatting: 0.78, validation_errors: [], unparsed_replies: [] }],
+      first_id: "laptop-session_20261003_091500-20261004_100000-0000", last_id: "laptop-session_20261003_091500-20261004_100000-0000", has_more: false },
   };
+  EXAMPLE["/predictions/laptop-session_20261003_091500-20261004_100000-0000"] = {
+    ...EXAMPLE["/predictions?limit=20"].data[0],
+    messages: [{ role: "user", content: [{ type: "text", text: "You will analyze user behavior and predict what the user will do next. Below are the actions the user took.\n\n<actions>\n    <action>Types a letter in the editor.</action>\n</actions>\n\nPredict the next 2 actions the user will take." }] }],
+    retrieved: "",
+    accuracy_prompt: "You are an expert evaluator. …", accuracy_reply: "{\"candidates\": [{\"id\": 1, \"score\": 0.55}]}",
+    formatting_prompt: "You are an expert evaluator. …", formatting_reply: "{\"score\": 0.78}" };
   // Where the data comes from, in order: the Electron bridge (window.juno, calls
   // proxied by the main process), a server reachable by fetch, else the examples above.
   const BASE = (window.juno && window.juno.base) || "http://127.0.0.1:8765";
@@ -294,6 +318,58 @@
       const list = el("section");
       await paged(list, "/events", timelineEvent);
       return [el("h2", { textContent: "Timeline" }), list];
+    });
+  };
+
+  // Predictions: GET /predictions, every benchmark run's graded predictions,
+  // newest first. A row opens into the prediction beside what actually came
+  // next, what the predictor was sent (screenshots, then text), and each
+  // judge's prompt and reply (GET /predictions/{id}).
+  const score = (value) => value == null ? "–" : value.toFixed(2);
+  const pres = (text) => el("pre", { className: "wrap", textContent: text ?? "" });
+  const judge = (name, prompt, reply) => prompt == null ? [] : [
+    level(`${name} judge prompt`, async () => [pres(prompt)]),
+    el("h3", { textContent: `${name} judge reply` }), pres(reply)];
+  function predictorInput(messages) {
+    const parts = messages.flatMap((m) => Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]);
+    const shots = parts.filter((part) => part.type === "image_url").map((part) => {
+      const url = part.image_url.url;
+      const img = el("img", { alt: "", loading: "lazy", src: url.startsWith("/") ? BASE + url : url });
+      img.onclick = () => img.classList.toggle("big");
+      return img;
+    });
+    return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
+            ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
+  }
+  function gradedDetail(g) {
+    const { predictor: p, grader } = g;
+    const problems = [g.error, ...g.validation_errors,
+                      ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
+      .filter(Boolean);
+    return [
+      ...problems.map((text) => el("p", { className: "status", textContent: text })),
+      el("div", { className: "compare" },
+        el("div", {}, el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction.")),
+        el("div", {}, el("h3", { textContent: "Actually next" }), pres(g.ground_truth))),
+      el("h3", { textContent: `Predictor input · ${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · max_tokens ${p.max_tokens} · temperature ${p.temperature}` }),
+      ...predictorInput(g.messages),
+      el("h3", { textContent: `Grader · ${grader.model}${grader.api_base ? ` at ${grader.api_base}` : ""}` }),
+      ...judge("Accuracy", g.accuracy_prompt, g.accuracy_reply),
+      ...judge("Formatting", g.formatting_prompt, g.formatting_reply),
+      el("h3", { textContent: "Sample" }),
+      json({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
+             cutoff: time(g.cutoff_ts), future_len: g.future_len }),
+    ];
+  }
+  const graded = (g) => el("li", {}, level(
+    `${time(g.graded_at)} · ${g.error ? "failed" : `reward ${score(g.reward)} (accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)})`} · ${g.predictor.model} → ${g.grader.model}`,
+    async () => gradedDetail(await api(`/predictions/${g.id}`))));
+  document.getElementById("predictions").onclick = (event) => {
+    select(event.currentTarget);
+    load(detail, async () => {
+      const list = el("section");
+      await paged(list, "/predictions", graded);
+      return [el("h2", { textContent: "Predictions" }), list];
     });
   };
 
