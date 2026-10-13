@@ -14,6 +14,8 @@ from capture.check import latest_session
 
 HOST = "127.0.0.1"
 TIMEOUT_S = 60
+# How long the server gets to answer /api/status after the app starts.
+SERVER_START_TIMEOUT_S = 10
 
 
 def free_port() -> int:
@@ -33,8 +35,8 @@ def api_answers(port: int) -> bool:
         connection.close()
 
 
-def wait_for(condition) -> bool:
-    deadline = time.monotonic() + TIMEOUT_S
+def wait_for(condition, timeout: float = TIMEOUT_S) -> bool:
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if condition():
             return True
@@ -71,9 +73,11 @@ def finish(app: subprocess.Popen) -> str:
 
 def test_app_runs_the_server_and_the_recorder(tmp_path):
     port = free_port()
-    app = start_app(tmp_path, port, duration=2)
+    # The recording lasts as long as the server may take to start, so its end
+    # cannot stop the app before the server answers.
+    app = start_app(tmp_path, port, duration=SERVER_START_TIMEOUT_S)
     try:
-        assert wait_for(lambda: api_answers(port))
+        assert wait_for(lambda: api_answers(port), SERVER_START_TIMEOUT_S)
         assert wait_for(lambda: latest_session(tmp_path) is not None)
     finally:
         log = finish(app)
