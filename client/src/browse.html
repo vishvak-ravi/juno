@@ -6,11 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Juno Browser</title>
 <style>
-  :root { --bg: #ffffff; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #f4f4f4; }
+  :root { --bg: #ffffff; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #f4f4f4; --accent: #2457c5; --accent-bg: #eef3fd; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; color-scheme: dark; }
+    :root:not([data-theme="light"]) { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; --accent: #8fb0ff; --accent-bg: #1c2438; color-scheme: dark; }
   }
-  :root[data-theme="dark"] { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; color-scheme: dark; }
+  :root[data-theme="dark"] { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; --accent: #8fb0ff; --accent-bg: #1c2438; color-scheme: dark; }
 
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
@@ -27,6 +27,10 @@
   li button { display: block; width: 100%; text-align: left; padding: .4rem 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
   li button[aria-current="true"] { font-weight: 600; }
   small, .status { color: var(--dim); }
+  /* The pinned row (Timeline), set apart from the chats below it. */
+  #pinned { margin-bottom: 1.5rem; }
+  #pinned li + li { margin-top: .25rem; }
+  #pinned button { padding: .4rem .6rem; border: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
   button.more { padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
   section > button.more { margin-top: .5rem; }
   h2 button.more { margin-left: .5rem; font-weight: normal; }
@@ -70,12 +74,13 @@
 
 <main>
   <nav>
+    <ul id="pinned">
+      <li><button id="timeline">Timeline<br><small>Every device's events, newest first</small></button></li>
+    </ul>
     <h2>Chats <button id="new-chat" class="more">New</button></h2>
     <section id="chats"></section>
-    <h2>Sessions</h2>
-    <section id="sessions"></section>
   </nav>
-  <div id="detail"><p class="status">Pick a chat or a session.</p></div>
+  <div id="detail"><p class="status">Pick the timeline or a chat.</p></div>
 </main>
 
 <script>
@@ -91,33 +96,15 @@
       { role: "user", content: "Anything else?" },
       { role: "assistant", content: "A short detour into the config loader." }] },
     "/chats/chat-b": { id: "chat-b", messages: [] },
-    "/sessions?limit=20": { object: "list", data: [
-      { id: "session_20261003_091500", aggregations: 12, annotations: 1, updated_at: 1791100200.5 },
-      { id: "session_20261002_161000", aggregations: 0, annotations: 0, updated_at: null }],
-      first_id: "session_20261003_091500", last_id: "session_20261002_161000", has_more: false },
-    "/sessions/session_20261003_091500": { id: "session_20261003_091500", aggregations: 12, annotations: 1, updated_at: 1791100200.5 },
-    "/sessions/session_20261002_161000": { id: "session_20261002_161000", aggregations: 0, annotations: 0, updated_at: null },
-    "/annotations/session_20261003_091500-0000": { id: "session_20261003_091500-0000", session_id: "session_20261003_091500", chunk: 0,
-      status: "done", created_at: 1791100210, updated_at: 1791100230, model: "gemini/gemini-3.1-flash-lite", frames: [],
-      start_time: 1791100099.8, end_time: 1791100200.0,
-      annotation: { actions: [{ start: 1, end: 1, caption: "Types a letter in the editor." }, { start: 2, end: 2, caption: "Clicks into the terminal." }],
-        dense_caption: "Editor open on main.py; terminal below it.",
-        sanitization: { algorithm: "napsack", version: 1, text: true, images: false, replaced: {} } }, error: null },
-    "/aggregations?session_id=session_20261003_091500&order=asc&limit=10": { object: "list", data: [
-      { id: "session_20261003_091500-000000", session_id: "session_20261003_091500", row: 0,
-        timestamp: 1791100100.2, reason: "burst_end", event_type: "key_press", request_state: "idle",
-        screenshot_path: "screenshots/0001.png", screenshot_timestamp: 1791100099.8, end_screenshot_timestamp: 1791100100.2,
-        num_events: 2, events: [
-          { timestamp: 1791100100.0, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "key_press", details: { key: "a" }, cursor_position: null },
-          { timestamp: 1791100100.1, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "key_release", details: { key: "a" }, cursor_position: null }],
-        cursor_position: null, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, burst_id: 1, scale_factor: 0.5 },
-      { id: "session_20261003_091500-000001", session_id: "session_20261003_091500", row: 1,
-        timestamp: 1791100200.5, reason: "burst_end", event_type: "mouse_down", request_state: "idle",
-        screenshot_path: "screenshots/0002.png", screenshot_timestamp: 1791100200.0, end_screenshot_timestamp: 1791100200.5,
-        num_events: 1, events: [
-          { timestamp: 1791100200.4, monitor_index: 0, monitor: { left: 0, top: 0, width: 1920, height: 1080 }, event_type: "mouse_down", details: { button: "Button.left" }, cursor_position: [640, 400] }],
-        cursor_position: [640, 400], monitor: { left: 0, top: 0, width: 1920, height: 1080 }, burst_id: 2, scale_factor: 0.5 }],
-      first_id: "session_20261003_091500-000000", last_id: "session_20261003_091500-000001", has_more: false },
+    "/events?limit=20": { object: "list", data: [
+      { id: "laptop-session_20261003_091500-000001", device_id: "laptop", timestamp: 1791100200.5,
+        screenshot_url: "/events/laptop-session_20261003_091500-000001/screenshot",
+        inputs: [{ type: "mouse_down", timestamp: 1791100200.4, button: "Button.left", x: 640, y: 400 }],
+        caption: "Clicks into the terminal." },
+      { id: "laptop-session_20261003_091500-000000", device_id: "laptop", timestamp: 1791100100.2, screenshot_url: null,
+        inputs: [{ type: "key_press", timestamp: 1791100100.0, key: "a" }, { type: "key_release", timestamp: 1791100100.1, key: "a" }],
+        caption: null }],
+      first_id: "laptop-session_20261003_091500-000001", last_id: "laptop-session_20261003_091500-000000", has_more: false },
   };
   // Where the data comes from, in order: the Electron bridge (window.juno, calls
   // proxied by the main process), a server reachable by fetch, else the examples above.
@@ -141,8 +128,6 @@
     ? window.juno.sendChat(chatId, content)
     : fetch(`${BASE}/chats/${chatId}`, { method: "PUT", headers: { "Content-Type": "application/json" },
                                           body: JSON.stringify({ messages: [{ role: "user", content }] }) }).then(checked);
-  // Aggregations per LLM label: the server's annotate.chunk_size, which it does not report yet.
-  const CHUNK = 10;
 
   const el = (tag, props = {}, ...children) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -151,7 +136,6 @@
   };
   const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
   const json = (value) => el("pre", { textContent: JSON.stringify(value, null, 2) });
-  const pad = (n, width) => String(n).padStart(width, "0");
 
   // Fills `target` with what `work` resolves to, as one pending state, shown
   // only when the wait is long enough to notice.
@@ -293,42 +277,26 @@
     detail.replaceChildren(...chatView(crypto.randomUUID(), []));
   };
 
-  // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
-  const event = (e) => el("li", { className: "event", textContent:
-    `${time(e.timestamp)}  ${e.event_type}  ${JSON.stringify(e.details)}${e.cursor_position ? `  @${e.cursor_position}` : ""}` });
-
-  function frame(a, number) {
-    const img = el("img", { alt: "", loading: "lazy" });
-    const { events, ...rest } = a;
-    const d = level(`${number ? `Frame ${number}` : "no screenshot"} · row ${a.row} · ${time(a.timestamp)} · ${a.reason} · ${a.num_events} events`,
-      async () => [img, el("ul", {}, ...events.map(event)), json(rest)]);
-    // The screenshot is fetched only when the frame is opened.
-    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `${BASE}/events/${a.id}/screenshot`; });
-    return d;
-  }
-
-  const chunk = (sessionId, n, total) =>
-    level(`chunk ${n} · rows ${n * CHUNK}–${Math.min((n + 1) * CHUNK, total) - 1}`, async () => {
-      const [label, page] = await Promise.all([
-        // 404: nobody has asked for this chunk to be annotated. Anything else is a real error.
-        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) =>
-          ({ status: /\b404\b/.test(String(error.message || error)) ? "not annotated" : String(error.message || error) })),
-        api(`/aggregations?session_id=${sessionId}&order=asc&limit=${CHUNK}${n ? `&after=${sessionId}-${pad(n * CHUNK - 1, 6)}` : ""}`),
-      ]);
-      const { frames, ...rest } = label;  // frames repeat the aggregations below
-      let number = 0;
-      return [el("h3", { textContent: "LLM label" }), json(rest),
-              el("h3", { textContent: "Frames" }), ...page.data.map((a) => frame(a, a.screenshot_path ? ++number : 0))];
+  // Timeline: GET /events, every device's events newest first, read-only. One
+  // event is its caption, its inputs (one line each, like a frame's events
+  // below) and its screenshot.
+  const input = ({ type, timestamp, ...details }) =>
+    el("li", { className: "event", textContent: `${time(timestamp)}  ${type}  ${JSON.stringify(details)}` });
+  const timelineEvent = (e) => el("li", {}, el("article", {},
+    el("b", { textContent: `${time(e.timestamp)} · ${e.device_id}` }),
+    el("p", { textContent: e.caption ?? "No caption yet." }),
+    el("small", { textContent: e.id }),
+    el("ul", {}, ...e.inputs.map(input)),
+    ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: BASE + e.screenshot_url })] : [])));
+  document.getElementById("timeline").onclick = (event) => {
+    select(event.currentTarget);
+    load(detail, async () => {
+      const list = el("section");
+      await paged(list, "/events", timelineEvent);
+      return [el("h2", { textContent: "Timeline" }), list];
     });
+  };
 
-  paged(document.getElementById("sessions"), "/sessions", (session) =>
-    row(session.id, `${session.aggregations} aggregations · ${time(session.updated_at)}`, (event) =>
-      show(event.currentTarget, `/sessions/${session.id}`, (full) => [
-        json(full),
-        el("h3", { textContent: "Chunks" }),
-        ...(full.aggregations ? [] : [el("small", { textContent: "None yet." })]),
-        ...Array.from({ length: Math.ceil(full.aggregations / CHUNK) }, (_, n) => chunk(full.id, n, full.aggregations)),
-      ])));
 </script>
 <script type="module" src="hand.js"></script>
 </body>

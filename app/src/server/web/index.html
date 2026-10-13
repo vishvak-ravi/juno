@@ -10,9 +10,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <title>Juno</title>
 <style>
-  :root { --bg: #fafafa; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #eeeeee; --accent: #2b6cb0; --error: #c53030; }
+  :root { --bg: #fafafa; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #eeeeee; --accent: #2b6cb0; --accent-bg: #eef3fb; --error: #c53030; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #161616; --ink: #eaeaea; --dim: #9a9a9a; --line: #333; --raw: #242424; --accent: #4a90d9; --error: #f56565; color-scheme: dark; }
+    :root { --bg: #161616; --ink: #eaeaea; --dim: #9a9a9a; --line: #333; --raw: #242424; --accent: #4a90d9; --accent-bg: #1c2433; --error: #f56565; color-scheme: dark; }
   }
 
   * { box-sizing: border-box; }
@@ -38,6 +38,10 @@
   li button { display: block; width: 100%; text-align: left; padding: .6rem 0; border-bottom: 1px solid var(--line); color: inherit;
               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   small, .status { color: var(--dim); }
+  /* The pinned row (Timeline), set apart from the chats below it. */
+  #pinned { margin-bottom: 1.5rem; }
+  #pinned li + li { margin-top: .25rem; }
+  #pinned button { padding: .6rem .75rem; border-bottom: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
   button.more { margin-top: .5rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
 
   /* A chat: bubbles, the user's on the right. */
@@ -71,11 +75,11 @@
 
   pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
   pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
+  /* One timeline event: time and device, caption, id, inputs, screenshot. */
+  article { padding: .75rem 0; border-bottom: 1px solid var(--line); }
+  article b { display: block; color: var(--dim); font-weight: 500; font-size: .9rem; }
+  article p { margin: 0; white-space: pre-wrap; }
   li.event { padding: .15rem 0; white-space: pre; }
-  details { border-bottom: 1px solid var(--line); padding: .5rem 0; }
-  summary { cursor: pointer; }
-  /* Each open level sits inside its parent's region. */
-  .nest { margin: .25rem 0 0 .25rem; padding-left: .5rem; border-left: 2px solid var(--line); }
   img { display: block; max-width: 100%; margin-top: .5rem; }
 </style>
 </head>
@@ -97,9 +101,9 @@
   // screen at a time. The Juno server serves this page, so every request below goes
   // to the address the page was opened at.
   //
-  // Screens, by location.hash:  (none) the chat and session lists
-  //                             #/chats/<id>     one chat and its message box
-  //                             #/sessions/<id>  one session, its chunks and frames
+  // Screens, by location.hash:  (none) the timeline row and the chat list
+  //                             #/timeline    every device's events, newest first
+  //                             #/chats/<id>  one chat and its message box
 
   class ApiError extends Error {
     constructor(status, detail) { super(`${status} ${detail}`); this.status = status; }
@@ -118,8 +122,6 @@
   const send = (chatId, content) => api(`/chats/${chatId}`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages: [{ role: "user", content }] }) });
-  // Aggregations per LLM label: the server's annotate.chunk_size, which it does not report yet.
-  const CHUNK = 10;
 
   const el = (tag, props = {}, ...children) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -127,7 +129,6 @@
     return node;
   };
   const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
-  const json = (value) => el("pre", { textContent: JSON.stringify(value, null, 2) });
   const pad = (n, width) => String(n).padStart(width, "0");
   const status = (text) => el("p", { className: "status", textContent: text });
   const message_of = (error) => String(error.message || error);
@@ -154,14 +155,6 @@
     } finally {
       clearTimeout(pending);
     }
-  }
-
-  // A collapsed level that fetches its contents the first time it is opened.
-  function level(summary, work) {
-    const body = el("div", { className: "nest" });
-    const d = el("details", {}, el("summary", {}, summary));
-    d.ontoggle = () => { if (d.open && !body.parentNode) { d.append(body); load(body, work); } };
-    return d;
   }
 
   // One paged list, with its first page already fetched. `render(item)` makes the
@@ -230,16 +223,13 @@
     return out;
   }
 
-  // The first screen: both lists, fetched together.
-  const home = async () => {
-    const [chats, sessions] = await Promise.all([
-      paged("/chats", (chat) =>
-        row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`)),
-      paged("/sessions", (session) =>
-        row(session.id, `${session.aggregations} aggregations · ${time(session.updated_at)}`, `#/sessions/${session.id}`)),
-    ]);
-    return [el("h2", { textContent: "Chats" }), chats, el("h2", { textContent: "Sessions" }), sessions];
-  };
+  // The first screen: the pinned row, then the chat list.
+  const home = async () => [
+    el("ul", { id: "pinned" },
+      row("Timeline", "Every device's events, newest first", "#/timeline")),
+    el("h2", { textContent: "Chats" }),
+    await paged("/chats", (chat) =>
+      row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`))];
 
   // A chat: its messages as bubbles. The message box below them is #composer.
   const bubble = ({ role, content }) => role === "assistant"
@@ -380,57 +370,32 @@
     answer(chatId, { indicator, sent, content, request: send(chatId, content) });
   };
 
-  // Session → chunk (one LLM label, 10 aggregations) → frame (one screenshot) → its events.
-  const event = (e) => el("li", { className: "event", textContent:
-    `${time(e.timestamp)}  ${e.event_type}  ${JSON.stringify(e.details)}${e.cursor_position ? `  @${e.cursor_position}` : ""}` });
-
-  function frame(a, number) {
-    const img = el("img", { alt: "", loading: "lazy" });
-    const { events, ...rest } = a;
-    const d = level(`${number ? `Frame ${number}` : "no screenshot"} · row ${a.row} · ${time(a.timestamp)} · ${a.reason} · ${a.num_events} events`,
-      async () => [img, el("ul", {}, ...events.map(event)), json(rest)]);
-    // The screenshot is fetched only when the frame is opened.
-    d.addEventListener("toggle", () => { if (d.open && number && !img.src) img.src = `/events/${a.id}/screenshot`; });
-    return d;
-  }
-
-  const chunk = (sessionId, n, total) =>
-    level(`chunk ${n} · rows ${n * CHUNK}–${Math.min((n + 1) * CHUNK, total) - 1}`, async () => {
-      const [label, page] = await Promise.all([
-        // 404: nobody has asked for this chunk to be annotated. Anything else is a real error.
-        api(`/annotations/${sessionId}-${pad(n, 4)}`).catch((error) =>
-          ({ status: error.status === 404 ? "not annotated" : message_of(error) })),
-        api(`/aggregations?session_id=${sessionId}&order=asc&limit=${CHUNK}${n ? `&after=${sessionId}-${pad(n * CHUNK - 1, 6)}` : ""}`),
-      ]);
-      const { frames, ...rest } = label;  // frames repeat the aggregations below
-      let number = 0;
-      return [el("h3", { textContent: "LLM label" }), json(rest),
-              el("h3", { textContent: "Frames" }), ...page.data.map((a) => frame(a, a.screenshot_path ? ++number : 0))];
-    });
-
-  const session = async (id) => {
-    const full = await api(`/sessions/${id}`);
-    return [
-      json(full),
-      el("h3", { textContent: "Chunks" }),
-      ...(full.aggregations ? [] : [el("small", { textContent: "None yet." })]),
-      ...Array.from({ length: Math.ceil(full.aggregations / CHUNK) }, (_, n) => chunk(full.id, n, full.aggregations)),
-    ];
-  };
+  // Timeline: GET /events, every device's events newest first, read-only. One
+  // event is its caption, its inputs (one line each) and its screenshot.
+  const inputLine = ({ type, timestamp, ...details }) =>
+    el("li", { className: "event", textContent: `${time(timestamp)}  ${type}  ${JSON.stringify(details)}` });
+  const timelineEvent = (e) => el("li", {}, el("article", {},
+    el("b", { textContent: `${time(e.timestamp)} · ${e.device_id}` }),
+    el("p", { textContent: e.caption ?? "No caption yet." }),
+    el("small", { textContent: e.id }),
+    el("ul", {}, ...e.inputs.map(inputLine)),
+    ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: e.screenshot_url })] : [])));
+  const timeline = async () => [await paged("/events", timelineEvent)];
 
   // Shows the screen location.hash names.
   function route() {
     const hash = location.hash;
-    const [, kind, id] = hash.match(/^#\/(chats|sessions)\/([A-Za-z0-9_-]+)$/) || [];
+    const [, kind, id] = hash.match(/^#\/(timeline)$/)
+      || hash.match(/^#\/(chats)\/([A-Za-z0-9_-]+)$/) || [];
     chatId = kind === "chats" ? id : null;
     screen++;
     // Until the chat is on screen: a message sent before then would be drawn over.
     sendButton.disabled = true;
     back.hidden = !kind;
     composer.hidden = kind !== "chats";
-    title.textContent = kind === "chats" ? "Chat" : kind === "sessions" ? id : "Juno";
+    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline" : "Juno";
     view.replaceChildren();
-    load(view, kind === "chats" ? () => chat(id) : kind === "sessions" ? () => session(id) : home,
+    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline : home,
          () => location.hash === hash);
   }
   window.addEventListener("hashchange", route);
