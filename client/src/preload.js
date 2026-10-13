@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld("juno", {
   dictate: (on) => ipcRenderer.send("dictation:set", on),
   onDictation: (callback) => ipcRenderer.on("dictation:text", (_event, update) => callback(update)),
   // For URLs the page loads itself (screenshots).
-  base: (process.env.JUNO_SERVER_URL || "http://127.0.0.1:8765").replace(/\/$/, ""),
+  // main.js passes the server URL as --juno-server-url=<url>.
+  base: process.argv.find((arg) => arg.startsWith("--juno-server-url=")).slice("--juno-server-url=".length),
 });
