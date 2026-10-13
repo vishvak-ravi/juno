@@ -41,9 +41,10 @@ DEFAULT_TARGET_DPI = 100
 DEFAULT_DISABLE = ("move",)
 
 
-def new_session_dir(data_dir: Union[str, Path]) -> Path:
+def new_session_dir(sessions: Path) -> Path:
+    """A session directory named for the time now, under the directory of sessions ``sessions``."""
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return sessions_dir(Path(data_dir)) / f"session_{stamp}"
+    return sessions / f"session_{stamp}"
 
 
 class Recorder:
@@ -75,7 +76,7 @@ class Recorder:
         if session_dir is None:
             if data_dir is None:
                 raise ValueError("pass data_dir or session_dir")
-            session_dir = new_session_dir(data_dir)
+            session_dir = new_session_dir(sessions_dir(Path(data_dir)))
         self.session_dir = Path(session_dir)
         self.session_dir.mkdir(parents=True, exist_ok=True)
 

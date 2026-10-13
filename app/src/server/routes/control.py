@@ -15,7 +15,8 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel
 
 from annotate.records import DEVICE_ID_PATTERN
-from server.control import ControlState, DeviceState, Report, change_state, read_state
+from server.control import (ControlState, DeviceState, Report, change_state, read_state,
+                            record_report)
 from server.worker import QueueStatus
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -95,9 +96,4 @@ def patch_device(device_id: DeviceId, body: DevicePatch, request: Request) -> Co
 @router.put("/devices/{device_id}/report")
 def report(device_id: DeviceId, body: Report, request: Request) -> Instruction:
     """Store the recorder's report; the answer says whether it should record."""
-    def change(state: ControlState) -> None:
-        device = state.devices.setdefault(device_id, DeviceState())
-        device.reported = body
-        device.reported_at = time.time()
-    state = change_state(request.app.state.control_file, change)
-    return Instruction(capture=state.devices[device_id].capture)
+    return Instruction(capture=record_report(request.app.state.control_file, device_id, body))

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
@@ -63,3 +64,12 @@ def change_state(path: Path, change: Callable[[ControlState], None]) -> ControlS
         temporary.write_text(state.model_dump_json(indent=2))
         os.replace(temporary, path)
         return state
+
+
+def record_report(path: Path, device_id: str, report: Report) -> bool:
+    """Store a recorder's report, adding the device if new; returns whether it should record."""
+    def change(state: ControlState) -> None:
+        device = state.devices.setdefault(device_id, DeviceState())
+        device.reported = report
+        device.reported_at = time.time()
+    return change_state(path, change).devices[device_id].capture
