@@ -2,7 +2,7 @@
 // A *shape* is what the hand looks like (MediaPipe's category name); a *role*
 // is what Juno does with it. Only this table ties the two together.
 // A *gesture* is a movement over several frames (gestures.js); gestures are
-// only shown in the overlay for now and do not drive any role.
+// shown in the overlay and drive no role.
 // While the "dictate" role is held, speech is appended to the message box;
 // entering the "send" role submits it.
 import {

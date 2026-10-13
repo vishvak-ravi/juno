@@ -1,20 +1,8 @@
-# juno capture
+# Capture and the app server
 
-Activity monitoring for Juno: use the computer, get events on disk in the
-session format Tada's `napsack` recorder writes. See
-[`../plan-activity-monitoring.md`](../plan-activity-monitoring.md).
-
-## Status
-
-| Piece | State |
-|---|---|
-| Recorder, handlers, CLI, checker | done |
-| `wayland` backend: portal screen capture | done, verified on GNOME 50 |
-| `wayland` backend: evdev input | done, needs the `input` group |
-| `wayland` backend: pointer position | not available on Wayland; logged as null |
-| `macos` backend: mss frames, pynput input and pointer | done, verified on macOS 15.6 |
-| `x11` backend: same sources as `macos` | written, not yet run on X11 |
-| `fake` backend (generated frames, scripted input) | done |
+Activity monitoring for Juno (`app/`): use the computer, get events on disk in
+the session format Tada's `napsack` recorder writes. Per-backend state is in
+[`status.md`](status.md).
 
 The recorder reuses napsack's queues, burst aggregation and save code by
 import, and replaces only its two handlers (the parts bound to `pynput` and
@@ -45,41 +33,12 @@ on either platform; `annotate.request.draw_cursor` draws it.
 
 ## Run
 
-```
-uv run python -m juno               # run the app until Ctrl+C
-uv run python -m capture.check      # check the newest session
-uv run pytest
-```
-
-`python -m juno` is one loop that starts two subprocesses, the API server
+Commands are in the [README](../README.md). `python -m juno` is one loop that starts two subprocesses, the API server
 (`python -m server`, FastAPI on uvicorn) and the recorder (`python -m capture`),
-and stops both when either exits or on Ctrl+C.
-
-The server's routes so far are `GET /api/status`, `GET /chats` and `/chats/{id}`. A chat is
-the message list the `juno` REPL sends to vLLM (`{"role", "content"}` items).
-`PUT /chats/{id}` with `{"messages": [...]}` appends them, sends the whole
-conversation to the model server in `llm.base_url` (vLLM, as started by `juno`)
-and appends its reply; the chat is created if needed. `GET /chats/{id}` returns
-it. While a PUT is unanswered, `GET /chats/{id}/activity` returns
-`{replying, tool, messages}`: whether a reply is being made, the tool the model
-is waiting for (or null) and the messages being replied to, which are stored
-only with the reply. Each chat is one JSON file, `<data_dir>/chats/<id>.json`, next to the
-recorder's `<data_dir>/screen/`.
-
-`GET /chats` lists the stored chats as `{id, title, message_count, updated_at}`
-(title: first line of the first user message; `updated_at`: Unix seconds),
-in OpenAI's list shape: `?limit=` (1-100, default 20), `?order=desc|asc` (by
-last change, default `desc`) and `?after=<id>` for the next page; the response
-is `{"object": "list", "data", "first_id", "last_id", "has_more"}`.
-
-`POST /predictions` (optionally `?device=<device_id>`) returns
-`{actions, retrieved, timestamp}`: the intent model's prediction of the user's next
-`predict.future_len` actions as an `<actions>` block of `<action>` tags, made
-the way Tada's prompted user model makes it, from the last `predict.past_len`
-annotated actions, the screenshots of the newest `predict.num_imgs_per_sample`
-and earlier activity retrieved with BM25 (`retrieved`). It answers 409 until
-that many actions are annotated. The screenshots need a model server that
-accepts images.
+and stops both when either exits or on Ctrl+C. The server's routes are listed
+at `http://<host>:8765/docs`. Chats are completed by the model server in
+`llm.base_url` (vLLM); each chat is one JSON file, `<data_dir>/chats/<id>.json`,
+next to the recorder's `<data_dir>/screen/`.
 
 There are no command-line flags. All three read [`config.yaml`](config.yaml)
 from the working directory, or the file named by `JUNO_CONFIG_PATH`. What
@@ -100,19 +59,12 @@ With `annotate.live` set, the recorder also uploads each aggregation and its
 screenshot to the server at `JUNO_SERVER_HOST` (`PUT /events/{id}`), which can
 be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
-fills. A session's id on the server is `<device_id>-session_<timestamp>`; sessions
-and annotations have no routes of their own, and reach clients only as events.
+fills. A session's id on the server is `<device_id>-session_<timestamp>`.
 On a machine that only records, run `uv run python -m capture` instead of
 `python -m juno`.
 
-`GET /events` is what the devices recorded as one list, ordered by
-`(timestamp, id)` across devices, in the list shape above (`?device=`,
-`?since=`/`?until=` in Unix seconds). An event is one stored row:
-`{id, device_id, timestamp, screenshot_url, inputs, caption}`, where `caption`
-is the model's annotation of the frame made from that row. `GET`, `PATCH`
-(`{"caption": ...}`; `null` restores the model's) and `DELETE /events/{id}`
-act on one. Edits and deletes are kept in the session's `event_edits.json`;
-the row and its screenshot stay on disk with every field the recorder wrote.
+Edits and deletes of events are kept in the session's `event_edits.json`; the
+row and its screenshot stay on disk with every field the recorder wrote.
 
 The server annotates on one thread with up to `annotate.max_concurrency` model
 calls in flight, taking chunks a recorder just filled first, then (with `annotate.backfill`) every other

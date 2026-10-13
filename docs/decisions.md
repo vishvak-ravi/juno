@@ -1,0 +1,22 @@
+# Decisions
+
+Newest first. Each entry is dated; later entries may supersede earlier ones.
+
+## 2026-10-12: Annotation model
+
+Annotation (`annotate.model`) runs on `gemini/gemini-3.1-flash-lite` on the
+Gemini free tier: no charge, but Google may train on and human-review what is
+sent (screenshots included), which I accept for now. The limits are 15 RPM,
+250k TPM and 500 requests/day, and I have hit the daily cap. A grader for the
+intent model would use the same model and key (Tada's default), so it shares
+that quota. Eventually (important, not urgent): move annotation and grading to a
+local model, after evaluating grader quality and annotation quality with the
+criteria Tada's paper uses for each.
+
+## 2026-10-01: Capture follows Tada exactly
+
+- Stick to Tada's (`napsack`'s) behavior. No additions such as active-window
+  tracking or idle markers; Tada has neither.
+- Key text is logged in full, as Tada does. Passwords are included.
+
+Plan at the time: [`history/2026-10-01-activity-monitoring-plan.md`](history/2026-10-01-activity-monitoring-plan.md).
