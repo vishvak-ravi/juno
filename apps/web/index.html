@@ -45,7 +45,7 @@
   button.more { margin-top: .5rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
   /* One switch on the status screen: the label and its checkbox, what it reports below. */
   li.switch { padding: .6rem 0; border-bottom: 1px solid var(--line); }
-  li.switch label { display: flex; justify-content: space-between; align-items: center; }
+  li.switch label { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; }
   li.switch input { width: 1.25rem; height: 1.25rem; }
 
   /* A chat: bubbles, the user's on the right. */
@@ -108,10 +108,10 @@
   <button type="submit">Send</button>
 </form>
 
-<script>
-  // The phone client: the views of the desktop client (apps/desktop/src/renderer/browse.html), one
-  // screen at a time. The Juno server serves this page, so every request below goes
-  // to the address the page was opened at.
+<script type="module">
+  // The phone client: the views of the desktop client (apps/desktop/src/renderer/browse.html),
+  // one screen at a time, drawn with the modules in src/ that both pages share. The
+  // Juno server serves this page, so every request goes to the address it was opened at.
   //
   // Screens, by location.hash:  (none) the timeline row and the chat list
   //                             #/timeline    every device's events, newest first
@@ -119,34 +119,11 @@
   //                             #/predictions       graded benchmark predictions, newest first
   //                             #/predictions/<id>  one of them in full
   //                             #/chats/<id>  one chat and its message box
+  import { ApiError, api, send } from "./src/api.js";
+  import { markdown } from "./src/markdown.js";
+  import { controlView, el, load, messageOf, paged, predictionDetail, score, time, timelineEvent } from "./src/views.js";
 
-  class ApiError extends Error {
-    constructor(status, detail) { super(`${status} ${detail}`); this.status = status; }
-  }
-  async function api(path, options) {
-    const response = await fetch(path, options);
-    if (!response.ok) {
-      const text = await response.text();
-      let detail = text;
-      try { detail = JSON.parse(text).detail ?? text; } catch {}
-      throw new ApiError(response.status, typeof detail === "string" ? detail : JSON.stringify(detail));
-    }
-    return response.json();
-  }
-  // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
-  const send = (chatId, content) => api(`/chats/${chatId}`, {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [{ role: "user", content }] }) });
-
-  const el = (tag, props = {}, ...children) => {
-    const node = Object.assign(document.createElement(tag), props);
-    node.append(...children);
-    return node;
-  };
-  const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
   const pad = (n, width) => String(n).padStart(width, "0");
-  const status = (text) => el("p", { className: "status", textContent: text });
-  const message_of = (error) => String(error.message || error);
   // crypto.randomUUID exists only on https pages; the server is plain http.
   const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => pad(b.toString(16), 2)).join("");
 
@@ -157,86 +134,8 @@
   const input = document.getElementById("input");
   const sendButton = composer.querySelector("button");
 
-  // Fills `target` with what `work` resolves to, as one pending state, shown only
-  // when the wait is long enough to notice. `current()` turning false means the
-  // user has moved on, and the result is dropped.
-  async function load(target, work, current = () => true) {
-    const pending = setTimeout(() => current() && target.replaceChildren(status("Loading…")), 300);
-    try {
-      const nodes = await work();
-      if (current()) target.replaceChildren(...nodes);
-    } catch (error) {
-      if (current()) target.replaceChildren(status(message_of(error)));
-    } finally {
-      clearTimeout(pending);
-    }
-  }
-
-  // One paged list, with its first page already fetched. `render(item)` makes the
-  // list element for one item; "Load more" fetches the next page with ?after=<last_id>.
-  async function paged(path, render) {
-    const list = el("ul");
-    const more = el("button", { className: "more", textContent: "Load more", hidden: true });
-    const add = (page) => {
-      list.append(...page.data.map(render));
-      more.hidden = !page.has_more;
-      more.onclick = async () => {
-        more.disabled = true;
-        try {
-          add(await api(`${path}?limit=20&after=${page.last_id}`));
-        } catch (error) {
-          list.append(el("small", { textContent: message_of(error) }));
-        }
-        more.disabled = false;
-      };
-    };
-    const first = await api(`${path}?limit=20`);
-    if (!first.data.length) list.append(el("small", { textContent: "None yet." }));
-    add(first);
-    return el("section", {}, list, more);
-  }
   const row = (label, meta, href) => el("li", {}, el("button", { onclick: () => { location.hash = href; } },
     label, el("br"), el("small", { textContent: meta })));
-
-  // The markdown the model tends to write: headings, fenced code, lists,
-  // paragraphs; `code`, **bold** and *italic* inside them. Anything else stays text.
-  function inline(node, text) {
-    node.append(...text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).map((part) =>
-      part.startsWith("`") ? el("code", { textContent: part.slice(1, -1) })
-      : part.startsWith("**") ? el("strong", { textContent: part.slice(2, -2) })
-      : part.startsWith("*") ? el("em", { textContent: part.slice(1, -1) })
-      : part));
-    return node;
-  }
-  const BLOCK = /^(```|#{1,6}\s|\s*(?:[-*]|\d+\.)\s)/;
-  function markdown(text) {
-    const out = el("div", { className: "md" });
-    const lines = text.split("\n");
-    for (let i = 0; i < lines.length;) {
-      const line = lines[i];
-      let m;
-      if (line.startsWith("```")) {
-        const code = [];
-        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
-        i++;
-        out.append(el("pre", {}, el("code", { textContent: code.join("\n") })));
-      } else if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
-        out.append(inline(el(`h${m[1].length}`), m[2]));
-        i++;
-      } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s/))) {
-        const list = el(m[1] ? "ol" : "ul");
-        for (; i < lines.length && (m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)/)); i++) list.append(inline(el("li"), m[1]));
-        out.append(list);
-      } else if (!line.trim()) {
-        i++;
-      } else {
-        const para = [];
-        for (; i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]); i++) para.push(lines[i]);
-        out.append(inline(el("p"), para.join("\n")));
-      }
-    }
-    return out;
-  }
 
   // The first screen: the pinned rows, then the chat list.
   const home = async () => [
@@ -350,7 +249,7 @@
     } else {
       // The server keeps nothing on failure, so the message goes back in the box.
       sent.forEach((node) => node.remove());
-      indicator.node.replaceWith(bubble({ role: "error", content: message_of(failure) }));
+      indicator.node.replaceWith(bubble({ role: "error", content: messageOf(failure) }));
       if (!input.value) input.value = content;
     }
     sendButton.disabled = false;
@@ -387,124 +286,40 @@
     answer(chatId, { indicator, sent, content, request: send(chatId, content) });
   };
 
-  // Timeline: GET /events, every device's events newest first, read-only. One
-  // event is its caption, its inputs (one line each) and its screenshot.
-  const inputLine = ({ type, timestamp, ...details }) =>
-    el("li", { className: "event", textContent: `${time(timestamp)}  ${type}  ${JSON.stringify(details)}` });
-  const timelineEvent = (e) => el("li", {}, el("article", {},
-    el("b", { textContent: `${time(e.timestamp)} · ${e.device_id}` }),
-    el("p", { textContent: e.caption ?? "No caption yet." }),
-    el("small", { textContent: e.id }),
-    el("ul", {}, ...e.inputs.map(inputLine)),
-    ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: e.screenshot_url })] : [])));
   const timeline = async () => [await paged("/events", timelineEvent)];
 
-  // Status: GET /control. The server's annotation switch, then one recording switch
-  // per device. A switch shows what was asked for, the line below it what the queue
-  // or the device last reported. The screen asks again every poll_seconds.
-  const patch = (path, body) => api(path, {
-    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  function switchRow(label, on, note, set) {
-    const box = el("input", { type: "checkbox", checked: on });
-    const line = el("small", { textContent: note });
-    box.onchange = async () => {
-      const shown = screen;
-      box.disabled = true;
-      try {
-        const control = await set(box.checked);
-        if (screen === shown) view.replaceChildren(...controlView(control));
-      } catch (error) {
-        box.checked = !box.checked;
-        box.disabled = false;
-        line.textContent = message_of(error);
-      }
-    };
-    return el("li", { className: "switch" }, el("label", {}, label, box), line);
-  }
-  const queueNote = ({ annotate, queue }) => [
-    `${queue.queued.live} live · ${queue.queued.requested} requested · ${queue.queued.backfill} backfill`,
-    `${queue.running} running`,
-    ...(annotate ? [] : ["paused"]),
-    ...(queue.paused_seconds > 0 ? [`waiting ${Math.ceil(queue.paused_seconds)} s for the provider`] : [])].join(" · ");
-  function deviceNote(d) {
-    if (!d.online) return d.reported_at ? `offline · last seen ${time(d.reported_at)}` : "offline";
-    const running = d.reported.capture === "running";
-    const doing = running ? `recording ${d.reported.session_id}` : "not recording";
-    return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
-  }
-  const controlView = (control) => {
-    const devices = Object.entries(control.devices);
-    return [
-      el("h2", { textContent: "Server" }),
-      el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
-                             (on) => patch("/control/server", { annotate: on }))),
-      el("h2", { textContent: "Recording" }),
-      devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
-                                                                         (on) => patch(`/control/devices/${id}`, { capture: on }))))
-        : el("small", { textContent: "No device has reported yet." })];
-  };
+  // The status screen asks again every poll_seconds while it is shown.
   async function controlScreen() {
     const shown = screen;
+    const redraw = (control) => { if (screen === shown) view.replaceChildren(...controlView(control, redraw)); };
     const control = await api("/control");
     // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
     const refresh = () => setTimeout(async () => {
       if (screen !== shown) return;
       try {
         const next = await api("/control");
-        if (screen === shown && !view.querySelector("input:disabled")) view.replaceChildren(...controlView(next));
+        if (screen === shown && !view.querySelector("input:disabled")) view.replaceChildren(...controlView(next, redraw));
       } catch {}
       refresh();
     }, control.poll_seconds * 1000);
     refresh();
-    return controlView(control);
+    return controlView(control, redraw);
   }
 
-  // Predictions: GET /predictions, every benchmark run's graded predictions,
-  // newest first. A row opens a screen with the prediction above what actually
-  // came next, what the predictor was sent (screenshots, then text), and each
-  // judge's prompt and reply (GET /predictions/{id}).
-  const score = (value) => value == null ? "–" : value.toFixed(2);
-  const pres = (text) => el("pre", { className: "wrap", textContent: text ?? "" });
-  const judge = (name, prompt, reply) => prompt == null ? [] : [
-    el("details", {}, el("summary", { textContent: `${name} judge prompt` }), pres(prompt)),
-    el("h3", { textContent: `${name} judge reply` }), pres(reply)];
-  function predictorInput(messages) {
-    const parts = messages.flatMap((m) => Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]);
-    const shots = parts.filter((part) => part.type === "image_url").map((part) => {
-      const img = el("img", { alt: "", loading: "lazy", src: part.image_url.url });
-      img.onclick = () => img.classList.toggle("big");
-      return img;
-    });
-    return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
-            ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
-  }
+  // Predictions: a row per graded prediction, newest first; a row opens its own screen.
   const predictions = async () => [await paged("/predictions", (g) => row(
     `${g.error ? "failed" : `reward ${score(g.reward)}`} · ${time(g.graded_at)}`,
     `${g.error ? "" : `accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)} · `}${g.predictor.model} → ${g.grader.model}`,
     `#/predictions/${g.id}`))];
   const prediction = async (id) => {
     const g = await api(`/predictions/${id}`);
-    const { predictor: p, grader } = g;
-    const problems = [g.error, ...g.validation_errors,
-                      ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
-      .filter(Boolean);
     return [
-      ...problems.map(status),
       el("h3", { textContent: `Reward ${score(g.reward)} · accuracy ${score(g.accuracy)} · formatting ${score(g.formatting)}` }),
-      el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction."),
-      el("h3", { textContent: "Actually next" }), pres(g.ground_truth),
-      el("h3", { textContent: `Predictor input · ${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · max_tokens ${p.max_tokens} · temperature ${p.temperature}` }),
-      ...predictorInput(g.messages),
-      el("h3", { textContent: `Grader · ${grader.model}${grader.api_base ? ` at ${grader.api_base}` : ""}` }),
-      ...judge("Accuracy", g.accuracy_prompt, g.accuracy_reply),
-      ...judge("Formatting", g.formatting_prompt, g.formatting_reply),
-      el("h3", { textContent: "Sample" }),
-      pres(JSON.stringify({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
-                            cutoff: time(g.cutoff_ts), future_len: g.future_len }, null, 2)),
-    ];
+      ...predictionDetail(g)];
   };
 
   // Shows the screen location.hash names.
+  let parent = "";
   function route() {
     const hash = location.hash;
     const [, kind, id] = hash.match(/^#\/(timeline|predictions|status)$/)
@@ -524,7 +339,6 @@
       : kind === "predictions" ? (id ? () => prediction(id) : predictions) : home,
          () => location.hash === hash);
   }
-  let parent = "";
   window.addEventListener("hashchange", route);
   back.onclick = () => { location.hash = parent; };
   document.getElementById("new").onclick = () => { location.hash = `#/chats/${newId()}`; };

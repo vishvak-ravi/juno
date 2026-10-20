@@ -33,6 +33,7 @@
   #pinned button { padding: .4rem .6rem; border: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
   /* One switch on the status page: the checkbox and label, what it reports below. */
   li.switch { padding: .4rem 0; border-bottom: 1px solid var(--line); }
+  li.switch small { display: block; }
   button.more { padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
   section > button.more { margin-top: .5rem; }
   h2 button.more { margin-left: .5rem; font-weight: normal; }
@@ -95,7 +96,15 @@
   <div id="detail"><p class="status">Pick the timeline, predictions, status or a chat.</p></div>
 </main>
 
-<script>
+<script type="module">
+  // The desktop browser: the timeline, predictions, status and chats, two panes,
+  // drawn with the modules in apps/web/src that the phone page shares. Data comes
+  // from the Electron bridge (window.juno) or, opened in a browser, from the server
+  // on this computer, else from the examples below.
+  import { api, send, useExamples } from "../../../web/src/api.js";
+  import { markdown } from "../../../web/src/markdown.js";
+  import { controlView, el, load, messageOf, paged, predictionDetail, score, time, timelineEvent } from "../../../web/src/views.js";
+
   // Stand-in responses, in the server's shapes, for viewing this page without a server.
   const EXAMPLE = {
     "/chats?limit=20": { object: "list", data: [
@@ -138,53 +147,7 @@
     retrieved: "",
     accuracy_prompt: "You are an expert evaluator. …", accuracy_reply: "{\"candidates\": [{\"id\": 1, \"score\": 0.55}]}",
     formatting_prompt: "You are an expert evaluator. …", formatting_reply: "{\"score\": 0.78}" };
-  // Where the data comes from, in order: the Electron bridge (window.juno, calls
-  // proxied by the main process), a server reachable by fetch, else the examples above.
-  const BASE = (window.juno && window.juno.base) || "http://127.0.0.1:8765";
-  const checked = async (response) => {
-    if (!response.ok) throw new Error(`${response.status} ${(await response.json()).detail}`);
-    return response.json();
-  };
-  const api = async (path) => {
-    if (window.juno && window.juno.get) return window.juno.get(path);
-    try {
-      return await checked(await fetch(BASE + path));
-    } catch (error) {
-      if (!(path in EXAMPLE)) throw error;
-      document.title = "Juno Browser (example data)";
-      return EXAMPLE[path];
-    }
-  };
-  const patch = (path, body) => window.juno && window.juno.patch
-    ? window.juno.patch(path, body)
-    : fetch(BASE + path, { method: "PATCH", headers: { "Content-Type": "application/json" },
-                           body: JSON.stringify(body) }).then(checked);
-  // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
-  const send = (chatId, content) => window.juno && window.juno.sendChat
-    ? window.juno.sendChat(chatId, content)
-    : fetch(`${BASE}/chats/${chatId}`, { method: "PUT", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ messages: [{ role: "user", content }] }) }).then(checked);
-
-  const el = (tag, props = {}, ...children) => {
-    const node = Object.assign(document.createElement(tag), props);
-    node.append(...children);
-    return node;
-  };
-  const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
-  const json = (value) => el("pre", { textContent: JSON.stringify(value, null, 2) });
-
-  // Fills `target` with what `work` resolves to, as one pending state, shown
-  // only when the wait is long enough to notice.
-  async function load(target, work) {
-    const pending = setTimeout(() => target.replaceChildren(el("p", { className: "status", textContent: "Loading…" })), 300);
-    try {
-      target.replaceChildren(...await work());
-    } catch (error) {
-      target.replaceChildren(el("p", { className: "status", textContent: String(error.message || error) }));
-    } finally {
-      clearTimeout(pending);
-    }
-  }
+  useExamples(EXAMPLE);
 
   // A collapsed level that fetches its contents the first time it is opened.
   function level(summary, work) {
@@ -192,30 +155,6 @@
     const d = el("details", {}, el("summary", {}, summary));
     d.ontoggle = () => { if (d.open && !body.parentNode) { d.append(body); load(body, work); } };
     return d;
-  }
-
-  // One paged list. `render(item)` makes the list element for one item; the
-  // "Load more" button fetches the next page with ?after=<last_id>.
-  async function paged(container, path, render) {
-    let after = "";
-    const list = el("ul");
-    const more = el("button", { className: "more", textContent: "Load more", hidden: true });
-    container.replaceChildren(list, more);
-    const next = async () => {
-      more.disabled = true;
-      try {
-        const page = await api(`${path}?limit=20${after && `&after=${after}`}`);
-        if (!page.data.length && !after) list.append(el("small", { textContent: "None yet." }));
-        list.append(...page.data.map(render));
-        after = page.last_id;
-        more.hidden = !page.has_more;
-      } catch (error) {
-        list.append(el("small", { textContent: String(error.message || error) }));
-      }
-      more.disabled = false;
-    };
-    more.onclick = next;
-    await next();
   }
 
   const detail = document.getElementById("detail");
@@ -229,46 +168,6 @@
     load(detail, async () => render(await api(path)));
   }
   const row = (label, meta, onclick) => el("li", {}, el("button", { onclick }, label, el("br"), el("small", { textContent: meta })));
-
-  // The markdown the model tends to write: headings, fenced code, lists,
-  // paragraphs; `code`, **bold** and *italic* inside them. Anything else stays text.
-  function inline(node, text) {
-    node.append(...text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).map((part) =>
-      part.startsWith("`") ? el("code", { textContent: part.slice(1, -1) })
-      : part.startsWith("**") ? el("strong", { textContent: part.slice(2, -2) })
-      : part.startsWith("*") ? el("em", { textContent: part.slice(1, -1) })
-      : part));
-    return node;
-  }
-  const BLOCK = /^(```|#{1,6}\s|\s*(?:[-*]|\d+\.)\s)/;
-  function markdown(text) {
-    const out = el("div", { className: "md" });
-    const lines = text.split("\n");
-    for (let i = 0; i < lines.length;) {
-      const line = lines[i];
-      let m;
-      if (line.startsWith("```")) {
-        const code = [];
-        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
-        i++;
-        out.append(el("pre", {}, el("code", { textContent: code.join("\n") })));
-      } else if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
-        out.append(inline(el(`h${m[1].length}`), m[2]));
-        i++;
-      } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s/))) {
-        const list = el(m[1] ? "ol" : "ul");
-        for (; i < lines.length && (m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)/)); i++) list.append(inline(el("li"), m[1]));
-        out.append(list);
-      } else if (!line.trim()) {
-        i++;
-      } else {
-        const para = [];
-        for (; i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]); i++) para.push(lines[i]);
-        out.append(inline(el("p"), para.join("\n")));
-      }
-    }
-    return out;
-  }
 
   // A chat: its messages, then a box to send the next one.
   const message = (m) => el("article", {}, el("b", { textContent: m.role }),
@@ -293,7 +192,7 @@
       } catch (error) {
         // The server keeps nothing on failure, so the message goes back in the box.
         sent.remove();
-        waiting.textContent = String(error.message || error);
+        waiting.textContent = messageOf(error);
         input.value = content;
         input.disabled = button.disabled = false;
         input.focus();
@@ -303,9 +202,10 @@
     return [...messages.map(message), form];
   }
 
-  const listChats = () => paged(document.getElementById("chats"), "/chats", (chat) =>
+  const chats = document.getElementById("chats");
+  const listChats = () => load(chats, async () => [await paged("/chats", (chat) =>
     row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, (event) =>
-      show(event.currentTarget, `/chats/${chat.id}`, (full) => chatView(full.id, full.messages))));
+      show(event.currentTarget, `/chats/${chat.id}`, (full) => chatView(full.id, full.messages))))]);
   listChats();
   // A new chat exists only on the client until its first message is sent.
   document.getElementById("new-chat").onclick = () => {
@@ -313,127 +213,33 @@
     detail.replaceChildren(...chatView(crypto.randomUUID(), []));
   };
 
-  // Timeline: GET /events, every device's events newest first, read-only. One
-  // event is its caption, its inputs (one line each, like a frame's events
-  // below) and its screenshot.
-  const input = ({ type, timestamp, ...details }) =>
-    el("li", { className: "event", textContent: `${time(timestamp)}  ${type}  ${JSON.stringify(details)}` });
-  const timelineEvent = (e) => el("li", {}, el("article", {},
-    el("b", { textContent: `${time(e.timestamp)} · ${e.device_id}` }),
-    el("p", { textContent: e.caption ?? "No caption yet." }),
-    el("small", { textContent: e.id }),
-    el("ul", {}, ...e.inputs.map(input)),
-    ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: BASE + e.screenshot_url })] : [])));
   document.getElementById("timeline").onclick = (event) => {
     select(event.currentTarget);
-    load(detail, async () => {
-      const list = el("section");
-      await paged(list, "/events", timelineEvent);
-      return [el("h2", { textContent: "Timeline" }), list];
-    });
+    load(detail, async () => [el("h2", { textContent: "Timeline" }), await paged("/events", timelineEvent)]);
   };
 
-  // Predictions: GET /predictions, every benchmark run's graded predictions,
-  // newest first. A row opens into the prediction beside what actually came
-  // next, what the predictor was sent (screenshots, then text), and each
-  // judge's prompt and reply (GET /predictions/{id}).
-  const score = (value) => value == null ? "–" : value.toFixed(2);
-  const pres = (text) => el("pre", { className: "wrap", textContent: text ?? "" });
-  const judge = (name, prompt, reply) => prompt == null ? [] : [
-    level(`${name} judge prompt`, async () => [pres(prompt)]),
-    el("h3", { textContent: `${name} judge reply` }), pres(reply)];
-  function predictorInput(messages) {
-    const parts = messages.flatMap((m) => Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]);
-    const shots = parts.filter((part) => part.type === "image_url").map((part) => {
-      const url = part.image_url.url;
-      const img = el("img", { alt: "", loading: "lazy", src: url.startsWith("/") ? BASE + url : url });
-      img.onclick = () => img.classList.toggle("big");
-      return img;
-    });
-    return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
-            ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
-  }
-  function gradedDetail(g) {
-    const { predictor: p, grader } = g;
-    const problems = [g.error, ...g.validation_errors,
-                      ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
-      .filter(Boolean);
-    return [
-      ...problems.map((text) => el("p", { className: "status", textContent: text })),
-      el("div", { className: "compare" },
-        el("div", {}, el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction.")),
-        el("div", {}, el("h3", { textContent: "Actually next" }), pres(g.ground_truth))),
-      el("h3", { textContent: `Predictor input · ${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · max_tokens ${p.max_tokens} · temperature ${p.temperature}` }),
-      ...predictorInput(g.messages),
-      el("h3", { textContent: `Grader · ${grader.model}${grader.api_base ? ` at ${grader.api_base}` : ""}` }),
-      ...judge("Accuracy", g.accuracy_prompt, g.accuracy_reply),
-      ...judge("Formatting", g.formatting_prompt, g.formatting_reply),
-      el("h3", { textContent: "Sample" }),
-      json({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
-             cutoff: time(g.cutoff_ts), future_len: g.future_len }),
-    ];
-  }
+  // Predictions: a row per graded prediction, newest first; a row opens in place.
   const graded = (g) => el("li", {}, level(
     `${time(g.graded_at)} · ${g.error ? "failed" : `reward ${score(g.reward)} (accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)})`} · ${g.predictor.model} → ${g.grader.model}`,
-    async () => gradedDetail(await api(`/predictions/${g.id}`))));
+    async () => predictionDetail(await api(`/predictions/${g.id}`))));
   document.getElementById("predictions").onclick = (event) => {
     select(event.currentTarget);
-    load(detail, async () => {
-      const list = el("section");
-      await paged(list, "/predictions", graded);
-      return [el("h2", { textContent: "Predictions" }), list];
-    });
+    load(detail, async () => [el("h2", { textContent: "Predictions" }), await paged("/predictions", graded)]);
   };
 
-  // Status: GET /control. The server's annotation switch, then one recording switch
-  // per device. A switch shows what was asked for, the line below it what the queue
-  // or the device last reported. The page asks again every poll_seconds while open.
+  // Status: the shared switches, with this computer's recorder above the devices.
+  // The recorder is a process of the desktop app; null outside it.
   const statusButton = document.getElementById("status");
-  function switchRow(label, on, note, set) {
-    const box = el("input", { type: "checkbox", checked: on });
-    const line = el("small", { textContent: note });
-    box.onchange = async () => {
-      box.disabled = true;
-      try {
-        const control = await set(box.checked);
-        if (current === statusButton) detail.replaceChildren(...controlView(control, await recorderStatus()));
-      } catch (error) {
-        box.checked = !box.checked;
-        box.disabled = false;
-        line.textContent = String(error.message || error);
-      }
-    };
-    return el("li", { className: "switch" }, el("label", {}, box, ` ${label}`), el("br"), line);
-  }
-  const queueNote = ({ annotate, queue }) => [
-    `${queue.queued.live} live · ${queue.queued.requested} requested · ${queue.queued.backfill} backfill`,
-    `${queue.running} running`,
-    ...(annotate ? [] : ["paused"]),
-    ...(queue.paused_seconds > 0 ? [`waiting ${Math.ceil(queue.paused_seconds)} s for the provider`] : [])].join(" · ");
-  function deviceNote(d) {
-    if (!d.online) return d.reported_at ? `offline · last seen ${time(d.reported_at)}` : "offline";
-    const running = d.reported.capture === "running";
-    const doing = running ? `recording ${d.reported.session_id}` : "not recording";
-    return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
-  }
-  // This computer's recorder, a process of the desktop app; null outside it.
   const recorderStatus = () => window.juno && window.juno.captureStatus ? window.juno.captureStatus() : null;
   const recorderView = (recorder) => recorder === null ? []
     : recorder.running ? [el("small", { textContent: "This computer's recorder is running." })]
     : [el("small", { textContent: `This computer's recorder exited (${recorder.exitCode}). Fix the cause and restart the app.` }),
        el("pre", { textContent: recorder.log.join("\n") })];
-  const controlView = (control, recorder) => {
-    const devices = Object.entries(control.devices);
-    return [
-      el("h2", { textContent: "Server" }),
-      el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
-                             (on) => patch("/control/server", { annotate: on }))),
-      el("h2", { textContent: "Recording" }),
-      ...recorderView(recorder),
-      devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
-                                                                         (on) => patch(`/control/devices/${id}`, { capture: on }))))
-        : el("small", { textContent: "No device has reported yet." })];
-  };
+  const statusView = (control, recorder) => controlView(control, redraw, recorderView(recorder));
+  async function redraw(control) {
+    const recorder = await recorderStatus();
+    if (current === statusButton) detail.replaceChildren(...statusView(control, recorder));
+  }
   statusButton.onclick = () => {
     select(statusButton);
     load(detail, async () => {
@@ -443,15 +249,14 @@
         if (current !== statusButton) return;
         try {
           const next = await Promise.all([api("/control"), recorderStatus()]);
-          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...controlView(...next));
+          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...statusView(...next));
         } catch {}
         refresh();
       }, control.poll_seconds * 1000);
       refresh();
-      return controlView(control, recorder);
+      return statusView(control, recorder);
     });
   };
-
 </script>
 <script type="module" src="hand.js"></script>
 </body>

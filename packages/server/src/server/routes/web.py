@@ -3,7 +3,9 @@
 The web app (``apps/web`` in the checkout) has no build step: the server serves
 its files as they are. ``/`` is ``index.html``, one page that calls the routes
 from the address it was opened at; ``/draw`` (``server.routes.draw``) is
-``draw.html``.
+``draw.html``; ``/src/`` is ``src/``, the modules the pages import, which the
+desktop app's browser page (``apps/desktop/src/renderer/browse.html``) also
+imports.
 """
 
 from pathlib import Path

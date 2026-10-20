@@ -13,5 +13,6 @@ def test_the_server_serves_the_phone_client(tmp_path):
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
         assert "<title>Juno</title>" in response.text
-        # The routes the page calls still answer next to it.
+        # The modules the page imports are served next to it, as are the routes it calls.
+        assert client.get("/src/api.js").headers["content-type"].startswith("text/javascript")
         assert client.get("/chats").json()["data"] == []

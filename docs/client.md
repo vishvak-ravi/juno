@@ -2,6 +2,10 @@
 
 The Electron client (`apps/desktop/`): a chat window (`src/renderer/index.html`) and a
 chat/session browser (`src/renderer/browse.html`) for the API server in `packages/server/`.
+The browser draws its views with the modules in `apps/web/src/` (the server's
+routes in `api.js`, the shared views and the markdown reader), which the phone
+page the server serves (`apps/web/index.html`) draws with too; each page keeps
+its own shell and chat flow.
 Setup and run commands are in the [README](../README.md).
 
 ## Recorder
