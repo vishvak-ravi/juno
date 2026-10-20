@@ -14,4 +14,7 @@ contextBridge.exposeInMainWorld("juno", {
   // For URLs the page loads itself (screenshots).
   // main.js passes the server URL as --juno-server-url=<url>.
   base: process.argv.find((arg) => arg.startsWith("--juno-server-url=")).slice("--juno-server-url=".length),
+  // Whether the passive agent module (camera, gestures, dictation) is on: JUNO_PASSIVE_AGENT,
+  // passed by main.js as --juno-passive-agent=1 or 0.
+  passiveAgent: process.argv.includes("--juno-passive-agent=1"),
 });

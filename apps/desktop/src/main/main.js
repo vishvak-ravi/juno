@@ -17,6 +17,11 @@ try {
   if (error.code !== "ENOENT") throw error;
 }
 
+// JUNO_PASSIVE_AGENT=1 turns on the passive agent module: the camera preview with
+// hand keypoints, the gesture roles (dictate, send) and the dictation helper. Unset
+// or 0 leaves the pages with the composer only.
+const PASSIVE_AGENT = process.env.JUNO_PASSIVE_AGENT === "1";
+
 // The Juno app server; JUNO_SERVER_URL overrides the one built from the host.
 const SERVER_URL = (
   process.env.JUNO_SERVER_URL || `http://${process.env.JUNO_SERVER_HOST || "127.0.0.1"}:8765`
@@ -31,8 +36,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // The sandboxed preload reads the server URL from its argv.
-      additionalArguments: [`--juno-server-url=${SERVER_URL}`],
+      // The sandboxed preload reads the server URL and the passive agent switch from its argv.
+      additionalArguments: [`--juno-server-url=${SERVER_URL}`, `--juno-passive-agent=${PASSIVE_AGENT ? 1 : 0}`],
     },
   });
   // JUNO_PAGE=browse.html opens the chat/session browser instead of the chat.
@@ -42,7 +47,7 @@ function createWindow() {
 app.whenReady().then(() => {
   registerServerApi(SERVER_URL);
   startCapture(REPO_DIR);
-  startDictation();
+  if (PASSIVE_AGENT) startDictation();
   createWindow();
   // macOS: re-create a window when the dock icon is clicked and none are open.
   app.on("activate", () => {

@@ -47,10 +47,19 @@ The profile names the binary's path, so it survives `npm ci` and Electron
 updates; redo it only if the checkout moves. Making `chrome-sandbox` root-owned
 with mode 4755 also works but is undone by every reinstall.
 
-## Server address and dictation
+## Server address
 
 The app server is `http://<JUNO_SERVER_HOST>:8765`, the host read from
 `.env` at the checkout root (see `.env.example`; default `127.0.0.1`). `JUNO_SERVER_URL`
 overrides it.
-Dictation needs `native/juno-dictate`, so it works only on macOS; elsewhere the
-client logs `dictation helper: spawn ... ENOENT` and runs without it.
+
+## Passive agent module
+
+`JUNO_PASSIVE_AGENT=1` in `.env` turns on the passive agent module: the camera
+preview with hand keypoints and the gesture roles (`src/renderer/hand.js`), and
+the dictation helper (`native/juno-dictate`, built by `npm run native`, macOS
+only) that the dictate role feeds the message box from. The gesture model is
+`models/gesture_recognizer.task`, downloaded by `npm run model`. The main
+process starts the helper only when the switch is on and tells the pages
+through `window.juno.passiveAgent`; off, or unset, the pages show the composer
+only and start neither the camera nor the helper.
