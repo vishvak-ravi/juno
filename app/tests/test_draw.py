@@ -59,8 +59,8 @@ def test_strokes_drawn_on_the_page_are_stored_as_the_tablet_s_events(tmp_path):
             def stored():
                 return client.get("/events", params={"device": "tablet", "order": "asc",
                                                      "limit": 100}).json()["data"]
-            wait_for(lambda: any(i["type"] == "mouse_up" for e in stored() for i in e["inputs"]),
-                     "the strokes reaching /events")
+            wait_for(lambda: sum(i["type"] == "mouse_up" for e in stored() for i in e["inputs"]) == 2,
+                     "both strokes reaching /events")
             events = stored()
             inputs = [i for event in events for i in event["inputs"]]
             assert [(i["type"], i["x"], i["y"]) for i in inputs if i["type"] != "mouse_move"] == [
