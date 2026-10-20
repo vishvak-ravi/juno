@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("juno", {
   sendChat: (chatId, content) => ipcRenderer.invoke("chat:send", chatId, content),
   get: (route) => ipcRenderer.invoke("api:get", route),
   patch: (route, body) => ipcRenderer.invoke("api:patch", route, body),
+  // This computer's recorder: {running, exitCode, log}, log being its last lines.
+  captureStatus: () => ipcRenderer.invoke("capture:status"),
   // Open (true) or close (false) a dictation segment; onDictation receives
   // {text, final} for it, text being the whole segment so far.
   dictate: (on) => ipcRenderer.send("dictation:set", on),

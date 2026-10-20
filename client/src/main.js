@@ -53,6 +53,43 @@ ipcMain.handle("api:patch", async (_event, route, body) => {
   return response.json();
 });
 
+// The recorder (`python -m capture` in app/, see docs/capture.md) is a child of
+// this app: it starts with it, stops with it, and the app quits only once it has
+// saved its session. It is not restarted when it exits. Exit status 2 means its
+// backend is unavailable, on macOS a permission not granted to the app this one
+// was launched from; the Status page shows the status and the last lines it logged.
+const APP_DIR = path.join(__dirname, "../../app");
+const PYTHON = path.join(APP_DIR, ".venv/bin/python");
+const RECORDER_LOG_LINES = 20;
+const recorder = { running: false, exitCode: null, log: [] };
+
+function startCapture() {
+  const child = spawn(PYTHON, ["-m", "capture"], { cwd: APP_DIR, stdio: ["ignore", "inherit", "pipe"] });
+  recorder.running = true;
+  const log = (line) => {
+    process.stderr.write(`${line}\n`);
+    recorder.log = [...recorder.log, line].slice(-RECORDER_LOG_LINES);
+  };
+  readline.createInterface({ input: child.stderr }).on("line", log);
+  child.on("error", (error) => {
+    recorder.running = false;
+    log(`recorder: ${error.message}`);
+  });
+  child.on("exit", (code, signal) => {
+    recorder.running = false;
+    recorder.exitCode = code ?? signal;
+  });
+  ipcMain.handle("capture:status", () => ({ ...recorder }));
+  let quitting = false;
+  app.on("will-quit", (event) => {
+    if (quitting || !recorder.running) return;
+    event.preventDefault();
+    quitting = true;
+    child.once("exit", () => app.quit());
+    child.kill();
+  });
+}
+
 // The dictation helper (native/dictate.swift, built by `npm run native`) takes
 // "start"/"stop" lines and prints one JSON line per recognition update.
 function startDictation() {
@@ -88,6 +125,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  startCapture();
   startDictation();
   createWindow();
   // macOS: re-create a window when the dock icon is clicked and none are open.

@@ -396,7 +396,7 @@
       box.disabled = true;
       try {
         const control = await set(box.checked);
-        if (current === statusButton) detail.replaceChildren(...controlView(control));
+        if (current === statusButton) detail.replaceChildren(...controlView(control, await recorderStatus()));
       } catch (error) {
         box.checked = !box.checked;
         box.disabled = false;
@@ -416,13 +416,20 @@
     const doing = running ? `recording ${d.reported.session_id}` : "not recording";
     return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
   }
-  const controlView = (control) => {
+  // This computer's recorder, a process of the desktop app; null outside it.
+  const recorderStatus = () => window.juno && window.juno.captureStatus ? window.juno.captureStatus() : null;
+  const recorderView = (recorder) => recorder === null ? []
+    : recorder.running ? [el("small", { textContent: "This computer's recorder is running." })]
+    : [el("small", { textContent: `This computer's recorder exited (${recorder.exitCode}). Fix the cause and restart the app.` }),
+       el("pre", { textContent: recorder.log.join("\n") })];
+  const controlView = (control, recorder) => {
     const devices = Object.entries(control.devices);
     return [
       el("h2", { textContent: "Server" }),
       el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
                              (on) => patch("/control/server", { annotate: on }))),
       el("h2", { textContent: "Recording" }),
+      ...recorderView(recorder),
       devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
                                                                          (on) => patch(`/control/devices/${id}`, { capture: on }))))
         : el("small", { textContent: "No device has reported yet." })];
@@ -430,18 +437,18 @@
   statusButton.onclick = () => {
     select(statusButton);
     load(detail, async () => {
-      const control = await api("/control");
+      const [control, recorder] = await Promise.all([api("/control"), recorderStatus()]);
       // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
       const refresh = () => setTimeout(async () => {
         if (current !== statusButton) return;
         try {
-          const next = await api("/control");
-          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...controlView(next));
+          const next = await Promise.all([api("/control"), recorderStatus()]);
+          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...controlView(...next));
         } catch {}
         refresh();
       }, control.poll_seconds * 1000);
       refresh();
-      return controlView(control);
+      return controlView(control, recorder);
     });
   };
 

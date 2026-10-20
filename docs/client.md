@@ -4,6 +4,17 @@ The Electron client (`client/`): a chat window (`src/index.html`) and a
 chat/session browser (`src/browse.html`) for the app server in `app/`.
 Setup and run commands are in the [README](../README.md).
 
+## Recorder
+
+The client starts the recorder, `python -m capture` run with `app/.venv/bin/python`
+from `app/` (so it reads the same `config.yaml` and `.env`), when it starts, and
+quits only once the recorder has saved its session. The Status page shows
+whether it is running and, if it exited, its status and last log lines; it is not
+restarted until the app is. Status 2 is a backend that could not start: on macOS
+a permission not granted, see [`capture.md`](capture.md). macOS grants
+permissions to the app the client was launched from, the terminal when it is
+started with `npm start`.
+
 ## Linux sandbox (Ubuntu 24.04 and later)
 
 Electron aborts at startup with

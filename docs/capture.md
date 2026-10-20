@@ -25,8 +25,10 @@ desktop's share dialog once; the grant is remembered in
 `~/.local/state/juno/portal-token`.
 
 **macOS:** in System Settings > Privacy & Security, grant Screen Recording,
-Accessibility and Input Monitoring to the app you start the recorder from
-(the terminal), then quit and reopen it. The recorder refuses to start until
+Accessibility and Input Monitoring to the app the recorder is started from:
+the terminal the desktop client, or `python -m capture`, was started from.
+Then quit and reopen it. The first start adds the app to the two lists that
+have a request dialog. The recorder refuses to start until
 all three are granted, because without Screen Recording frames show only the
 wallpaper and `capture.check` cannot tell. Frames do not include the pointer
 on either platform; `annotate.request.draw_cursor` draws it.
