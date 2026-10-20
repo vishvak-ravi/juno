@@ -52,7 +52,7 @@ else
 fi
 # The recorder the client starts.
 cd "$JUNO_DIR"
-uv sync --no-dev
+uv sync --package juno-capture --no-dev
 # The client itself.
 cd "$JUNO_DIR/apps/desktop"
 npm ci

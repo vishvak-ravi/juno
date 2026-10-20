@@ -42,7 +42,7 @@ else
   git clone "$REPO_URL" "$JUNO_DIR"
 fi
 cd "$JUNO_DIR"
-uv sync --no-dev
+uv sync --package juno-server --no-dev
 
 [ -f .env ] || cp .env.example .env
 # The address clients reach this machine at: its Tailscale address if it has one.

@@ -10,9 +10,13 @@ import, and replaces only its two handlers (the parts bound to `pynput` and
 
 ## Setup (once)
 
+From the checkout root:
+
 ```
-uv sync
+uv sync --package juno-capture
 ```
+
+`uv sync` alone installs the server package too.
 
 `backend: auto` picks `macos` on macOS, else `wayland` or `x11` from the
 session environment.
