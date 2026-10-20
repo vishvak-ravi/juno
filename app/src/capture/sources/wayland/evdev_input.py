@@ -26,8 +26,8 @@ PERMISSION_HELP = (
     "Add yourself to the input group once:\n"
     "    sudo usermod -aG input $USER\n"
     "then log out and back in. To use it before logging out, start the "
-    "recorder with:\n"
-    "    sg input -c 'uv run python -m juno'"
+    "desktop client (or the recorder) with:\n"
+    "    sg input -c 'npm start'"
 )
 
 

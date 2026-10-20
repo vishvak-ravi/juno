@@ -1,8 +1,5 @@
-# Settings for `python -m juno` and the two processes it starts.
+# Settings for the API server (`python -m server`) and the recorder (`python -m capture`).
 # Read from the working directory, or from the path in JUNO_CONFIG_PATH.
-
-# Seconds a process gets to exit after SIGTERM before it is killed.
-stop_timeout_seconds: 30
 
 # This device's settings (server host, device id) are in .env; see .env.example.
 

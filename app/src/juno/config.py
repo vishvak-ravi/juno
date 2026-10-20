@@ -191,8 +191,6 @@ class DrawConfig(Section):
 
 
 class Config(Section):
-    # Seconds a process gets to exit after SIGTERM before it is killed.
-    stop_timeout_seconds: float = 30.0
     server: ServerConfig = Field(default_factory=ServerConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)

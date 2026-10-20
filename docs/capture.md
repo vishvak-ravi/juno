@@ -35,14 +35,15 @@ on either platform; `annotate.request.draw_cursor` draws it.
 
 ## Run
 
-Commands are in the [README](../README.md). `python -m juno` is one loop that starts two subprocesses, the API server
-(`python -m server`, FastAPI on uvicorn) and the recorder (`python -m capture`),
-and stops both when either exits or on Ctrl+C. The server's routes are listed
+Commands are in the [README](../README.md). The API server (`python -m server`,
+FastAPI on uvicorn) runs on one machine. The recorder (`python -m capture`) is
+started on each computer by the desktop client ([`client.md`](client.md)), or by
+hand with `uv run python -m capture`. The server's routes are listed
 at `http://<host>:8765/docs`. Chats are completed by the model server in
 `llm.base_url` (vLLM); each chat is one JSON file, `<data_dir>/chats/<id>.json`,
 next to the recorder's `<data_dir>/screen/`.
 
-There are no command-line flags. All three read [`config.yaml`](config.yaml)
+There are no command-line flags. Both read [`config.yaml`](config.yaml)
 from the working directory, or the file named by `JUNO_CONFIG_PATH`. What
 differs between devices, the server host and the device id, is read from `.env`
 instead (see [`.env.example`](.env.example)). For a
@@ -50,7 +51,7 @@ synthetic session that needs no access, set `backend: fake` and `duration: 10`
 under `capture`.
 
 Before logging out and in, the group can be used with
-`sg input -c 'uv run python -m juno'`.
+`sg input -c 'npm start'` (or `sg input -c 'uv run python -m capture'`).
 
 Sessions go to `~/.local/share/juno/screen/sessions/session_<timestamp>/`
 (`capture.data_dir` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
@@ -62,8 +63,6 @@ screenshot to the server at `JUNO_SERVER_HOST` (`PUT /events/{id}`), which can
 be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
 fills. A session's id on the server is `<device_id>-session_<timestamp>`.
-On a machine that only records, run `uv run python -m capture` instead of
-`python -m juno`.
 
 The recorder also reports to the server every `control.poll_seconds`
 (`PUT /control/devices/<device_id>/report`) and records only while that

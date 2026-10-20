@@ -231,7 +231,7 @@ The failure looks like this: each intermediate fetch/hydration step renders its 
 Commands and the per-platform support matrix are in [README.md](README.md);
 requirements, decisions, status and design notes are in [docs/](docs/).
 
-- `app/src/juno`: `python -m juno`, which starts and watches `server` and `capture`; `juno.config` loads `app/config.yaml`
+- `app/src/juno`: `juno.config` loads `app/config.yaml`; `juno.parent_watch` stops the recorder when the client that started it dies
 - `app/src/server`: FastAPI API server (`python -m server`, `server.port` in `config.yaml`); chat via `llm.base_url`, tools in `tools.py` and `mcp.py`, routes in `routes/`
 - `app/src/capture`: the recorder (`python -m capture`); platform sources in `capture/sources/`
 - `app/src/annotate`: annotation of recorded chunks with `annotate.model`

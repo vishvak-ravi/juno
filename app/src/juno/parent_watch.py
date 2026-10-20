@@ -1,7 +1,6 @@
-"""Parent-death watchdog for the processes ``python -m juno`` starts.
+"""Parent-death watchdog for the recorder, which the desktop client starts.
 
-Each one runs in its own session, so nothing else stops it if the app is
-killed before it can stop them itself.
+Nothing else stops it if the client is killed before it can stop it itself.
 """
 
 from __future__ import annotations
