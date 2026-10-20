@@ -5,6 +5,8 @@
 // shown in the overlay and drive no role.
 // While the "dictate" role is held, speech is appended to the message box;
 // entering the "send" role submits it.
+// All of it runs only with the passive agent module on (window.juno.passiveAgent,
+// from JUNO_PASSIVE_AGENT): off, the preview is hidden and nothing listens.
 import {
   FilesetResolver,
   GestureRecognizer,
@@ -18,6 +20,7 @@ const HOLD_FRAMES = 4;
 // How long the overlay keeps showing the last gesture.
 const GESTURE_SHOWN_MS = 1000;
 
+const hand = document.getElementById("hand");
 const video = document.getElementById("camera");
 const canvas = document.getElementById("overlay");
 const label = document.getElementById("hand-label");
@@ -41,13 +44,13 @@ const detectFlick = flickDetector();
 let gesture = null; // the last gesture seen
 let gestureAt = 0; // when it was seen
 
-window.juno.onDictation(({ text, final }) => {
+function onDictation({ text, final }) {
   if (text) composer().input.value = base ? `${base} ${text}` : text;
   if (!final) return;
   segmentOpen = false;
   if (sendWaiting) document.querySelector("form")?.requestSubmit();
   sendWaiting = false;
-});
+}
 
 function enter(role) {
   if (active === "dictate") window.juno.dictate(false);
@@ -62,40 +65,56 @@ function enter(role) {
   }
 }
 
-const recognizer = await GestureRecognizer.createFromOptions(
-  await FilesetResolver.forVisionTasks("../../node_modules/@mediapipe/tasks-vision/wasm"),
-  {
-    baseOptions: { modelAssetPath: "../../models/gesture_recognizer.task", delegate: "GPU" },
-    runningMode: "VIDEO",
-    numHands: 1,
-  },
-);
+// Starts the recognizer and the camera and keeps the overlay drawn, one frame
+// at a time. What stops either from starting is written in the overlay's label.
+async function start() {
+  window.juno.onDictation(onDictation);
+  let recognizer;
+  try {
+    recognizer = await GestureRecognizer.createFromOptions(
+      await FilesetResolver.forVisionTasks("../../node_modules/@mediapipe/tasks-vision/wasm"),
+      {
+        baseOptions: { modelAssetPath: "../../models/gesture_recognizer.task", delegate: "GPU" },
+        runningMode: "VIDEO",
+        numHands: 1,
+      },
+    );
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+    await video.play();
+  } catch (error) {
+    label.textContent = `hand tracking: ${error.message || error}`;
+    return;
+  }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
 
-video.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
-await video.play();
-canvas.width = video.videoWidth;
-canvas.height = video.videoHeight;
-
-function onFrame() {
-  const now = performance.now();
-  const result = recognizer.recognizeForVideo(video, now);
-  const shape = result.gestures[0]?.[0].categoryName ?? "no hand";
-  const role = ROLES[shape] ?? "none";
-  seen = role === candidate ? seen + 1 : 1;
-  candidate = role;
-  if (seen === HOLD_FRAMES && role !== active) enter(role);
-  const flick = detectFlick(result.landmarks[0], now);
-  if (flick) [gesture, gestureAt] = [flick, now];
-  const shown = gesture && now - gestureAt < GESTURE_SHOWN_MS ? gesture : "none";
-  label.textContent = `shape: ${shape} · role: ${role} · active: ${active} · gesture: ${shown}`;
-  label.style.color = COLORS[role];
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = COLORS[role];
-  for (const { x, y } of result.landmarks[0] ?? []) {
-    context.beginPath();
-    context.arc(x * canvas.width, y * canvas.height, 6, 0, 2 * Math.PI);
-    context.fill();
+  function onFrame() {
+    const now = performance.now();
+    const result = recognizer.recognizeForVideo(video, now);
+    const shape = result.gestures[0]?.[0].categoryName ?? "no hand";
+    const role = ROLES[shape] ?? "none";
+    seen = role === candidate ? seen + 1 : 1;
+    candidate = role;
+    if (seen === HOLD_FRAMES && role !== active) enter(role);
+    const flick = detectFlick(result.landmarks[0], now);
+    if (flick) [gesture, gestureAt] = [flick, now];
+    const shown = gesture && now - gestureAt < GESTURE_SHOWN_MS ? gesture : "none";
+    label.textContent = `shape: ${shape} · role: ${role} · active: ${active} · gesture: ${shown}`;
+    label.style.color = COLORS[role];
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = COLORS[role];
+    for (const { x, y } of result.landmarks[0] ?? []) {
+      context.beginPath();
+      context.arc(x * canvas.width, y * canvas.height, 6, 0, 2 * Math.PI);
+      context.fill();
+    }
+    video.requestVideoFrameCallback(onFrame);
   }
   video.requestVideoFrameCallback(onFrame);
 }
-video.requestVideoFrameCallback(onFrame);
+
+if (window.juno?.passiveAgent) {
+  await start();
+} else {
+  hand.hidden = true;
+}
