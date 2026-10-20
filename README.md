@@ -7,10 +7,20 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 2. On-device capture services for Linux (Wayland)/Mac and web canvas for drawing
 3. Manage context and chats via Electron or web app for desktop and mobile clients
 
+# Commands
+
+| | Server (macOS, Linux) | Client (macOS, Linux) |
+|---|---|---|
+| Install | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-server.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-client.sh \| bash` |
+| Start | `cd ~/juno/app && uv run python -m server` | `cd ~/juno/client && npm start` |
+| Tests | `cd ~/juno/app && uv run pytest` | |
+
+The client starts the recorder; its Status page shows whether this computer is recording.
+
 # Hello world setup
 0. Install + setup Tailscale on server and client devices
-1. Clone the repo on a designated server machine and spin up the api
-2. Install the Electron app on clients and give permissions to stalk yourself + configure clients to point to your server
+1. Run the server install on a designated server machine and start it; it prints the address clients connect to
+2. Run the client install on each computer, grant the capture permissions it asks for and give it the server's address
 3. Ask Cloud 'what have I been up to'
 
 ## Optional setup
