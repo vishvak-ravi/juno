@@ -20,7 +20,7 @@ The client starts the recorder; its Status page shows whether this computer is r
 # Hello world setup
 0. Install + setup Tailscale on server and client devices
 1. Run the server install on a designated server machine and start it; it prints the address clients connect to
-2. Run the client install on each computer, grant the capture permissions it asks for and give it the server's address
+2. Run the client install on each computer, grant the capture permissions it asks for, choose whether to install the passive agent module (macOS: camera gestures and dictation) and give it the server's address
 3. Ask Cloud 'what have I been up to'
 
 ## Optional setup

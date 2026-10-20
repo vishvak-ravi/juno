@@ -3,7 +3,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-client.sh | bash
 # Clones the repository into $JUNO_DIR (default ~/juno), installs the client's
 # dependencies (the Electron app and the recorder it starts), asks for the
-# capture permissions and the server's address, and prints the command that
+# capture permissions, offers the passive agent module on macOS, asks for the
+# server's address, and prints the command that
 # starts the client. The client is described in docs/client.md, the recorder
 # and its permissions in docs/capture.md.
 set -euo pipefail
@@ -56,8 +57,25 @@ uv sync --package juno-capture --no-dev
 # The client itself.
 cd "$JUNO_DIR/apps/desktop"
 npm ci
-if [ "$platform" = Darwin ] && command -v swiftc >/dev/null; then
-  npm run native # dictation
+
+# The passive agent module (docs/client.md): the gesture model and the dictation helper.
+passive_agent=0
+if [ "$platform" = Darwin ]; then
+  cat <<MESSAGE
+
+The passive agent module adds a camera preview with hand keypoints, gestures that
+dictate and send, and dictation. Installing it downloads the gesture model and
+builds the dictation helper, which needs the Xcode command line tools.
+MESSAGE
+  if confirm "Install the passive agent module?"; then
+    npm run model
+    if command -v swiftc >/dev/null; then
+      npm run native
+    else
+      echo "swiftc not found: gestures will work; for dictation, install the Xcode command line tools and run npm run native here."
+    fi
+    passive_agent=1
+  fi
 fi
 
 # Capture permissions.
@@ -111,6 +129,7 @@ set_env JUNO_SERVER_HOST "$host"
 default_id=$(uv run python -c 'from juno.config import resolve_device_id; print(resolve_device_id())')
 device_id=$(ask "Name for this computer on the server (lowercase letters and digits) [$default_id]: ")
 set_env JUNO_DEVICE_ID "${device_id:-$default_id}"
+set_env JUNO_PASSIVE_AGENT "$passive_agent"
 
 cat <<MESSAGE
 
