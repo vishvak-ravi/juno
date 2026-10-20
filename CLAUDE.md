@@ -123,11 +123,11 @@ existing pattern instead.
 In this repo:
 
 - **Models and knobs shared by every device**: add a key to the matching
-  section of `app/config.yaml` (with a comment saying what it does) and the
-  field to the settings model in `app/src/juno/config.py`, the same way
+  section of `config.yaml` (with a comment saying what it does) and the
+  field to the settings model in `packages/core/src/juno/config.py`, the same way
   `annotate.model` and `predict.past_len` are defined.
 - **Values that differ per device** (server host, device id, API keys): read
-  from `app/.env`, listed in `app/.env.example`.
+  from `.env`, listed in `.env.example`.
 - **Per-request knobs**: a request body or query field with a default taken
   from `config.yaml`, never a literal in the function body.
 
@@ -188,8 +188,8 @@ If none of these apply, the tool is broken — fix the data pipeline before ship
 - Device or session IDs: tool needs a `device_id` or session id the LLM was never told about
 
 **Where identifiers get surfaced:**
-- Tool definitions and results in `app/src/server/tools.py` and `app/src/server/mcp.py` — return IDs that downstream tools need
-- System prompts in `app/src/server/prompts/` — include context the tools rely on (devices, time range)
+- Tool definitions and results in `packages/server/src/server/agent/tools.py` and `packages/server/src/server/agent/mcp.py` — return IDs that downstream tools need
+- System prompts in `packages/server/src/server/agent/prompts/` — include context the tools rely on (devices, time range)
 
 ### CRITICAL: Never Make Users Watch the Implementation Load
 
@@ -231,14 +231,15 @@ The failure looks like this: each intermediate fetch/hydration step renders its 
 Commands and the per-platform support matrix are in [README.md](README.md);
 requirements, decisions, status and design notes are in [docs/](docs/).
 
-- `app/src/juno`: `juno.config` loads `app/config.yaml`; `juno.parent_watch` stops the recorder when the client that started it dies
-- `app/src/server`: FastAPI API server (`python -m server`, `server.port` in `config.yaml`); chat via `llm.base_url`, tools in `tools.py` and `mcp.py`, routes in `routes/`
-- `app/src/capture`: the recorder (`python -m capture`); platform sources in `capture/sources/`
-- `app/src/annotate`: annotation of recorded chunks with `annotate.model`
-- `app/src/predict`: next-action predictor and benchmark rows
-- `client/`: Electron desktop client
-- `scripts/`: dataset and benchmark CLIs
-- Settings: `app/config.yaml` (shared by every device), `app/.env` (this device: `JUNO_SERVER_HOST`, `JUNO_DEVICE_ID`, `GEMINI_API_KEY`)
+- `packages/core/src/juno`: what the server and the recorder share: `juno.config` loads `config.yaml`; `juno.sessions` is the session id and row format; `juno.events` the event ids; `juno.control` the recorder's report
+- `packages/capture/src/capture`: the recorder (`python -m capture`); platform sources in `capture/sources/`; `capture.parent_watch` stops it when the client that started it dies
+- `packages/server/src/server`: FastAPI API server (`python -m server`, `server.port` in `config.yaml`); routes in `routes/`; the chat model, its tools and MCP in `agent/` (`llm.base_url`, `agent/tools.py`, `agent/mcp.py`)
+- `packages/server/src/annotate`: annotation of recorded chunks with `annotate.model`
+- `packages/server/src/predict`: next-action predictor and benchmark rows
+- `apps/desktop/`: Electron desktop client (`src/main`, `src/preload`, `src/renderer`); it starts the recorder
+- `apps/web/`: the phone page (`index.html`) and the drawing page (`draw.html`), served by the server as they are
+- `scripts/`: install scripts, dataset and benchmark CLIs
+- Settings: `config.yaml` (shared by every device), `.env` (this device: `JUNO_SERVER_HOST`, `JUNO_DEVICE_ID`, `GEMINI_API_KEY`), both at the checkout root
 
 The API server, the recorder and the model server (vLLM at `llm.base_url`) are
 separate processes that usually run on different machines.
@@ -251,7 +252,7 @@ exactly. Do not add signals or behavior Tada lacks; see [docs/decisions.md](docs
 ## Code Style Guidelines
 
 - **Python**: Type hints required, Pydantic for models. Use `Optional[X]` for nullable types - do NOT use `X | None`, `Union[X, None]`, or overly complex nested generics like `List[List[...]]` when simpler types suffice
-- **JavaScript** (`client/`): camelCase for variables/functions, PascalCase for classes
+- **JavaScript** (`apps/desktop/`): camelCase for variables/functions, PascalCase for classes
 - **Class methods vs helper functions**: A method should only exist on a class if it:
   1. **Accesses internal state** (`self`/`this`) - it genuinely needs the instance
   2. **Is part of the public interface** - external callers actually use it
@@ -293,8 +294,8 @@ Write tests and interfaces that describe **what** the system does, not **how** i
 
 Dependencies must be at least 7 days old. When adding or updating dependencies:
 
-- **Python (uv)**: `exclude-newer = "P7D"` in `[tool.uv]` of `app/pyproject.toml` and any new `pyproject.toml`. If the project uses non-PyPI indexes that lack PEP 700 upload-time metadata (e.g., PyTorch, PaddlePaddle), add `exclude-newer-package` exemptions.
-- **npm**: `min-release-age=7` (days) in `client/.npmrc`.
+- **Python (uv)**: `exclude-newer = "P7D"` in `[tool.uv]` of `pyproject.toml` and any new `pyproject.toml`. If the project uses non-PyPI indexes that lack PEP 700 upload-time metadata (e.g., PyTorch, PaddlePaddle), add `exclude-newer-package` exemptions.
+- **npm**: `min-release-age=7` (days) in `apps/desktop/.npmrc`.
 
 ## CRITICAL: Loading .env Files for Shell Commands
 
@@ -305,7 +306,7 @@ Dependencies must be at least 7 days old. When adding or updating dependencies:
 **NEVER use `--no-verify` flag when committing**. If pre-commit hooks fail:
 1. Fix ALL errors (linting, type errors, tests) before committing
 2. Run the appropriate commands to ensure code quality:
-   - Python: `uv run pytest` in `app/`
-   - Client: `npm ci` in `client/`
+   - Python: `uv run pytest` at the checkout root
+   - Client: `npm ci` in `apps/desktop/`
 3. Only commit after all checks pass successfully
 

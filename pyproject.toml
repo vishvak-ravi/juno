@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "juno"
+version = "0.1.0"
+description = "Juno: the API server, the recorder and what they share."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    # Pinned: capture reuses napsack's queue/aggregation/save internals,
+    # so the on-disk format and burst logic are exactly Tada's.
+    "napsack==0.1.3",
+    # The macOS and X11 sources (`capture.sources.pynput_mss`), napsack's own
+    # libraries; mss.MSS is new in 10.2.
+    "mss>=10.2,<11",
+    "pynput>=1.8.1",
+    "screeninfo>=0.8.1",
+    # The Wayland input source (`capture.sources.wayland.evdev_input`).
+    "evdev>=1.7; sys_platform == 'linux'",
+    "numpy",
+    "pillow",
+    # The annotation call (`annotate.label`) and its API key in .env.
+    "litellm",
+    "python-dotenv",
+    # The API server (`python -m server`).
+    "fastapi",
+    "uvicorn",
+    # Calls to vLLM from the chat route (`server.llm`).
+    "httpx",
+    # The YAML config (`juno.config`).
+    "pydantic",
+    "pyyaml",
+    "mcp>=2.3.0",
+    "python-multipart>=0.0.32",
+    # The /draw page's socket (`server.routes.draw`), served by uvicorn.
+    "websockets",
+    # The web_search tool (`server.search`).
+    "ddgs>=9",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/core/src/juno",
+    "packages/capture/src/capture",
+    "packages/server/src/annotate",
+    "packages/server/src/predict",
+    "packages/server/src/server",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "packages/capture/tests", "packages/server/tests"]
+pythonpath = ["packages/core/src", "packages/capture/src", "packages/server/src"]
+
+[tool.uv]
+# napsack's unpinned dependency tree lets the resolver fall back to releases
+# with no wheels for this Python. Hold these at what Tada's lockfile resolves to.
+constraint-dependencies = ["tokenizers>=0.20"]

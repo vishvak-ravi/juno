@@ -10,7 +10,7 @@ set -euo pipefail
 
 REPO_URL=https://github.com/vishvak-ravi/juno.git
 JUNO_DIR=${JUNO_DIR:-$HOME/juno}
-# process.loadEnvFile, which the client reads app/.env with.
+# process.loadEnvFile, which the client reads .env with.
 NODE_MAJOR=22
 
 platform=$(uname -s)
@@ -51,17 +51,17 @@ else
   git clone "$REPO_URL" "$JUNO_DIR"
 fi
 # The recorder the client starts.
-cd "$JUNO_DIR/app"
+cd "$JUNO_DIR"
 uv sync --no-dev
 # The client itself.
-cd "$JUNO_DIR/client"
+cd "$JUNO_DIR/apps/desktop"
 npm ci
 if [ "$platform" = Darwin ] && command -v swiftc >/dev/null; then
   npm run native # dictation
 fi
 
 # Capture permissions.
-cd "$JUNO_DIR/app"
+cd "$JUNO_DIR"
 start="npm start"
 if [ "$platform" = Darwin ]; then
   cat <<MESSAGE
@@ -92,7 +92,7 @@ else
 abi <abi/5.0>,
 include <tunables/global>
 
-profile juno-electron $JUNO_DIR/client/node_modules/electron/dist/electron flags=(unconfined) {
+profile juno-electron $JUNO_DIR/apps/desktop/node_modules/electron/dist/electron flags=(unconfined) {
   userns,
   include if exists <local/juno-electron>
 }
@@ -116,7 +116,7 @@ cat <<MESSAGE
 
 Installed. Start the client with:
 
-    cd $JUNO_DIR/client && $start
+    cd $JUNO_DIR/apps/desktop && $start
 
 Its Status page shows whether this computer is recording.
 MESSAGE

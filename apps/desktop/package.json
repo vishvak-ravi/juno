@@ -1,0 +1,18 @@
+{
+  "name": "juno-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Juno desktop client",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "model": "curl -fL --create-dirs -o models/gesture_recognizer.task https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+    "native": "swiftc -O native/dictate.swift -o native/juno-dictate -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/Info.plist"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1"
+  }
+}

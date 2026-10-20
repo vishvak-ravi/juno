@@ -22,7 +22,7 @@ Screenshots are referenced by ``file://`` URL instead of embedded; the benchmark
 script reads them when it sends the request. The dataset is written next to the
 session's events, in ``<session dir>/datasets/`` (see ``predict.benchmarks``).
 Settings come from the ``predict`` and ``capture`` sections of
-``app/config.yaml`` (or JUNO_CONFIG_PATH).
+``config.yaml`` (or JUNO_CONFIG_PATH).
 """
 
 from __future__ import annotations
@@ -34,13 +34,13 @@ import sys
 import time
 from pathlib import Path
 
-from annotate.records import session_dir
+from juno.sessions import session_dir
 from annotate.store import list_records
 from juno.config import ConfigError, devices_dir, load_config, resolve_data_dir
 from predict.benchmarks import RUN_FORMAT, datasets_dir
 from predict.predictor import Predictor, build_actions_block, prediction_events
 
-APP_DIR = Path(__file__).resolve().parents[1] / "app"
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 def build_samples(session_id: str, events: list[dict], predictor_config) -> list[dict]:
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = load_config(None if os.environ.get("JUNO_CONFIG_PATH")
-                             else APP_DIR / "config.yaml")
+                             else ROOT_DIR / "config.yaml")
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

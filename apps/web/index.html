@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- Opened from the iOS Home Screen, the page runs full screen, without Safari's bars. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Juno" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<title>Juno</title>
+<style>
+  :root { --bg: #fafafa; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #eeeeee; --accent: #2b6cb0; --accent-bg: #eef3fb; --error: #c53030; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --ink: #eaeaea; --dim: #9a9a9a; --line: #333; --raw: #242424; --accent: #4a90d9; --accent-bg: #1c2433; --error: #f56565; color-scheme: dark; }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
+  button { font: inherit; color: var(--accent); background: none; border: 0; padding: .5rem; cursor: pointer; }
+  button:disabled { opacity: .5; }
+
+  header { display: grid; grid-template-columns: 5rem 1fr 5rem; align-items: center; border-bottom: 1px solid var(--line);
+           padding: env(safe-area-inset-top) calc(.5rem + env(safe-area-inset-right)) 0 calc(.5rem + env(safe-area-inset-left)); }
+  header h1 { margin: 0; padding: .6rem 0; font-size: 1rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { grid-column: 2; }
+  #back { grid-column: 1; text-align: left; }
+  #new { grid-column: 3; text-align: right; }
+
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+         padding: 1rem calc(1rem + env(safe-area-inset-right)) 1rem calc(1rem + env(safe-area-inset-left)); }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 0 0 .25rem; }
+  section + h2 { margin-top: 1.5rem; }
+  h3 { font-size: .9rem; color: var(--dim); font-weight: 500; margin: .75rem 0 .25rem; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li button { display: block; width: 100%; text-align: left; padding: .6rem 0; border-bottom: 1px solid var(--line); color: inherit;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small, .status { color: var(--dim); }
+  /* The pinned rows (Timeline, Predictions), set apart from the chats below them. */
+  #pinned { margin-bottom: 1.5rem; }
+  #pinned li + li { margin-top: .25rem; }
+  #pinned button { padding: .6rem .75rem; border-bottom: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
+  button.more { margin-top: .5rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+  /* One switch on the status screen: the label and its checkbox, what it reports below. */
+  li.switch { padding: .6rem 0; border-bottom: 1px solid var(--line); }
+  li.switch label { display: flex; justify-content: space-between; align-items: center; }
+  li.switch input { width: 1.25rem; height: 1.25rem; }
+
+  /* A chat: bubbles, the user's on the right. */
+  .message { max-width: 85%; width: fit-content; margin: 0 0 .5rem; padding: .5rem .75rem; border-radius: 1rem; background: var(--raw);
+             white-space: pre-wrap; overflow-wrap: anywhere; }
+  .message.user { margin-left: auto; color: #fff; background: var(--accent); }
+  /* The reply on its way: moving dots, then what is being waited for. */
+  .message.waiting { display: flex; align-items: center; gap: .5rem; color: var(--dim); }
+  .dots { display: flex; gap: .2rem; }
+  .dots span { width: .4rem; height: .4rem; border-radius: 50%; background: currentColor; animation: dot 1.2s ease-in-out infinite; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dot { 0%, 80%, 100% { opacity: .3; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .dots span { animation: none; opacity: .6; } }
+  .message.error { color: var(--error); background: none; padding-left: 0; }
+  /* Assistant replies, read as markdown. */
+  .md { white-space: normal; }
+  .md p { margin: 0 0 .5rem; white-space: pre-wrap; }
+  .md > :last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 1rem; text-transform: none; letter-spacing: 0; color: inherit; font-weight: 600; margin: .5rem 0 .25rem; }
+  .md ul, .md ol { list-style: revert; margin: 0 0 .5rem; padding-left: 1.5rem; }
+  .md code { font: 13px/1.4 ui-monospace, monospace; }
+  .md pre { margin: 0 0 .5rem; background: var(--bg); }
+
+  #composer { display: flex; gap: .5rem; border-top: 1px solid var(--line);
+              padding: .5rem calc(.75rem + env(safe-area-inset-right)) calc(.5rem + env(safe-area-inset-bottom)) calc(.75rem + env(safe-area-inset-left)); }
+  #composer[hidden] { display: none; }
+  /* 16px: anything smaller makes iOS zoom the page when the field is focused. */
+  #input { flex: 1; min-width: 0; padding: .5rem .75rem; font: inherit; font-size: 16px; color: inherit; background: var(--bg);
+           border: 1px solid var(--line); border-radius: 1rem; }
+
+  pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
+  pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
+  /* One timeline event: time and device, caption, id, inputs, screenshot. */
+  article { padding: .75rem 0; border-bottom: 1px solid var(--line); }
+  article b { display: block; color: var(--dim); font-weight: 500; font-size: .9rem; }
+  article p { margin: 0; white-space: pre-wrap; }
+  li.event { padding: .15rem 0; white-space: pre; }
+  img { display: block; max-width: 100%; margin-top: .5rem; }
+  /* One graded prediction: the prediction above what actually happened next. */
+  pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  details { border-bottom: 1px solid var(--line); padding: .5rem 0; }
+  summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
+  /* What the predictor was sent: its screenshots as thumbnails; a tap shows one full width. */
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: .5rem; }
+  .shots img { margin: 0; border: 1px solid var(--line); }
+  .shots img.big { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="back" hidden>‹ Back</button>
+  <h1 id="title">Juno</h1>
+  <button id="new">New</button>
+</header>
+<main id="view"></main>
+<form id="composer" hidden>
+  <input id="input" placeholder="Message" autocomplete="off" enterkeyhint="send" />
+  <button type="submit">Send</button>
+</form>
+
+<script>
+  // The phone client: the views of the desktop client (apps/desktop/src/renderer/browse.html), one
+  // screen at a time. The Juno server serves this page, so every request below goes
+  // to the address the page was opened at.
+  //
+  // Screens, by location.hash:  (none) the timeline row and the chat list
+  //                             #/timeline    every device's events, newest first
+  //                             #/status      recording and annotation, with their switches
+  //                             #/predictions       graded benchmark predictions, newest first
+  //                             #/predictions/<id>  one of them in full
+  //                             #/chats/<id>  one chat and its message box
+
+  class ApiError extends Error {
+    constructor(status, detail) { super(`${status} ${detail}`); this.status = status; }
+  }
+  async function api(path, options) {
+    const response = await fetch(path, options);
+    if (!response.ok) {
+      const text = await response.text();
+      let detail = text;
+      try { detail = JSON.parse(text).detail ?? text; } catch {}
+      throw new ApiError(response.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return response.json();
+  }
+  // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
+  const send = (chatId, content) => api(`/chats/${chatId}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [{ role: "user", content }] }) });
+
+  const el = (tag, props = {}, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+  const time = (seconds) => seconds == null ? "" : new Date(seconds * 1000).toLocaleString();
+  const pad = (n, width) => String(n).padStart(width, "0");
+  const status = (text) => el("p", { className: "status", textContent: text });
+  const message_of = (error) => String(error.message || error);
+  // crypto.randomUUID exists only on https pages; the server is plain http.
+  const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => pad(b.toString(16), 2)).join("");
+
+  const view = document.getElementById("view");
+  const title = document.getElementById("title");
+  const back = document.getElementById("back");
+  const composer = document.getElementById("composer");
+  const input = document.getElementById("input");
+  const sendButton = composer.querySelector("button");
+
+  // Fills `target` with what `work` resolves to, as one pending state, shown only
+  // when the wait is long enough to notice. `current()` turning false means the
+  // user has moved on, and the result is dropped.
+  async function load(target, work, current = () => true) {
+    const pending = setTimeout(() => current() && target.replaceChildren(status("Loading…")), 300);
+    try {
+      const nodes = await work();
+      if (current()) target.replaceChildren(...nodes);
+    } catch (error) {
+      if (current()) target.replaceChildren(status(message_of(error)));
+    } finally {
+      clearTimeout(pending);
+    }
+  }
+
+  // One paged list, with its first page already fetched. `render(item)` makes the
+  // list element for one item; "Load more" fetches the next page with ?after=<last_id>.
+  async function paged(path, render) {
+    const list = el("ul");
+    const more = el("button", { className: "more", textContent: "Load more", hidden: true });
+    const add = (page) => {
+      list.append(...page.data.map(render));
+      more.hidden = !page.has_more;
+      more.onclick = async () => {
+        more.disabled = true;
+        try {
+          add(await api(`${path}?limit=20&after=${page.last_id}`));
+        } catch (error) {
+          list.append(el("small", { textContent: message_of(error) }));
+        }
+        more.disabled = false;
+      };
+    };
+    const first = await api(`${path}?limit=20`);
+    if (!first.data.length) list.append(el("small", { textContent: "None yet." }));
+    add(first);
+    return el("section", {}, list, more);
+  }
+  const row = (label, meta, href) => el("li", {}, el("button", { onclick: () => { location.hash = href; } },
+    label, el("br"), el("small", { textContent: meta })));
+
+  // The markdown the model tends to write: headings, fenced code, lists,
+  // paragraphs; `code`, **bold** and *italic* inside them. Anything else stays text.
+  function inline(node, text) {
+    node.append(...text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).map((part) =>
+      part.startsWith("`") ? el("code", { textContent: part.slice(1, -1) })
+      : part.startsWith("**") ? el("strong", { textContent: part.slice(2, -2) })
+      : part.startsWith("*") ? el("em", { textContent: part.slice(1, -1) })
+      : part));
+    return node;
+  }
+  const BLOCK = /^(```|#{1,6}\s|\s*(?:[-*]|\d+\.)\s)/;
+  function markdown(text) {
+    const out = el("div", { className: "md" });
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length;) {
+      const line = lines[i];
+      let m;
+      if (line.startsWith("```")) {
+        const code = [];
+        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+        i++;
+        out.append(el("pre", {}, el("code", { textContent: code.join("\n") })));
+      } else if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
+        out.append(inline(el(`h${m[1].length}`), m[2]));
+        i++;
+      } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s/))) {
+        const list = el(m[1] ? "ol" : "ul");
+        for (; i < lines.length && (m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)/)); i++) list.append(inline(el("li"), m[1]));
+        out.append(list);
+      } else if (!line.trim()) {
+        i++;
+      } else {
+        const para = [];
+        for (; i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]); i++) para.push(lines[i]);
+        out.append(inline(el("p"), para.join("\n")));
+      }
+    }
+    return out;
+  }
+
+  // The first screen: the pinned rows, then the chat list.
+  const home = async () => [
+    el("ul", { id: "pinned" },
+      row("Timeline", "Every device's events, newest first", "#/timeline"),
+      row("Predictions", "Graded benchmark predictions, newest first", "#/predictions"),
+      row("Status", "Recording and annotation, with their switches", "#/status")),
+    el("h2", { textContent: "Chats" }),
+    await paged("/chats", (chat) =>
+      row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, `#/chats/${chat.id}`))];
+
+  // A chat: its messages as bubbles. The message box below them is #composer.
+  const bubble = ({ role, content }) => role === "assistant"
+    ? el("div", { className: "message assistant" }, markdown(content))
+    : el("div", { className: `message ${role}`, textContent: content });
+  const toBottom = () => { view.scrollTop = view.scrollHeight; };
+  // A chat exists on the server only once its first message is sent, so 404 is a new chat.
+  const stored = (id) => api(`/chats/${id}`).catch((error) => {
+    if (error.status === 404) return { messages: [] };
+    throw error;
+  });
+  let chatId = null;
+  // Counts the screens shown, so work started on one can tell that it was left.
+  let screen = 0;
+  // How many messages of the chat on screen the server has stored.
+  let storedCount = 0;
+  function show(messages) {
+    storedCount = messages.length;
+    view.replaceChildren(...messages.map(bubble));
+  }
+
+  // A reply takes as long as the tools the model calls, up to minutes. What the
+  // user is waiting for meanwhile, by the tool GET /chats/{id}/activity names.
+  const WAITS = {
+    list_annotations: "Reading your activity",
+    get_annotation: "Reading your activity",
+    predict_next_actions: "Predicting what you'll do next",
+    search_chats: "Looking through past chats",
+    get_chat: "Looking through past chats",
+    web_search: "Searching the web",
+    bash: "Running a command",
+    fwd_to_claude: "Asking Claude Code",
+  };
+  const POLL_MS = 1000;
+  // Polls in a row that may fail before the server counts as out of reach.
+  const POLL_FAILURES = 10;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // The bubble a reply takes the place of: moving dots and what is being waited for.
+  function waiting() {
+    const label = el("span");
+    const dots = el("span", { className: "dots" }, el("span"), el("span"), el("span"));
+    const node = el("div", { className: "message waiting" }, dots, label);
+    node.setAttribute("role", "status");
+    const say = (text) => { if (label.textContent !== text) label.textContent = text; };
+    const tool = (name) => say(name ? WAITS[name] || "Working" : "Thinking");
+    tool(null);
+    return { node, say, tool };
+  }
+
+  // Keeps `indicator` saying what chat `id` is waiting for. Resolves when the server
+  // is no longer making a reply, or when `watching()` turns false.
+  async function watch(id, indicator, watching) {
+    for (let failures = 0; ;) {
+      await sleep(POLL_MS);
+      if (!watching()) return;
+      try {
+        const activity = await api(`/chats/${id}/activity`);
+        if (!activity.replying || !watching()) return;
+        indicator.tool(activity.tool);
+        failures = 0;
+      } catch (error) {
+        if (++failures === POLL_FAILURES) throw error;
+        indicator.say("Reconnecting");
+      }
+    }
+  }
+
+  // Waits for the reply to chat `id`, with `indicator` on screen after the `sent`
+  // bubbles it answers, and shows it. `request` is the PUT that asked for the reply;
+  // without one, the chat was opened with the reply already on its way.
+  async function answer(id, { indicator, sent, content, request }) {
+    const here = screen;
+    const had = storedCount;
+    let pending = true;
+    // Only the button is disabled: disabling the field would close the keyboard.
+    sendButton.disabled = true;
+    const idle = watch(id, indicator, () => pending && screen === here);
+    idle.catch(() => {});  // reread reports it, when the reply depends on it
+    // Without the PUT's answer, the reply is read from the chat once the server is done.
+    const reread = async () => {
+      await idle;
+      const chat = await stored(id);
+      if (chat.messages.length <= had) throw new Error("The reply did not arrive.");
+      return chat;
+    };
+    let messages, failure;
+    try {
+      // A PUT that fails without an answer says nothing about the reply: iOS drops the
+      // requests of a page it suspends, and the server works on.
+      ({ messages } = await (request
+        ? request.catch((error) => { if (error instanceof ApiError) throw error; return reread(); })
+        : reread()));
+    } catch (error) {
+      failure = error;
+    }
+    pending = false;
+    if (screen !== here) return;
+    if (messages) {
+      show(messages);
+    } else {
+      // The server keeps nothing on failure, so the message goes back in the box.
+      sent.forEach((node) => node.remove());
+      indicator.node.replaceWith(bubble({ role: "error", content: message_of(failure) }));
+      if (!input.value) input.value = content;
+    }
+    sendButton.disabled = false;
+    toBottom();
+  }
+
+  const chat = async (id) => {
+    const here = screen;
+    // Activity first: when it says no reply is on its way, the chat read after it is whole.
+    const activity = await api(`/chats/${id}/activity`);
+    const { messages } = await stored(id);
+    if (screen !== here) return [];
+    storedCount = messages.length;
+    sendButton.disabled = false;
+    requestAnimationFrame(toBottom);
+    if (!activity.replying) return messages.map(bubble);
+    // The reply was asked for elsewhere, or here before the page was reloaded.
+    const indicator = waiting();
+    indicator.tool(activity.tool);
+    const sent = activity.messages.map(bubble);
+    answer(id, { indicator, sent, content: activity.messages.at(-1)?.content ?? "", request: null });
+    return [...messages.map(bubble), ...sent, indicator.node];
+  };
+  composer.onsubmit = (event) => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!content || sendButton.disabled) return;
+    input.value = "";
+    view.querySelectorAll(".error").forEach((node) => node.remove());
+    const indicator = waiting();
+    const sent = [bubble({ role: "user", content })];
+    view.append(...sent, indicator.node);
+    toBottom();
+    answer(chatId, { indicator, sent, content, request: send(chatId, content) });
+  };
+
+  // Timeline: GET /events, every device's events newest first, read-only. One
+  // event is its caption, its inputs (one line each) and its screenshot.
+  const inputLine = ({ type, timestamp, ...details }) =>
+    el("li", { className: "event", textContent: `${time(timestamp)}  ${type}  ${JSON.stringify(details)}` });
+  const timelineEvent = (e) => el("li", {}, el("article", {},
+    el("b", { textContent: `${time(e.timestamp)} · ${e.device_id}` }),
+    el("p", { textContent: e.caption ?? "No caption yet." }),
+    el("small", { textContent: e.id }),
+    el("ul", {}, ...e.inputs.map(inputLine)),
+    ...(e.screenshot_url ? [el("img", { alt: "", loading: "lazy", src: e.screenshot_url })] : [])));
+  const timeline = async () => [await paged("/events", timelineEvent)];
+
+  // Status: GET /control. The server's annotation switch, then one recording switch
+  // per device. A switch shows what was asked for, the line below it what the queue
+  // or the device last reported. The screen asks again every poll_seconds.
+  const patch = (path, body) => api(path, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  function switchRow(label, on, note, set) {
+    const box = el("input", { type: "checkbox", checked: on });
+    const line = el("small", { textContent: note });
+    box.onchange = async () => {
+      const shown = screen;
+      box.disabled = true;
+      try {
+        const control = await set(box.checked);
+        if (screen === shown) view.replaceChildren(...controlView(control));
+      } catch (error) {
+        box.checked = !box.checked;
+        box.disabled = false;
+        line.textContent = message_of(error);
+      }
+    };
+    return el("li", { className: "switch" }, el("label", {}, label, box), line);
+  }
+  const queueNote = ({ annotate, queue }) => [
+    `${queue.queued.live} live · ${queue.queued.requested} requested · ${queue.queued.backfill} backfill`,
+    `${queue.running} running`,
+    ...(annotate ? [] : ["paused"]),
+    ...(queue.paused_seconds > 0 ? [`waiting ${Math.ceil(queue.paused_seconds)} s for the provider`] : [])].join(" · ");
+  function deviceNote(d) {
+    if (!d.online) return d.reported_at ? `offline · last seen ${time(d.reported_at)}` : "offline";
+    const running = d.reported.capture === "running";
+    const doing = running ? `recording ${d.reported.session_id}` : "not recording";
+    return running === d.capture ? doing : `${doing} · ${d.capture ? "starting" : "stopping"}…`;
+  }
+  const controlView = (control) => {
+    const devices = Object.entries(control.devices);
+    return [
+      el("h2", { textContent: "Server" }),
+      el("ul", {}, switchRow("Annotation", control.server.annotate, queueNote(control.server),
+                             (on) => patch("/control/server", { annotate: on }))),
+      el("h2", { textContent: "Recording" }),
+      devices.length ? el("ul", {}, ...devices.map(([id, d]) => switchRow(id, d.capture, deviceNote(d),
+                                                                         (on) => patch(`/control/devices/${id}`, { capture: on }))))
+        : el("small", { textContent: "No device has reported yet." })];
+  };
+  async function controlScreen() {
+    const shown = screen;
+    const control = await api("/control");
+    // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
+    const refresh = () => setTimeout(async () => {
+      if (screen !== shown) return;
+      try {
+        const next = await api("/control");
+        if (screen === shown && !view.querySelector("input:disabled")) view.replaceChildren(...controlView(next));
+      } catch {}
+      refresh();
+    }, control.poll_seconds * 1000);
+    refresh();
+    return controlView(control);
+  }
+
+  // Predictions: GET /predictions, every benchmark run's graded predictions,
+  // newest first. A row opens a screen with the prediction above what actually
+  // came next, what the predictor was sent (screenshots, then text), and each
+  // judge's prompt and reply (GET /predictions/{id}).
+  const score = (value) => value == null ? "–" : value.toFixed(2);
+  const pres = (text) => el("pre", { className: "wrap", textContent: text ?? "" });
+  const judge = (name, prompt, reply) => prompt == null ? [] : [
+    el("details", {}, el("summary", { textContent: `${name} judge prompt` }), pres(prompt)),
+    el("h3", { textContent: `${name} judge reply` }), pres(reply)];
+  function predictorInput(messages) {
+    const parts = messages.flatMap((m) => Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]);
+    const shots = parts.filter((part) => part.type === "image_url").map((part) => {
+      const img = el("img", { alt: "", loading: "lazy", src: part.image_url.url });
+      img.onclick = () => img.classList.toggle("big");
+      return img;
+    });
+    return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
+            ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
+  }
+  const predictions = async () => [await paged("/predictions", (g) => row(
+    `${g.error ? "failed" : `reward ${score(g.reward)}`} · ${time(g.graded_at)}`,
+    `${g.error ? "" : `accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)} · `}${g.predictor.model} → ${g.grader.model}`,
+    `#/predictions/${g.id}`))];
+  const prediction = async (id) => {
+    const g = await api(`/predictions/${id}`);
+    const { predictor: p, grader } = g;
+    const problems = [g.error, ...g.validation_errors,
+                      ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
+      .filter(Boolean);
+    return [
+      ...problems.map(status),
+      el("h3", { textContent: `Reward ${score(g.reward)} · accuracy ${score(g.accuracy)} · formatting ${score(g.formatting)}` }),
+      el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction."),
+      el("h3", { textContent: "Actually next" }), pres(g.ground_truth),
+      el("h3", { textContent: `Predictor input · ${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · max_tokens ${p.max_tokens} · temperature ${p.temperature}` }),
+      ...predictorInput(g.messages),
+      el("h3", { textContent: `Grader · ${grader.model}${grader.api_base ? ` at ${grader.api_base}` : ""}` }),
+      ...judge("Accuracy", g.accuracy_prompt, g.accuracy_reply),
+      ...judge("Formatting", g.formatting_prompt, g.formatting_reply),
+      el("h3", { textContent: "Sample" }),
+      pres(JSON.stringify({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
+                            cutoff: time(g.cutoff_ts), future_len: g.future_len }, null, 2)),
+    ];
+  };
+
+  // Shows the screen location.hash names.
+  function route() {
+    const hash = location.hash;
+    const [, kind, id] = hash.match(/^#\/(timeline|predictions|status)$/)
+      || hash.match(/^#\/(chats|predictions)\/([A-Za-z0-9_-]+)$/) || [];
+    chatId = kind === "chats" ? id : null;
+    screen++;
+    // Until the chat is on screen: a message sent before then would be drawn over.
+    sendButton.disabled = true;
+    back.hidden = !kind;
+    // Back from one prediction goes to the list of them; from anything else, home.
+    parent = kind === "predictions" && id ? "#/predictions" : "";
+    composer.hidden = kind !== "chats";
+    title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline" : kind === "status" ? "Status"
+      : kind === "predictions" ? (id ? "Prediction" : "Predictions") : "Juno";
+    view.replaceChildren();
+    load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline : kind === "status" ? controlScreen
+      : kind === "predictions" ? (id ? () => prediction(id) : predictions) : home,
+         () => location.hash === hash);
+  }
+  let parent = "";
+  window.addEventListener("hashchange", route);
+  back.onclick = () => { location.hash = parent; };
+  document.getElementById("new").onclick = () => { location.hash = `#/chats/${newId()}`; };
+  route();
+</script>
+</body>
+</html>

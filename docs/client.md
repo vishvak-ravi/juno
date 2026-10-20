@@ -1,13 +1,13 @@
 # Desktop client
 
-The Electron client (`client/`): a chat window (`src/index.html`) and a
-chat/session browser (`src/browse.html`) for the app server in `app/`.
+The Electron client (`apps/desktop/`): a chat window (`src/renderer/index.html`) and a
+chat/session browser (`src/renderer/browse.html`) for the API server in `packages/server/`.
 Setup and run commands are in the [README](../README.md).
 
 ## Recorder
 
-The client starts the recorder, `python -m capture` run with `app/.venv/bin/python`
-from `app/` (so it reads the same `config.yaml` and `.env`), when it starts, and
+The client starts the recorder, `python -m capture` run with the checkout's `.venv/bin/python`
+from the checkout root (so it reads the same `config.yaml` and `.env`), when it starts, and
 quits only once the recorder has saved its session. The Status page shows
 whether it is running and, if it exited, its status and last log lines; it is not
 restarted until the app is. Status 2 is a backend that could not start: on macOS
@@ -24,7 +24,7 @@ Ubuntu's AppArmor blocks unprivileged user namespaces
 profile allowing `userns`, so Chromium falls back to the setuid helper
 `node_modules/electron/dist/chrome-sandbox`, which npm installs without root
 ownership or the setuid bit. Give the npm Electron binary a profile, the same
-one `/etc/apparmor.d/code` gives VS Code. Run from `client/`:
+one `/etc/apparmor.d/code` gives VS Code. Run from `apps/desktop/`:
 
 ```
 sudo tee /etc/apparmor.d/juno-electron >/dev/null <<EOF
@@ -46,7 +46,7 @@ with mode 4755 also works but is undone by every reinstall.
 ## Server address and dictation
 
 The app server is `http://<JUNO_SERVER_HOST>:8765`, the host read from
-`app/.env` (see `app/.env.example`; default `127.0.0.1`). `JUNO_SERVER_URL`
+`.env` at the checkout root (see `.env.example`; default `127.0.0.1`). `JUNO_SERVER_URL`
 overrides it.
 Dictation needs `native/juno-dictate`, so it works only on macOS; elsewhere the
 client logs `dictation helper: spawn ... ENOENT` and runs without it.

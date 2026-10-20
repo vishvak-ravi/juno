@@ -1,6 +1,6 @@
 # Capture and the app server
 
-Activity monitoring for Juno (`app/`): use the computer, get events on disk in
+Activity monitoring for Juno (`packages/capture/`): use the computer, get events on disk in
 the session format Tada's `napsack` recorder writes. Per-backend state is in
 [`status.md`](status.md).
 

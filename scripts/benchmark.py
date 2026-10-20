@@ -36,8 +36,8 @@ The config (YAML):
     max_attempts: 5             # calls per model request while the provider is busy
     retry_seconds: 60           # wait between them when the provider names none
 
-Keys come from the environment or ``app/.env`` (GEMINI_API_KEY for gemini/).
-Where sessions are stored comes from ``capture.data_dir`` in ``app/config.yaml``
+Keys come from the environment or ``.env`` (GEMINI_API_KEY for gemini/).
+Where sessions are stored comes from ``capture.data_dir`` in ``config.yaml``
 (or JUNO_CONFIG_PATH).
 """
 
@@ -60,13 +60,13 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from annotate.label import PROVIDER_BUSY, retry_after_seconds
-from annotate.records import session_dir
+from juno.sessions import session_dir
 from juno.config import ConfigError, Section, devices_dir, load_config, resolve_data_dir
 from predict.benchmarks import (RUN_FORMAT, GradedRow, GraderSettings, PredictorSettings,
                                 run_file)
 from predict.predictor import image_part
 
-APP_DIR = Path(__file__).resolve().parents[1] / "app"
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 # Tada's weights (``RewardScorer`` defaults).
 ACCURACY_WEIGHT = 0.5
@@ -208,12 +208,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("config", type=Path, help="the benchmark config (YAML)")
     args = parser.parse_args(argv)
 
-    load_dotenv(APP_DIR / ".env")
+    load_dotenv(ROOT_DIR / ".env")
     try:
         config = BenchmarkConfig.model_validate(yaml.safe_load(args.config.read_text()) or {})
         lines = config.dataset.read_text().splitlines()
         app_config = load_config(None if os.environ.get("JUNO_CONFIG_PATH")
-                                 else APP_DIR / "config.yaml")
+                                 else ROOT_DIR / "config.yaml")
     except (OSError, yaml.YAMLError, ValidationError, ConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -2,7 +2,7 @@
 # Installs the Juno server on this machine (macOS or Linux):
 #   curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-server.sh | bash
 # Clones the repository into $JUNO_DIR (default ~/juno), installs the Python
-# dependencies, writes this machine's settings to app/.env and prints the
+# dependencies, writes this machine's settings to .env and prints the
 # command that starts the server. What the server does is in docs/capture.md.
 set -euo pipefail
 
@@ -41,7 +41,7 @@ if [ -d "$JUNO_DIR/.git" ]; then
 else
   git clone "$REPO_URL" "$JUNO_DIR"
 fi
-cd "$JUNO_DIR/app"
+cd "$JUNO_DIR"
 uv sync --no-dev
 
 [ -f .env ] || cp .env.example .env
@@ -57,7 +57,7 @@ cat <<MESSAGE
 
 Installed. Start the server with:
 
-    cd $JUNO_DIR/app && uv run python -m server
+    cd $JUNO_DIR && uv run python -m server
 
 Clients connect to http://${host:-${default_host:-127.0.0.1}}:$port (the client install asks for this address).
 MESSAGE

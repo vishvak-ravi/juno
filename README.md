@@ -12,8 +12,8 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 | | Server (macOS, Linux) | Client (macOS, Linux) |
 |---|---|---|
 | Install | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-server.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-client.sh \| bash` |
-| Start | `cd ~/juno/app && uv run python -m server` | `cd ~/juno/client && npm start` |
-| Tests | `cd ~/juno/app && uv run pytest` | |
+| Start | `cd ~/juno && uv run python -m server` | `cd ~/juno/apps/desktop && npm start` |
+| Tests | `cd ~/juno && uv run pytest` | |
 
 The client starts the recorder; its Status page shows whether this computer is recording.
 
