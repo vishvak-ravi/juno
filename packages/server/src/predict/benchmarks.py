@@ -1,9 +1,9 @@
 """Benchmark datasets and graded predictions on disk, next to the session they come from.
 
-A dataset made from a session (``scripts/make_dataset.py``) is
+A dataset made from a session (``scripts/make_prediction_dataset.py``) is
 ``<session dir>/datasets/<time>.jsonl``: one sample per line, the request the
 predictor is sent and the actions that actually followed. A benchmark run
-(``scripts/benchmark.py``) writes ``<session dir>/benchmarks/<run>.jsonl``: one
+(``scripts/grade_action_captions.py``) writes ``<session dir>/benchmarks/<run>.jsonl``: one
 ``GradedRow`` per sample, holding the predictor and grader that made it, what
 each model was sent and what came back. ``<run>`` is the time the run started,
 ``YYYYmmdd_HHMMSS``.

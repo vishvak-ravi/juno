@@ -1,4 +1,4 @@
-"""Annotate one chunk of a recorded session: ``python -m annotate SESSION_DIR``.
+"""Annotate one chunk of a recorded session: ``uv run python scripts/annotate_session_activity.py SESSION_DIR``.
 
 Sends a single request (``--chunk``, default the first), sanitized by
 ``annotate.sanitize``, and prints the model's output as JSON. Settings come from the ``annotate`` section of the YAML config
@@ -25,7 +25,7 @@ GEMINI_KEY_ENV = "GEMINI_API_KEY"
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m annotate", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("session_dir", type=Path,
                         help="a session directory holding raw_aggregations.jsonl")
     parser.add_argument("--chunk", type=int, default=0,

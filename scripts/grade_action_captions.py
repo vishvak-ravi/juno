@@ -1,8 +1,8 @@
 """Run a next-action benchmark: predict each sample of a dataset, then grade it as Tada does.
 
-    uv run --project app python scripts/benchmark.py CONFIG.yaml
+    uv run python scripts/grade_action_captions.py CONFIG.yaml
 
-The dataset comes from ``scripts/make_dataset.py``. The grading is Tada's
+The dataset comes from ``scripts/make_prediction_dataset.py``. The grading is Tada's
 LongNAP reward (``user_models/powernap/longnap/scorer.py`` at 25a28f7): the
 prediction must hold an ``<actions>`` block with as many ``<action>`` tags as
 the ground truth, else it scores 0; otherwise one judge call scores accuracy
