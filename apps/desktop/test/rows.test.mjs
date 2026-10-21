@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, chips, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourOf, inputLine,
-  liveSessions, matches, modelName, offset, overallState, railItems, runTime, shownInputs,
+  actions, chips, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, inputLine, liveSessions,
+  matches, modelName, monthGrid, offset, overallState, railItems, runTime, shade, shownInputs, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
 const event = (session, row, timestamp, fields = {}) => ({
@@ -59,13 +59,28 @@ test("a day runs from local midnight to just before the next", () => {
   assert.equal(duration(226 * 60), "3 h 46 min");
 });
 
-test("a day is named relative to now and round-trips through a date input's value", () => {
+test("a day is named relative to now", () => {
   const now = new Date(2026, 9, 20, 15, 30);
   assert.equal(dayLabel(new Date(2026, 9, 20), now), "Today");
   assert.equal(dayLabel(new Date(2026, 9, 19), now), "Yesterday");
   assert.equal(dayLabel(new Date(2026, 9, 5), now), new Date(2026, 9, 5).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }));
-  assert.equal(dayValue(new Date(2026, 0, 5)), "2026-01-05");
-  assert.deepEqual(dayFromValue("2026-01-05"), new Date(2026, 0, 5));
+});
+
+test("a month's calendar is six weeks from the week start before the first, shaded by count", () => {
+  const sundays = monthGrid(2026, 9, 0);
+  assert.equal(sundays.length, 42);
+  assert.deepEqual(sundays[0], new Date(2026, 8, 27));
+  assert.deepEqual(sundays[4], new Date(2026, 9, 1));
+  assert.deepEqual(monthGrid(2026, 9, 1)[0], new Date(2026, 8, 28));
+  const edges = gridEdges(sundays);
+  assert.equal(edges.length, 43);
+  assert.equal(edges[42], new Date(2026, 10, 8).getTime() / 1000);
+  assert.equal(shade(0, 9), 0);
+  assert.equal(shade(9, 9), 1);
+  assert.ok(shade(1, 9) > 0.3 && shade(1, 9) < 0.34);
+  assert.equal(weekStart("en-US"), 0);
+  assert.equal(weekStart("not a locale"), 0);
+  assert.deepEqual(weekdays(1, "en-US"), ["M", "T", "W", "T", "F", "S", "S"]);
 });
 
 test("action lists are read from the XML and compared position by position", () => {
