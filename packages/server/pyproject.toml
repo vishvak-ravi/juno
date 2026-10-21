@@ -36,4 +36,4 @@ juno-core = { workspace = true }
 juno-capture = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/annotate", "src/predict", "src/server"]
+packages = ["src/annotate", "src/grade", "src/predict", "src/server"]

@@ -77,3 +77,23 @@ def test_live_one_chunk_of_a_real_session_is_annotated():
     for action in annotation.actions:
         assert 1 <= action.start <= action.end <= len(request.frames)
         assert action.caption.strip()
+
+
+def test_a_model_on_an_openai_compatible_server_is_held_to_the_annotation_schema(
+        monkeypatch, request_of_one_frame):
+    sent = []
+
+    def completion(**params):
+        sent.append(params)
+        message = types.SimpleNamespace(content='{"actions": [], "dense_caption": ""}')
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=message, finish_reason="stop")])
+    monkeypatch.setattr(litellm, "completion", completion)
+
+    annotate(request_of_one_frame, model="openai/local", max_tokens=100, api_key="k",
+             api_base="http://localhost:8000/v1")
+
+    assert sent[0]["api_base"] == "http://localhost:8000/v1"
+    response_format = sent[0]["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["schema"]["required"] == ["actions", "dense_caption"]

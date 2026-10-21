@@ -77,7 +77,8 @@ def create_app(config: Optional[Config] = None,
     if annotate_request is None:
         async def annotate_request(request: AnnotationRequest) -> Annotation:
             return await annotate_async(request, model=config.annotate.model,
-                                        max_tokens=config.annotate.max_tokens)
+                                        max_tokens=config.annotate.max_tokens,
+                                        api_base=config.annotate.api_base)
 
     data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"

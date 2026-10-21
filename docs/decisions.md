@@ -2,6 +2,26 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-21: The annotator is a litellm model string and an address
+
+`annotate.model` is any litellm model string and `annotate.api_base` the server
+an `openai/` model is sent to; switching between Gemini, OpenRouter, llama.cpp,
+vLLM and SGLang changes only those two values (and a key in `.env` for a
+hosted provider). Every model except `gemini/` is sent Tada's
+`DENSE_IMAGE_CAPTION_SCHEMA` as an OpenAI `json_schema` response format.
+napsack instead sends `json_object` to such models and `guided_json` to
+`hosted_vllm/` ones; neither llama.cpp's server nor the vLLM build in use
+reads `guided_json`, and on 2026-10-21 Qwen3.8-27B on llama-server answered
+with a fenced JSON block that does not parse. A `gemini/` model keeps
+napsack's arguments, so the parity test against Tada's labeler still holds.
+
+Tried on 2026-10-21: Gemini (`gemini/gemini-3.1-flash-lite`) and llama.cpp
+(`openai/Qwen3.8-27B-UD-Q4_K_M`, 138 chunks). Not yet run: vLLM, SGLang,
+OpenRouter. Runs of a local annotator go through
+`scripts/annotate_session_activity.py` into `data/` at the checkout root, not
+the server's store, so they sit next to the Gemini annotations without
+replacing them.
+
 ## 2026-10-13: Tablet drawing recorded by the server
 
 A tablet can't run `python -m capture`, so `/draw` (a black canvas, four

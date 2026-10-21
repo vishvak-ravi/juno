@@ -84,7 +84,7 @@ Keeping existing docs accurate is not creating docs: when a change makes `README
 
 **Bad:** Find `annotate.model` in `config.yaml` → assume that's all model usage
 
-**Good:** Understand the flow from recorder to prediction → see that models are called for annotation (`annotate.model`), chat (`llm.base_url`), prediction (`predict`) and benchmarks (`scripts/grade_action_captions.py` predictor and grader) → search for every model call → trace actual usage
+**Good:** Understand the flow from recorder to prediction → see that models are called for annotation (`annotate.model`), chat (`llm.base_url`), prediction (`predict`), benchmarks (`scripts/benchmark_prediction.py` predictor) and the judge (`grade.model`: `scripts/grade_action_captions.py`, `predict.reward`) → search for every model call → trace actual usage
 
 ### CRITICAL: When Given an Error or Traceback, Diagnose Root Cause First
 

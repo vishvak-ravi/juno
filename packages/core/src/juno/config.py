@@ -128,6 +128,9 @@ class AnnotateConfig(Section):
     # The litellm model that annotates recorded sessions; Tada's labeling model.
     # A gemini/ model reads its key from GEMINI_API_KEY.
     model: str = "gemini/gemini-3.1-flash-lite"
+    # The server an openai/ model is sent to (llama.cpp, vLLM, SGLang). None:
+    # the provider's own endpoint.
+    api_base: Optional[str] = None
     # Upper bound on the reply, hidden reasoning included.
     max_tokens: int = 8192
     # Aggregations (screenshots) per request.
@@ -156,6 +159,19 @@ class AnnotateConfig(Section):
     # Seconds a session must have gone without a new row before the rows after
     # its last full chunk are annotated.
     tail_idle_seconds: float = 300.0
+
+
+class GradeConfig(Section):
+    # The judge that scores a candidate sequence of action captions against a
+    # reference one (``grade``); Tada's default reward_llm.
+    model: str = "gemini/gemini-3.1-flash-lite"
+    # The OpenAI-compatible server a local judge is served from. None: the
+    # provider's own endpoint.
+    api_base: Optional[str] = None
+    # Calls made for one judgement while the provider is busy.
+    max_attempts: int = 5
+    # Seconds to wait between them when the provider names no time.
+    retry_seconds: float = 60.0
 
 
 class PredictConfig(Section):
@@ -197,6 +213,7 @@ class Config(Section):
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
+    grade: GradeConfig = Field(default_factory=GradeConfig)
     control: ControlConfig = Field(default_factory=ControlConfig)
     draw: DrawConfig = Field(default_factory=DrawConfig)
 
