@@ -68,9 +68,15 @@ capture:
   verbose: false
 
 annotate:
-  # The litellm model that annotates recorded sessions (`scripts/annotate_session_activity.py`).
-  # A gemini/ model reads its key from GEMINI_API_KEY, in the environment or .env.
+  # The model that annotates recorded sessions, as a litellm model string
+  # <provider>/<name>: gemini/<model> (key GEMINI_API_KEY in .env),
+  # openrouter/<vendor>/<model> (OPENROUTER_API_KEY), or openai/<served name>
+  # for a model on an OpenAI-compatible server (llama.cpp, vLLM, SGLang) at
+  # api_base. Each annotation records it.
   model: gemini/gemini-3.1-flash-lite
+  # The server an openai/ model is sent to, e.g. http://localhost:8000/v1; it
+  # needs no key. null: the provider's own endpoint.
+  api_base: null
   # Upper bound on the reply, hidden reasoning included.
   max_tokens: 8192
   # Aggregations (screenshots) per request.
@@ -117,6 +123,20 @@ predict:
   mmr_alpha: 0.5
   # How fast older activity loses retrieval score, per day of age.
   time_decay_lambda: 0.5
+
+grade:
+  # The judge that scores a candidate sequence of action captions against a
+  # reference one: annotations against annotations
+  # (`scripts/grade_action_captions.py`) and predictions against the actions
+  # that followed (`scripts/benchmark_prediction.py`). Tada's default reward_llm.
+  model: gemini/gemini-3.1-flash-lite
+  # The OpenAI-compatible server a local judge is served from. null: the
+  # provider's own endpoint.
+  api_base: null
+  # Calls made for one judgement while the provider is busy.
+  max_attempts: 5
+  # Seconds to wait between them when the provider names no time.
+  retry_seconds: 60
 
 control:
   # Seconds between a recorder's reports to the server, each of which also tells

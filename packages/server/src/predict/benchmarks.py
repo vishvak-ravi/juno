@@ -3,7 +3,7 @@
 A dataset made from a session (``scripts/make_prediction_dataset.py``) is
 ``<session dir>/datasets/<time>.jsonl``: one sample per line, the request the
 predictor is sent and the actions that actually followed. A benchmark run
-(``scripts/grade_action_captions.py``) writes ``<session dir>/benchmarks/<run>.jsonl``: one
+(``scripts/benchmark_prediction.py``) writes ``<session dir>/benchmarks/<run>.jsonl``: one
 ``GradedRow`` per sample, holding the predictor and grader that made it, what
 each model was sent and what came back. ``<run>`` is the time the run started,
 ``YYYYmmdd_HHMMSS``.
@@ -37,7 +37,7 @@ GRADED_ID = re.compile(
 
 
 class PredictorSettings(Section):
-    # Any litellm model; ``hosted_vllm/<served name>`` with ``api_base`` for a local server.
+    # Any litellm model; ``openai/<served name>`` with ``api_base`` for a local server.
     model: str
     api_base: Optional[str] = None
     # Tada's ``PromptedPredictor`` defaults.
@@ -46,8 +46,8 @@ class PredictorSettings(Section):
 
 
 class GraderSettings(Section):
-    # Tada's default reward_llm.
-    model: str = "gemini/gemini-3.1-flash-lite"
+    # The judge model (``grade``); its default is ``grade.model`` in the config.
+    model: str
     api_base: Optional[str] = None
 
 
