@@ -13,9 +13,9 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 |---|---|---|
 | Install | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-server.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-client.sh \| bash` |
 | Start | `cd ~/juno && uv run python -m server` | `cd ~/juno/apps/desktop && npm start` |
-| Tests | `cd ~/juno && uv run pytest` | |
+| Tests | `cd ~/juno && uv run pytest` | `cd ~/juno/apps/desktop && npm test` |
 
-The client starts the recorder; its Status page shows whether this computer is recording.
+The client starts the recorder; its devices panel shows whether this computer is recording.
 
 # Hello world setup
 0. Install + setup Tailscale on server and client devices

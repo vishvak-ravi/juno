@@ -2,7 +2,7 @@
 // it starts with it, stops with it, and the app quits only once it has saved its
 // session. It is not restarted when it exits. Exit status 2 means its backend is
 // unavailable, on macOS a permission not granted to the app this one was launched
-// from; the Status page shows the status and the last lines it logged.
+// from; the window's devices panel shows the status and the last lines it logged.
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const readline = require("node:readline");

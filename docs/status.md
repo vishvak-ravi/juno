@@ -1,5 +1,24 @@
 # Status
 
+## 2026-10-21: Desktop window, timeline details
+
+| Piece | State |
+|---|---|
+| Event stepping: a bar pinned above the event with fixed labels and a count, disabled at the ends, arrow keys | done; checked with example data only |
+| Day picked from the date input's calendar | done; the calendar opens through `showPicker()`, checked in Electron only |
+| Screenshot shown whole, shimmer in its box after 300 ms | done; checked with example data only |
+
+## 2026-10-20: Desktop window layout
+
+| Piece | State |
+|---|---|
+| Chats, timeline and predictions in the left pane, picked from the bar below it; latest chat open on startup | done; drawn in Electron with the page's example data, not yet against a live server |
+| Timeline by day and session, event detail with screenshot and inputs | done; checked with example data only |
+| Predictions by run, prediction detail with scores and action lists | done; checked with example data only |
+| Devices panel (`GET /control`, switches) and the light on its button | done; checked with example data only |
+| Settings panel: server address saved in `settings.json` | done; save, refusal of a bad address and reload checked through the real preload |
+| Camera minimized to a chip | done; frames keep reaching the recognizer while minimized (checked with a generated stream, not a camera) |
+
 ## 2026-10-13: Tablet drawing page
 
 | Piece | State |

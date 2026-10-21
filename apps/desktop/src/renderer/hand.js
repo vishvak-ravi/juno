@@ -7,6 +7,8 @@
 // entering the "send" role submits it.
 // All of it runs only with the passive agent module on (window.juno.passiveAgent,
 // from JUNO_PASSIVE_AGENT): off, the preview is hidden and nothing listens.
+// Minimizing the preview hides it only: the camera, the recognizer and the
+// roles keep running, and the chip left in its place shows the role in effect.
 import {
   FilesetResolver,
   GestureRecognizer,
@@ -15,22 +17,42 @@ import { flickDetector } from "./gestures.js";
 
 const ROLES = { Pointing_Up: "dictate", Closed_Fist: "send" };
 const COLORS = { dictate: "#00e5ff", send: "#ff3b30", none: "#888" };
+const ROLE_NAMES = { dictate: "Dictating", send: "Sending", none: "Camera" };
 // Frames in a row a role must be seen before it takes effect.
 const HOLD_FRAMES = 4;
 // How long the overlay keeps showing the last gesture.
 const GESTURE_SHOWN_MS = 1000;
+// Where whether the preview is minimized is remembered, per computer.
+const MINIMIZED_KEY = "juno.cameraMinimized";
 
 const hand = document.getElementById("hand");
 const video = document.getElementById("camera");
 const canvas = document.getElementById("overlay");
 const label = document.getElementById("hand-label");
+const roleName = document.getElementById("camera-role");
 const context = canvas.getContext("2d");
 
-// The page's message form, there while a chat is open; its New button opens an empty chat.
+// The chat's message form, there while a chat is open in the detail pane; its
+// New button opens an empty chat.
+const chatForm = () => document.querySelector("#detail form");
 function composer() {
-  if (!document.querySelector("form")) document.getElementById("new-chat")?.click();
-  const form = document.querySelector("form");
+  if (!chatForm()) document.getElementById("new-chat")?.click();
+  const form = chatForm();
   return { form, input: form.querySelector("input") };
+}
+
+function minimize(on) {
+  hand.classList.toggle("minimized", on);
+  try {
+    localStorage.setItem(MINIMIZED_KEY, on ? "1" : "0");
+  } catch {}
+}
+function wasMinimized() {
+  try {
+    return localStorage.getItem(MINIMIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 let active = "none"; // the role in effect
@@ -47,20 +69,22 @@ function onDictation({ text, final }) {
   if (text) composer().input.value = base ? `${base} ${text}` : text;
   if (!final) return;
   segmentOpen = false;
-  if (sendWaiting) document.querySelector("form")?.requestSubmit();
+  if (sendWaiting) chatForm()?.requestSubmit();
   sendWaiting = false;
 }
 
 function enter(role) {
   if (active === "dictate") window.juno.dictate(false);
   active = role;
+  roleName.textContent = ROLE_NAMES[role];
+  hand.style.setProperty("--active", COLORS[role]);
   if (role === "dictate") {
     base = composer().input.value.trim();
     segmentOpen = true;
     window.juno.dictate(true);
   } else if (role === "send") {
     if (segmentOpen) sendWaiting = true;
-    else document.querySelector("form")?.requestSubmit();
+    else chatForm()?.requestSubmit();
   }
 }
 
@@ -113,6 +137,9 @@ async function start() {
 }
 
 if (window.juno?.passiveAgent) {
+  document.getElementById("camera-hide").onclick = () => minimize(true);
+  document.getElementById("camera-show").onclick = () => minimize(false);
+  minimize(wasMinimized());
   await start();
 } else {
   hand.hidden = true;
