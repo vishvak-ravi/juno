@@ -237,7 +237,7 @@ requirements, decisions, status and design notes are in [docs/](docs/).
 - `packages/server/src/annotate`: annotation of recorded chunks with `annotate.model`
 - `packages/server/src/predict`: next-action predictor and benchmark rows
 - `apps/desktop/`: Electron desktop client (`src/main`, `src/preload`, `src/renderer`); it starts the recorder
-- `apps/web/`: the phone page (`index.html`), the drawing page (`draw.html`) and, in `src/`, the modules the phone page and the desktop browser page share (`api.js`, `views.js`, `markdown.js`); the server serves them as they are
+- `apps/web/`: the phone page (`index.html`), the drawing page (`draw.html`) and, in `src/`, the modules the phone page and the desktop browser page share (`api.js`, `views.js`, `markdown.js`); the server serves them as they are. The desktop window is `apps/desktop/src/renderer/index.html`
 - `scripts/`: install scripts, dataset and benchmark CLIs
 - Settings: `config.yaml` (shared by every device), `.env` (this device: `JUNO_SERVER_HOST`, `JUNO_DEVICE_ID`, `GEMINI_API_KEY`), both at the checkout root
 

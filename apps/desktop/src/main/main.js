@@ -40,8 +40,7 @@ function createWindow() {
       additionalArguments: [`--juno-server-url=${SERVER_URL}`, `--juno-passive-agent=${PASSIVE_AGENT ? 1 : 0}`],
     },
   });
-  // JUNO_PAGE=browse.html opens the chat/session browser instead of the chat.
-  window.loadFile(path.join(__dirname, "../renderer", process.env.JUNO_PAGE || "index.html"));
+  window.loadFile(path.join(__dirname, "../renderer/index.html"));
 }
 
 app.whenReady().then(() => {

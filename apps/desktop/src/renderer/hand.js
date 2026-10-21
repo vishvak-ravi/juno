@@ -26,8 +26,7 @@ const canvas = document.getElementById("overlay");
 const label = document.getElementById("hand-label");
 const context = canvas.getContext("2d");
 
-// The page's message form: index.html has one always; browse.html has one
-// while a chat is open, and its New button opens an empty chat.
+// The page's message form, there while a chat is open; its New button opens an empty chat.
 function composer() {
   if (!document.querySelector("form")) document.getElementById("new-chat")?.click();
   const form = document.querySelector("form");

@@ -20,7 +20,7 @@ function registerServerApi(serverUrl) {
     }).then(checked),
   );
 
-  // GET any server route, for the browser page (browse.html).
+  // GET any server route, for the page's lists and views.
   ipcMain.handle("api:get", (_event, route) => fetch(serverUrl + route).then(checked));
 
   // PATCH a server route with a JSON body, for the switches on the status page.
