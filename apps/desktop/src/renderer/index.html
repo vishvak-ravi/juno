@@ -58,9 +58,13 @@
                border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; }
   button.more { display: inline-flex; align-items: center; gap: 6px; height: 32px; margin: 8px 12px; padding: 0 12px; border: 1px solid var(--field);
                 border-radius: 8px; background: var(--bg); font-size: 13px; }
-  .stepper { display: inline-flex; align-items: center; height: 32px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); }
-  .stepper span { font-size: 13px; font-weight: 500; padding: 0 4px; white-space: nowrap; }
-  button.step { width: 32px; height: 32px; border: 0; background: none; display: flex; align-items: center; justify-content: center; }
+  /* The day of the timeline: a button over its date input, whose calendar the button opens. */
+  .day { position: relative; display: inline-flex; }
+  .day > button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--field);
+                  border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .day > input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; border: 0; }
+  .day > input.shown { position: static; opacity: 1; pointer-events: auto; height: 32px; padding: 0 10px; border: 1px solid var(--field);
+                       border-radius: 8px; background: var(--bg); font-size: 13px; }
 
   .row { display: block; width: 100%; text-align: left; border: 0; border-radius: 8px; background: none; padding: 10px 12px; }
   .row:hover, .group > summary:hover { background: var(--hover); }
@@ -166,8 +170,17 @@
   #detail form input { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 14px; border: 1px solid var(--field); border-radius: 10px; background: var(--bg); }
   #detail form button { height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--ink); color: var(--bg); font-weight: 500; }
 
-  /* The screenshot's box is reserved before it arrives; it keeps its own proportions inside it. */
-  img.shot { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: var(--raw); }
+  /* The screenshot's box is reserved before it arrives. The image shows only once whole; while it
+     is on its way a shimmer crosses the box, starting late enough that a quick load never shows one. */
+  .shot-box { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--raw); }
+  .shot-box::after { content: ""; position: absolute; inset: 0; opacity: 0;
+                     background: linear-gradient(100deg, transparent 35%, var(--field) 50%, transparent 65%) 150% 0 / 200% 100% no-repeat;
+                     animation: appear .2s .3s forwards, shimmer 1.4s .3s linear infinite; }
+  .shot-box.loaded::after { display: none; }
+  img.shot { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .15s; }
+  .shot-box.loaded img.shot { opacity: 1; }
+  @keyframes appear { to { opacity: 1; } }
+  @keyframes shimmer { to { background-position: -50% 0; } }
   .inputs { display: grid; grid-template-columns: 72px 96px minmax(0, 1fr); gap: 8px 16px; margin-top: 24px; font-size: 13px; align-items: baseline; }
   .inputs b { font-weight: 500; }
   .inputs span:nth-child(3n) { overflow-wrap: anywhere; }
@@ -175,8 +188,11 @@
   details.folded > summary { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--faint); padding: 4px 0; }
   details.folded[open] > summary svg { transform: rotate(90deg); }
   details.folded .inputs { margin-top: 8px; color: var(--dim); }
-  nav.steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); }
-  nav.steps button.more { margin: 0; max-width: 100%; }
+  /* The bar above an event that steps through its session: the buttons stay put, only the count changes. */
+  nav.steps { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 48px;
+              border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+  nav.steps button.more { margin: 0; }
+  nav.steps + .scroll { padding-top: 28px; }
 
   .scores { display: grid; grid-template-columns: 88px minmax(0, 1fr) 40px; gap: 10px 14px; align-items: center; font-size: 13px; max-width: 520px; margin-top: 4px; }
   .scores > span:first-child { font-weight: 500; }
@@ -221,7 +237,10 @@
   #hand.minimized #camera-show { display: inline-flex; }
   #hand.minimized #camera-box { position: absolute; top: 0; right: 0; width: 1px; height: 1px; opacity: .01; pointer-events: none; box-shadow: none; }
 
-  @media (prefers-reduced-motion: reduce) { .sw::after, .group > summary > svg { transition: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .sw::after, .group > summary > svg, img.shot { transition: none; }
+    .shot-box::after { animation: appear .2s .3s forwards; background: var(--field); }
+  }
 </style>
 </head>
 <body>

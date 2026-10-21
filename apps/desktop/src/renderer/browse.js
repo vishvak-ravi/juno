@@ -7,8 +7,8 @@
 import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
-  actions, chips, clock, day, dayLabel, duration, foldedNote, groupRuns, groupSessions, inputLine,
-  liveSessions, matches, modelName, offset, shownInputs,
+  actions, chips, clock, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, groupSessions,
+  inputLine, liveSessions, matches, modelName, offset, shownInputs,
 } from "./rows.mjs";
 
 // The routes' largest page.
@@ -17,6 +17,8 @@ const PAGE = 100;
 const SHOWN_ROWS = 6;
 
 const ICONS = {
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>'
+    + '<line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   down: '<polyline points="6 9 12 15 18 9"/>',
   left: '<polyline points="15 18 9 12 15 6"/>',
   right: '<polyline points="9 18 15 12 9 6"/>',
@@ -117,30 +119,42 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 
 // Timeline
 
-// The timeline pane: a day control, then that day's sessions oldest first.
-// `control()` is the latest GET /control, for which sessions are being recorded.
+// The timeline pane: the day shown, a button that opens the calendar to pick
+// another, then that day's sessions oldest first. `control()` is the latest
+// GET /control, for which sessions are being recorded.
 export function timelinePane(pane, detail, control) {
-  let daysBack = 0;
+  let shown = null;
   const label = el("span");
-  const previous = el("button", { className: "step", ariaLabel: "Previous day" }, icon("left", 14));
-  const next = el("button", { className: "step", ariaLabel: "Next day" }, icon("right", 14));
+  const input = el("input", { type: "date", ariaLabel: "Day", ariaHidden: "true", tabIndex: -1, max: dayValue(new Date()) });
+  const pick = el("button", { ariaLabel: "Pick a day" }, icon("calendar", 14), label);
   const list = el("div", { className: "scroll" });
-  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }),
-                                    el("div", { className: "stepper" }, previous, label, next)), list);
-  const show = (back) => {
-    daysBack = back;
-    const { since, until, start } = day(back);
-    label.textContent = dayLabel(back, start);
-    next.disabled = back === 0;
+  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }), el("span", { className: "day" }, pick, input)), list);
+  const show = (date) => {
+    shown = date;
+    const { since, until, start } = day(date);
+    label.textContent = dayLabel(start);
+    input.value = dayValue(start);
     const live = liveSessions(control());
     load(list, async () => (await groupedPages(
       `/events?since=${since}&until=${until}&order=asc&limit=${PAGE}`, groupSessions,
       (session) => sessionGroup(session, live, detail), "Nothing recorded this day.")).nodes,
-    () => daysBack === back);
+    () => shown === date);
   };
-  previous.onclick = () => show(daysBack + 1);
-  next.onclick = () => show(daysBack - 1);
-  show(0);
+  // The calendar is the date input's own, opened from the button; where it cannot
+  // be opened that way, the input itself takes the button's place.
+  pick.onclick = () => {
+    try {
+      input.showPicker();
+    } catch {
+      pick.hidden = true;
+      input.className = "shown";
+      input.ariaHidden = null;
+      input.tabIndex = 0;
+      input.focus();
+    }
+  };
+  input.onchange = () => { if (input.value) show(dayFromValue(input.value)); };
+  show(new Date());
 }
 
 function sessionGroup(session, live, detail) {
@@ -166,15 +180,55 @@ function sessionGroup(session, live, detail) {
   return group(session.id, summary, rows, (more) => `${more} more until ${clock(session.end)}`);
 }
 
-// One event in full: its caption, its screenshot, the inputs after it, and
-// buttons to the events before and after it in its session.
+// One event in full: a bar pinned above the page steps through the events of
+// its session, the page below it shows the event. The bar is kept while the
+// session is the same, so its buttons stay where they are under the pointer.
+let steps = null;  // the bar of the open event: its nav, session, index and buttons
+function stepBar(session, detail) {
+  const previous = el("button", { className: "more" }, icon("left", 14), "Previous");
+  const next = el("button", { className: "more" }, "Next", icon("right", 14));
+  const count = el("span", { className: "num" });
+  const bar = { nav: el("nav", { className: "steps", ariaLabel: "Events of this session" }, previous, count, next),
+                session, index: 0, previous, next, count };
+  previous.onclick = () => showEvent(session, bar.index - 1, detail);
+  next.onclick = () => showEvent(session, bar.index + 1, detail);
+  return bar;
+}
 function showEvent(session, index, detail) {
   const button = document.querySelector(`[data-key="${CSS.escape(session.events[index].id)}"]`);
   if (button) {
     reveal(button);
     select(button);
   }
-  detail.replaceChildren(el("div", { className: "scroll" }, eventPage(session, index, detail)));
+  if (!steps || steps.session !== session || steps.nav.parentNode !== detail) {
+    steps = stepBar(session, detail);
+    detail.replaceChildren(steps.nav, el("div", { className: "scroll" }));
+  }
+  steps.index = index;
+  steps.previous.disabled = index === 0;
+  steps.next.disabled = index === session.events.length - 1;
+  steps.count.textContent = `${index + 1} of ${session.events.length}`;
+  const page = detail.lastChild;
+  page.replaceChildren(eventPage(session, index));
+  page.scrollTop = 0;
+}
+// The arrow keys step too, while an event is open and nothing is being typed.
+document.addEventListener("keydown", (event) => {
+  if (!steps?.nav.isConnected || event.altKey || event.ctrlKey || event.metaKey || event.target.closest?.("input, textarea")) return;
+  const button = event.key === "ArrowLeft" ? steps.previous : event.key === "ArrowRight" ? steps.next : null;
+  if (!button || button.disabled) return;
+  event.preventDefault();
+  button.click();
+});
+
+// The screenshot in its reserved box: the box alone while the image is on its
+// way (a shimmer once that takes long enough to notice), then the image whole.
+function screenshot(event) {
+  const img = el("img", { className: "shot", alt: `Screenshot at ${clock(event.timestamp, true)}`, src: url(event.screenshot_url) });
+  const box = el("div", { className: "shot-box" }, img);
+  img.onload = () => box.classList.add("loaded");
+  img.onerror = () => box.replaceWith(status("The screenshot could not be loaded."));
+  return box;
 }
 
 const inputGrid = (inputs, event) => el("div", { className: "inputs" }, ...inputs.flatMap((input) => {
@@ -183,27 +237,17 @@ const inputGrid = (inputs, event) => el("div", { className: "inputs" }, ...input
           el("span", { textContent: details })];
 }));
 
-function eventPage(session, index, detail) {
+function eventPage(session, index) {
   const event = session.events[index];
   const shown = shownInputs(event.inputs);
   const folded = foldedNote(event.inputs);
-  const step = (to, before) => {
-    const other = session.events[to];
-    const text = `${clock(other.timestamp, true)} ${other.caption ?? "No caption yet"}`;
-    return el("button", { className: "more step-to", onclick: () => showEvent(session, to, detail) },
-      ...(before ? [icon("left", 14), text] : [text, icon("right", 14)]));
-  };
   return el("div", { className: "page" },
     el("p", { className: "meta", textContent: `${time(event.timestamp)} · ${event.device_id} · session from ${clock(session.start)}` }),
     el("h1", { className: event.caption == null ? "none" : "", textContent: event.caption ?? "No caption yet" }),
-    event.screenshot_url
-      ? el("img", { className: "shot", alt: `Screenshot at ${clock(event.timestamp, true)}`, src: url(event.screenshot_url) })
-      : status("No screenshot with this event."),
+    event.screenshot_url ? screenshot(event) : status("No screenshot with this event."),
     shown.length ? inputGrid(shown, event) : status("No keys, clicks or scrolls in this event."),
     ...(folded ? [el("details", { className: "folded" }, el("summary", {}, icon("right", 14), folded),
-                     inputGrid(event.inputs.filter((input) => !shown.includes(input)), event))] : []),
-    el("nav", { className: "steps" }, ...(index > 0 ? [step(index - 1, true)] : []),
-       ...(index < session.events.length - 1 ? [step(index + 1, false)] : [])));
+                     inputGrid(event.inputs.filter((input) => !shown.includes(input)), event))] : []));
 }
 
 // Predictions

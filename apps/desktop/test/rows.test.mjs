@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, chips, day, duration, foldedNote, groupRuns, groupSessions, inputLine, liveSessions, matches,
-  modelName, offset, overallState, runTime, shownInputs,
+  actions, chips, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, groupSessions, inputLine,
+  liveSessions, matches, modelName, offset, overallState, runTime, shownInputs,
 } from "../src/renderer/rows.mjs";
 
 const event = (session, row, timestamp, fields = {}) => ({
@@ -45,11 +45,21 @@ test("an input reads as what it was, without the pointer where it was not read",
 });
 
 test("a day runs from local midnight to just before the next", () => {
-  const { since, until } = day(1, new Date(2026, 9, 20, 15, 30));
+  const { since, until, start } = day(new Date(2026, 9, 19, 15, 30));
   assert.equal(since, new Date(2026, 9, 19).getTime() / 1000);
   assert.ok(until < new Date(2026, 9, 20).getTime() / 1000 && until > new Date(2026, 9, 19, 23, 59).getTime() / 1000);
+  assert.deepEqual(start, new Date(2026, 9, 19));
   assert.equal(duration(41 * 60), "41 min");
   assert.equal(duration(226 * 60), "3 h 46 min");
+});
+
+test("a day is named relative to now and round-trips through a date input's value", () => {
+  const now = new Date(2026, 9, 20, 15, 30);
+  assert.equal(dayLabel(new Date(2026, 9, 20), now), "Today");
+  assert.equal(dayLabel(new Date(2026, 9, 19), now), "Yesterday");
+  assert.equal(dayLabel(new Date(2026, 9, 5), now), new Date(2026, 9, 5).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }));
+  assert.equal(dayValue(new Date(2026, 0, 5)), "2026-01-05");
+  assert.deepEqual(dayFromValue("2026-01-05"), new Date(2026, 0, 5));
 });
 
 test("action lists are read from the XML and compared position by position", () => {

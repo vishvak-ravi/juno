@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day's sessions, oldest first; a session opens to its events | one event: caption, screenshot, inputs, the events before and after it |
+| Timeline | one day's sessions, oldest first, the day picked from a calendar; a session opens to its events | one event: caption, screenshot, inputs; a bar above it steps to the previous and next event of the session, also on the arrow keys |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |

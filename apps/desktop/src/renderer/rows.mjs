@@ -71,14 +71,25 @@ export const offset = (input, event) => {
   return `${s < 0 ? "−" : "+"}${Math.abs(s).toFixed(2)} s`;
 };
 
-// The local day `daysBack` days before `now`, as GET /events' since and until.
-export function day(daysBack, now = new Date()) {
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack);
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack + 1);
+// The local day holding `date`, as GET /events' since and until.
+export function day(date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   return { since: start.getTime() / 1000, until: end.getTime() / 1000 - 0.001, start };
 }
-export const dayLabel = (daysBack, start) => (daysBack === 0 ? "Today" : daysBack === 1 ? "Yesterday"
-  : start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }));
+// "Today", "Yesterday", else the weekday and date of the day starting at `start`.
+export function dayLabel(start, now = new Date()) {
+  const back = Math.round((day(now).start - start) / 86400000);
+  return back === 0 ? "Today" : back === 1 ? "Yesterday"
+    : start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+// A local day as the value of a date input, YYYY-MM-DD, and back.
+export const dayValue = (date) => [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+  .map((n, i) => String(n).padStart(i ? 2 : 4, "0")).join("-");
+export function dayFromValue(value) {
+  const [year, month, date] = value.split("-").map(Number);
+  return new Date(year, month - 1, date);
+}
 
 export const clock = (seconds, withSeconds = false) => new Date(seconds * 1000).toLocaleTimeString(undefined,
   { hour: "numeric", minute: "2-digit", ...(withSeconds ? { second: "2-digit" } : {}) });
