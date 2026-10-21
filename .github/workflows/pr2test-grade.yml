@@ -1,0 +1,39 @@
+name: pr2test grade
+
+# Someone comments `/submit` (or `/submit 1B 2A 3C`) on a PR: grade their
+# selections against the sealed key in the quiz comment and post a report.
+# No model involved. Runs from the default branch, as all issue_comment
+# workflows do, so merge before expecting it to fire.
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  grade:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/submit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Grade and report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR2TEST_SECRET: ${{ secrets.PR2TEST_SECRET }}
+        run: |
+          pip install -q "pydantic>=2,<3" "cryptography>=42"
+          python -m pr2test.grade \
+            --pr "${{ github.event.issue.number }}" \
+            --comment-id "${{ github.event.comment.id }}"
