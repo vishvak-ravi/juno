@@ -40,7 +40,8 @@ from juno.config import AnnotateConfig
 from capture.sources.fake import ManualInput, type_and_click
 
 TADA_DIR = Path(__file__).with_name("tada")
-FAKE_HELPER = str(Path(__file__).with_name("fake_helper.py"))
+# The fake portal helper lives with the capture tests; both packages speak its protocol.
+FAKE_HELPER = str(Path(__file__).parents[2] / "capture" / "tests" / "fake_helper.py")
 MONITOR = {"left": 100, "top": 0, "width": 200, "height": 100}
 
 
