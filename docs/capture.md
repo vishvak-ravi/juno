@@ -74,7 +74,8 @@ device's switch is on; its first report adds the device. Turning the switch off
 ends the session, and turning it on starts a new one. If the server can't be
 reached, the recorder keeps doing what it was doing. The server's own switch
 pauses the annotation queue: queued chunks stay pending until it is on again.
-Both switches are on the clients' Status page (`GET /control`, `PATCH
+Both switches are on the phone page's Status screen and in the desktop
+window's devices panel (`GET /control`, `PATCH
 /control/server`, `PATCH /control/devices/<device_id>`) and are stored in
 `<data_dir>/control.json` on the server.
 

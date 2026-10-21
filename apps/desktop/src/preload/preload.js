@@ -11,9 +11,12 @@ contextBridge.exposeInMainWorld("juno", {
   // {text, final} for it, text being the whole segment so far.
   dictate: (on) => ipcRenderer.send("dictation:set", on),
   onDictation: (callback) => ipcRenderer.on("dictation:text", (_event, update) => callback(update)),
-  // For URLs the page loads itself (screenshots).
-  // main.js passes the server URL as --juno-server-url=<url>.
-  base: process.argv.find((arg) => arg.startsWith("--juno-server-url=")).slice("--juno-server-url=".length),
+  // The server URL, for URLs the page loads itself (screenshots): the one saved
+  // in settings (settings.js), else the one main.js builds from .env.
+  base: ipcRenderer.sendSync("settings:server-url"),
+  // Save a server URL; resolves to {url}, or {error} if it is not an http(s) address.
+  // The page reloads to read from it.
+  setServerUrl: (url) => ipcRenderer.invoke("settings:set-server-url", url),
   // Whether the passive agent module (camera, gestures, dictation) is on: JUNO_PASSIVE_AGENT,
   // passed by main.js as --juno-passive-agent=1 or 0.
   passiveAgent: process.argv.includes("--juno-passive-agent=1"),

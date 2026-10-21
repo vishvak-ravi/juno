@@ -9,11 +9,11 @@ async function checked(response) {
   return response.json();
 }
 
-// Registers the IPC handlers against the server at serverUrl.
+// Registers the IPC handlers against the server at serverUrl(), read on every call.
 function registerServerApi(serverUrl) {
   // PUT /chats/{id} appends the messages plus the model's reply and returns the whole chat.
   ipcMain.handle("chat:send", (_event, chatId, content) =>
-    fetch(`${serverUrl}/chats/${encodeURIComponent(chatId)}`, {
+    fetch(`${serverUrl()}/chats/${encodeURIComponent(chatId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: [{ role: "user", content }] }),
@@ -21,11 +21,11 @@ function registerServerApi(serverUrl) {
   );
 
   // GET any server route, for the page's lists and views.
-  ipcMain.handle("api:get", (_event, route) => fetch(serverUrl + route).then(checked));
+  ipcMain.handle("api:get", (_event, route) => fetch(serverUrl() + route).then(checked));
 
-  // PATCH a server route with a JSON body, for the switches on the status page.
+  // PATCH a server route with a JSON body, for the switches in the devices panel.
   ipcMain.handle("api:patch", (_event, route, body) =>
-    fetch(serverUrl + route, {
+    fetch(serverUrl() + route, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

@@ -12,7 +12,7 @@ export const time = (seconds) => (seconds == null ? "" : new Date(seconds * 1000
 export const status = (text) => el("p", { className: "status", textContent: text });
 export const messageOf = (error) => String(error.message || error);
 // A URL the server gave, made loadable from this page.
-const url = (path) => (path.startsWith("/") ? BASE + path : path);
+export const url = (path) => (path.startsWith("/") ? BASE + path : path);
 
 // Fills `target` with what `work` resolves to, as one pending state, shown only
 // when the wait is long enough to notice. `current()` turning false means the
@@ -31,7 +31,8 @@ export async function load(target, work, current = () => true) {
 
 // One paged list, with its first page already fetched. `render(item)` makes the
 // list element for one item; "Load more" fetches the next page with ?after=<last_id>.
-export async function paged(path, render) {
+// `first` is the first page when the caller has fetched it already.
+export async function paged(path, render, first = null) {
   const list = el("ul");
   const more = el("button", { className: "more", textContent: "Load more", hidden: true });
   const add = (page) => {
@@ -47,7 +48,7 @@ export async function paged(path, render) {
       more.disabled = false;
     };
   };
-  const first = await api(`${path}?limit=20`);
+  first ??= await api(`${path}?limit=20`);
   if (!first.data.length) list.append(el("small", { textContent: "None yet." }));
   add(first);
   return el("section", {}, list, more);
@@ -82,13 +83,14 @@ export function predictorInput(messages) {
   return [...(shots.length ? [el("div", { className: "shots" }, ...shots)] : []),
           ...parts.filter((part) => part.type !== "image_url").map((part) => pres(part.text))];
 }
+// What went wrong in grading one prediction, one line each.
+export const problemsOf = (g) => [g.error, ...g.validation_errors,
+  ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
+  .filter(Boolean);
 export function predictionDetail(g) {
   const { predictor: p, grader } = g;
-  const problems = [g.error, ...g.validation_errors,
-                    ...g.unparsed_replies.map((name) => `The ${name} judge's reply was not the JSON asked for; scored 0.`)]
-    .filter(Boolean);
   return [
-    ...problems.map(status),
+    ...problemsOf(g).map(status),
     el("div", { className: "compare" },
       el("div", {}, el("h3", { textContent: "Predicted" }), pres(g.prediction ?? "No prediction.")),
       el("div", {}, el("h3", { textContent: "Actually next" }), pres(g.ground_truth))),
@@ -107,9 +109,10 @@ export function predictionDetail(g) {
 // per device. A switch shows what was asked for, the line below it what the queue
 // or the device last reported. `onChanged(control)` redraws the page's view after
 // a switch is set; `extra` goes between the heading and the device switches.
-export function switchRow(label, on, note, set, onChanged) {
-  const box = el("input", { type: "checkbox", checked: on });
-  const line = el("small", { textContent: note });
+// The checkbox of one switch: `set(on)` asks the server, `onChanged` gets its
+// answer; on failure the box flips back and `line` says why.
+export function switchBox(on, line, set, onChanged, props = {}) {
+  const box = el("input", { type: "checkbox", checked: on, ...props });
   box.onchange = async () => {
     box.disabled = true;
     try {
@@ -120,6 +123,11 @@ export function switchRow(label, on, note, set, onChanged) {
       line.textContent = messageOf(error);
     }
   };
+  return box;
+}
+export function switchRow(label, on, note, set, onChanged) {
+  const line = el("small", { textContent: note });
+  const box = switchBox(on, line, set, onChanged);
   return el("li", { className: "switch" }, el("label", {}, box, ` ${label}`), line);
 }
 export const queueNote = ({ annotate, queue }) => [

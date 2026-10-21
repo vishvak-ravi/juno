@@ -1,18 +1,54 @@
 # Desktop client
 
 The Electron client (`apps/desktop/`): one window, `src/renderer/index.html`, the
-browser of the API server in `packages/server/`: timeline, predictions, status
-and chats, with a chat's messages and composer in its detail pane. It draws its views with the modules in `apps/web/src/` (the server's
-routes in `api.js`, the shared views and the markdown reader), which the phone
-page the server serves (`apps/web/index.html`) draws with too; each page keeps
-its own shell and chat flow.
+browser of the API server in `packages/server/`. It draws with the modules in
+`apps/web/src/` (the server's routes in `api.js`, the shared views and the
+markdown reader), which the phone page the server serves (`apps/web/index.html`)
+draws with too; each page keeps its own shell and chat flow.
+
+## Window
+
+The left pane shows one of three lists, picked by the buttons in the dark bar
+pinned below it; the detail pane on the right shows what is open in it. On
+startup the chats list is shown with the most recently changed chat open.
+
+| Button | Left pane | Detail pane |
+|---|---|---|
+| Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
+| Timeline | one day's sessions, oldest first; a session opens to its events | one event: caption, screenshot, inputs, the events before and after it |
+| Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
+| Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
+| Settings | opens a panel above the bar: the server address (see below) | |
+
+The light on the devices button is green while any device records, amber
+while this computer's recorder has exited or a device has not yet done what
+its switch asks, grey when nothing records, hollow when the server cannot be
+reached.
+
+The timeline and predictions views are drawn from the routes as they are; what
+the client computes from the rows (`src/renderer/rows.mjs`):
+
+| Shown | From |
+|---|---|
+| A day | `GET /events?since=&until=&order=asc&limit=100`, since and until the local midnights around it |
+| A session | the events of the pages fetched whose ids share the part before the six-digit row; start and end are the first and last timestamp, counts are of the rows fetched |
+| A session's light | green when `GET /control` reports a device recording that session |
+| An event's chips | its `inputs` counted by type: key presses, clicks, scrolls; key and button releases and pointer moves are left out of the chips and listed folded in the event's detail |
+| An input's time | its `timestamp` minus its event's `timestamp` |
+| A run | `GET /predictions?limit=100` rows grouped by `run`; its time read from the run's name (`YYYYMMDD_HHMMSS`); mean reward over the rows with a reward; failed rows are those with an `error` |
+| Model names | `predictor.model` and `grader.model` without the provider before the first `/` |
+| Action lists | the `<action>` elements of `prediction` and `ground_truth`; green where both hold the same text at the same position |
+
+A screenshot is requested only when its event is opened; a prediction's
+prompts and the predictor's screenshots (`GET /predictions/{id}`) only when the
+prediction is opened, the screenshots only when their section is expanded.
 Setup and run commands are in the [README](../README.md).
 
 ## Recorder
 
 The client starts the recorder, `python -m capture` run with the checkout's `.venv/bin/python`
 from the checkout root (so it reads the same `config.yaml` and `.env`), when it starts, and
-quits only once the recorder has saved its session. The Status page shows
+quits only once the recorder has saved its session. The devices panel shows
 whether it is running and, if it exited, its status and last log lines; it is not
 restarted until the app is. Status 2 is a backend that could not start: on macOS
 a permission not granted, see [`capture.md`](capture.md). macOS grants
@@ -49,9 +85,13 @@ with mode 4755 also works but is undone by every reinstall.
 
 ## Server address
 
-The app server is `http://<JUNO_SERVER_HOST>:8765`, the host read from
-`.env` at the checkout root (see `.env.example`; default `127.0.0.1`). `JUNO_SERVER_URL`
-overrides it.
+The window reads from the address saved in the settings panel, kept in
+`settings.json` in Electron's userData directory (`src/main/settings.js`;
+`~/.config/juno-client` on Linux, `~/Library/Application Support/juno-client`
+on macOS). With none saved it is `http://<JUNO_SERVER_HOST>:8765`, the host
+read from `.env` at the checkout root (see `.env.example`; default
+`127.0.0.1`), which `JUNO_SERVER_URL` overrides. Saving reloads the window. The
+recorder uploads to the server named in `.env` whatever the panel says.
 
 ## Passive agent module
 

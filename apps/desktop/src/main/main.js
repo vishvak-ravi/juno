@@ -4,6 +4,7 @@ const { app, BrowserWindow } = require("electron");
 const { startCapture } = require("./recorder");
 const { startDictation } = require("./dictation");
 const { registerServerApi } = require("./server");
+const { registerSettings } = require("./settings");
 
 // The checkout: config.yaml and .env are read from it and .venv holds the recorder.
 const REPO_DIR = path.resolve(__dirname, "../../../..");
@@ -22,8 +23,9 @@ try {
 // or 0 leaves the pages with the composer only.
 const PASSIVE_AGENT = process.env.JUNO_PASSIVE_AGENT === "1";
 
-// The Juno app server; JUNO_SERVER_URL overrides the one built from the host.
-const SERVER_URL = (
+// The Juno app server unless the settings panel saved another; JUNO_SERVER_URL
+// overrides the one built from the host.
+const DEFAULT_SERVER_URL = (
   process.env.JUNO_SERVER_URL || `http://${process.env.JUNO_SERVER_HOST || "127.0.0.1"}:8765`
 ).replace(/\/$/, "");
 
@@ -36,15 +38,15 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // The sandboxed preload reads the server URL and the passive agent switch from its argv.
-      additionalArguments: [`--juno-server-url=${SERVER_URL}`, `--juno-passive-agent=${PASSIVE_AGENT ? 1 : 0}`],
+      // The sandboxed preload reads the passive agent switch from its argv.
+      additionalArguments: [`--juno-passive-agent=${PASSIVE_AGENT ? 1 : 0}`],
     },
   });
   window.loadFile(path.join(__dirname, "../renderer/index.html"));
 }
 
 app.whenReady().then(() => {
-  registerServerApi(SERVER_URL);
+  registerServerApi(registerSettings(DEFAULT_SERVER_URL));
   startCapture(REPO_DIR);
   if (PASSIVE_AGENT) startDictation();
   createWindow();

@@ -15,7 +15,8 @@ const bridge = window.juno;
 export const BASE = bridge?.base ?? (location.protocol === "file:" ? "http://127.0.0.1:8765" : "");
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-// Stand-in responses by path, shown when the server cannot be reached.
+// Stand-in responses by path, shown when the server cannot be reached: the one
+// for the path with its query, else for the path without it.
 let examples = {};
 export const useExamples = (byPath) => { examples = byPath; };
 
@@ -43,9 +44,10 @@ async function fetched(path, options) {
   try {
     return await checked(await fetch(BASE + path, options));
   } catch (error) {
-    if (!(path in examples)) throw error;
+    const example = examples[path] ?? examples[path.split("?")[0]];
+    if (!example) throw error;
     if (!document.title.endsWith("(example data)")) document.title += " (example data)";
-    return examples[path];
+    return example;
   }
 }
 

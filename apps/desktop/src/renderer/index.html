@@ -6,108 +6,296 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Juno Browser</title>
 <style>
-  :root { --bg: #ffffff; --ink: #1a1a1a; --dim: #6b6b6b; --line: #dcdcdc; --raw: #f4f4f4; --accent: #2457c5; --accent-bg: #eef3fd; }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; --accent: #8fb0ff; --accent-bg: #1c2438; color-scheme: dark; }
+  :root {
+    --side: #f3f4f1; --bg: #ffffff; --ink: #17191c; --dim: #5f6569; --faint: #7a8086; --line: #e1e4df; --field: #d5d9d3;
+    --hover: #eceee9; --current: #e4e7e1; --raw: #f3f4f1; --track: #e1e4df; --bar: #17191c; --bar-dim: #6a7075;
+    --deck: #1b1e22; --deck-ink: #e9ece8; --deck-dim: #9aa09b; --deck-line: #2e3338; --deck-field: #262a2f; --deck-field-line: #3a4047;
+    --green: #5fd68a; --amber: #e8b04b; --idle: #b8bdb9;
   }
-  :root[data-theme="dark"] { --bg: #161616; --ink: #e8e8e8; --dim: #9a9a9a; --line: #333; --raw: #1f1f1f; --accent: #8fb0ff; --accent-bg: #1c2438; color-scheme: dark; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --side: #16181b; --bg: #1e2125; --ink: #e9ece8; --dim: #9aa09b; --faint: #7a8086; --line: #2e3338; --field: #3a4047;
+      --hover: #262a2f; --current: #2e3338; --raw: #262a2f; --track: #2e3338; --bar: #e9ece8; --bar-dim: #9aa09b;
+      --deck: #111316; --deck-line: #262a2f; --idle: #6a7075; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --side: #16181b; --bg: #1e2125; --ink: #e9ece8; --dim: #9aa09b; --faint: #7a8086; --line: #2e3338; --field: #3a4047;
+    --hover: #262a2f; --current: #2e3338; --raw: #262a2f; --track: #2e3338; --bar: #e9ece8; --bar-dim: #9aa09b;
+    --deck: #111316; --deck-line: #262a2f; --idle: #6a7075; color-scheme: dark;
+  }
 
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
-  main { display: grid; grid-template-columns: minmax(16rem, 22rem) 1fr; height: 100%; }
-  @media (max-width: 700px) { main { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; } }
-  nav, #detail { overflow: auto; padding: 1rem; }
-  nav { border-right: 1px solid var(--line); }
-  @media (max-width: 700px) { nav { border-right: 0; border-bottom: 1px solid var(--line); } }
+  body { margin: 0; background: var(--side); color: var(--ink); font: 14px/1.45 "Instrument Sans", system-ui, sans-serif; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .5; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #deck button:focus-visible, #deck input:focus-visible { outline-color: var(--deck-ink); }
+  h1, h2, h3, p { margin: 0; }
+  ul, ol { list-style: none; margin: 0; padding: 0; }
+  small, .status, .dim { color: var(--dim); }
+  .status { font-size: 13px; padding: 8px 12px; }
+  .num { font-variant-numeric: tabular-nums; }
+  summary { cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
 
-  h2, h3 { font-size: 14px; margin: 0 0 .5rem; }
-  h3 { color: var(--dim); font-weight: 500; margin-top: .75rem; }
-  h2 + h2, section + h2 { margin-top: 1.5rem; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li button { display: block; width: 100%; text-align: left; padding: .4rem 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
-  li button[aria-current="true"] { font-weight: 600; }
-  small, .status { color: var(--dim); }
-  /* The pinned rows (Timeline, Predictions), set apart from the chats below them. */
-  #pinned { margin-bottom: 1.5rem; }
-  #pinned li + li { margin-top: .25rem; }
-  #pinned button { padding: .4rem .6rem; border: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
-  /* One switch on the status page: the checkbox and label, what it reports below. */
-  li.switch { padding: .4rem 0; border-bottom: 1px solid var(--line); }
-  li.switch small { display: block; }
-  button.more { padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
-  section > button.more { margin-top: .5rem; }
-  h2 button.more { margin-left: .5rem; font-weight: normal; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #app { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; height: 100%; }
+  @media (max-width: 700px) { #app { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; } }
 
-  article { margin: 0 0 1rem; max-width: 70ch; }
-  article b { display: block; color: var(--dim); font-weight: 500; }
-  article p { margin: 0; white-space: pre-wrap; }
-  /* Assistant replies, read as markdown. */
-  .md p { white-space: normal; margin: 0 0 .5rem; }
-  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 15px; margin: .75rem 0 .25rem; }
-  .md ul, .md ol { list-style: revert; margin: 0 0 .5rem; padding-left: 1.5rem; }
-  .md code { font: 12px/1.4 ui-monospace, monospace; background: var(--raw); padding: 0 .2em; }
-  .md pre { margin: 0 0 .5rem; }
-  .md pre code { padding: 0; }
-  form { display: flex; gap: .5rem; max-width: 70ch; }
-  form input { flex: 1; padding: .4rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  /* The left pane: one of chats, timeline or predictions, then the deck pinned below it. */
+  aside { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+  .pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .pane[hidden] { display: none; }
+  .pane > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 18px 16px 10px 20px; min-height: 60px; }
+  .pane > header h2 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .pane > header small { font-size: 12px; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .pane .scroll { padding: 4px 12px 12px; }
+  button.new { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--field);
+               border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; }
+  button.more { display: inline-flex; align-items: center; gap: 6px; height: 32px; margin: 8px 12px; padding: 0 12px; border: 1px solid var(--field);
+                border-radius: 8px; background: var(--bg); font-size: 13px; }
+  .stepper { display: inline-flex; align-items: center; height: 32px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); }
+  .stepper span { font-size: 13px; font-weight: 500; padding: 0 4px; white-space: nowrap; }
+  button.step { width: 32px; height: 32px; border: 0; background: none; display: flex; align-items: center; justify-content: center; }
 
-  pre, li.event { font: 12px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums; overflow-x: auto; }
-  pre { margin: .25rem 0 0; padding: .5rem; background: var(--raw); }
-  li.event { padding: .15rem 0; white-space: pre; }
-  details { border-bottom: 1px solid var(--line); padding: .3rem 0; }
-  summary { cursor: pointer; }
-  /* Each open level sits inside its parent's region. */
-  .nest { margin: .25rem 0 0 .5rem; padding-left: .75rem; border-left: 2px solid var(--line); }
-  img { display: block; max-width: 100%; margin-top: .5rem; }
-  /* A prediction beside what actually happened next. */
-  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
-  @media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
-  .compare pre, pre.wrap { white-space: pre-wrap; }
-  /* What the predictor was sent: its screenshots as thumbnails; a click shows one full width. */
-  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .5rem; }
-  .shots img { margin: 0; cursor: zoom-in; border: 1px solid var(--line); }
+  .row { display: block; width: 100%; text-align: left; border: 0; border-radius: 8px; background: none; padding: 10px 12px; }
+  .row:hover, .group > summary:hover { background: var(--hover); }
+  .row[aria-current="true"] { background: var(--current); }
+  .row b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row[aria-current="true"] b { font-weight: 600; }
+  .row small { display: block; font-size: 12px; margin-top: 2px; }
+
+  /* A session or run: its summary, then its rows on a thread to the left. */
+  .group { margin-bottom: 4px; }
+  .group > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 10px 12px; border-radius: 8px; }
+  .group > summary > svg { color: var(--faint); transform: rotate(-90deg); transition: transform .15s; }
+  .group[open] > summary > svg { transform: none; }
+  .group[open] > summary b { font-weight: 600; }
+  .label { min-width: 0; grid-column: 2; }
+  .label b { display: block; font-weight: 500; }
+  .label small { display: block; font-size: 12px; margin-top: 2px; }
+  ul.rows { margin: 0 0 6px 15px; padding-left: 12px; border-left: 1px solid var(--line); }
+  .row.event { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 0 10px; padding: 7px 10px; }
+  .row.prediction { display: grid; grid-template-columns: 24px minmax(0, 1fr) 76px; gap: 0 10px; align-items: center; padding: 8px 10px; }
+  .row .when { font-size: 12px; color: var(--dim); padding-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .row .caption { display: block; }
+  .row.prediction .caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row[aria-current="true"] .caption { font-weight: 500; }
+  .caption.none, h1.none { color: var(--faint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .chips:empty { display: none; }
+  .chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--hover); color: var(--dim);
+          font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .reward { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  .reward .num { font-size: 12px; width: 26px; text-align: right; }
+  button.reveal { display: block; width: 100%; text-align: left; padding: 8px 10px 4px 100px; border: 0; background: none; color: var(--dim); font-size: 12px; }
+  ul.rows li:has(.prediction) ~ li button.reveal { padding-left: 44px; }
+  .spark-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 14px; max-width: 160px; }
+  .spark span { flex: 0 1 6px; min-width: 1px; background: var(--bar); }
+  .spark span.failed { background: var(--amber); }
+
+  /* Score bars and status lights. */
+  .track { display: block; flex: 1 1 auto; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+  .track > span { display: block; height: 100%; background: var(--bar); }
+  .track.dim > span { background: var(--bar-dim); }
+  .light { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+  .light.recording { background: var(--green); }
+  .light.changing { background: var(--amber); }
+  .light.offline { background: none; border: 1.5px solid var(--faint); }
+
+  /* The deck: the view and panel buttons, with the open panel above them. */
+  #deck { background: var(--deck); color: var(--deck-ink); }
+  #deck small, #deck .note { color: var(--deck-dim); font-size: 12px; }
+  #panel { padding: 16px 16px 6px; }
+  #panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  #panel > header b { font-size: 13px; font-weight: 600; }
+  button.close { width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--deck-dim);
+                 display: flex; align-items: center; justify-content: center; }
+  #panel ul li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 10px 0;
+                 border-top: 1px solid var(--deck-line); }
+  #panel ul li > div { min-width: 0; }
+  #panel ul li b { display: block; font-size: 13px; font-weight: 500; }
+  #panel ul li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel pre { font: 11px/1.4 ui-monospace, monospace; max-height: 8rem; overflow: auto; background: var(--deck-field); padding: 6px 8px; margin: 6px 0; }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--deck-dim); cursor: pointer; }
+  .sw { appearance: none; width: 30px; height: 18px; margin: 0; border-radius: 9px; background: var(--deck-field-line); position: relative; cursor: pointer; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--deck-ink); transition: transform .15s; }
+  .sw:checked { background: var(--green); }
+  .sw:checked::after { transform: translateX(12px); }
+  #panel label.field { display: block; font-size: 12px; color: var(--deck-dim); margin-bottom: 6px; }
+  #panel form { display: flex; gap: 8px; }
+  #panel form input { flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--deck-field-line); border-radius: 6px;
+                      background: var(--deck-field); color: var(--deck-ink); font-size: 13px; }
+  #panel form button { height: 34px; padding: 0 14px; border: 0; border-radius: 6px; background: var(--deck-ink); color: var(--deck); font-size: 13px; font-weight: 500; }
+  #panel .note { display: flex; align-items: center; gap: 7px; margin: 10px 0 12px; }
+  #bar { display: flex; align-items: center; border-top: 1px solid var(--deck-line); padding: 0 6px; }
+  #bar .spacer { flex: 1 1 auto; }
+  .tab { margin: 4px 2px; width: 40px; height: 40px; border: 0; border-radius: 8px; background: none; color: var(--deck-dim);
+         display: flex; align-items: center; justify-content: center; position: relative; }
+  .tab:hover { color: var(--deck-ink); }
+  .tab[aria-pressed="true"], .tab[aria-expanded="true"] { background: var(--deck-line); color: var(--deck-ink); }
+  .tab .light { position: absolute; top: 7px; right: 7px; box-shadow: 0 0 0 2px var(--deck); }
+  .tab .light.offline { background: var(--deck); }
+
+  /* The detail pane: a chat, an event or a prediction. */
+  main { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+  #detail { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #detail > .status { padding: 40px 48px; }
+  #detail > .scroll { padding: 40px 48px 32px; }
+  .page { max-width: 880px; }
+  .page .meta { font-size: 13px; color: var(--faint); margin-bottom: 6px; }
+  #detail h1 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin-bottom: 20px; max-width: 60ch; }
+  #detail .status { padding-left: 0; }
+
+  .transcript { display: grid; grid-template-columns: 56px minmax(0, 66ch); gap: 24px; align-items: start; }
+  .transcript .who { font-size: 13px; color: var(--faint); padding-top: 1px; }
+  .transcript p { white-space: pre-wrap; }
+  .md p { white-space: normal; margin: 0 0 10px; }
+  .md > :last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+  .md ul, .md ol { list-style: revert; margin: 0 0 10px; padding-left: 22px; }
+  .md code { font: 12.5px/1.4 ui-monospace, monospace; background: var(--raw); padding: 1px 5px; border-radius: 4px; }
+  .md pre { margin: 0 0 10px; padding: 10px 12px; background: var(--raw); border-radius: 6px; overflow-x: auto; }
+  .md pre code { padding: 0; background: none; }
+  #detail form { display: flex; gap: 8px; padding: 12px 48px 28px; max-width: calc(80px + 66ch + 96px); }
+  #detail form input { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 14px; border: 1px solid var(--field); border-radius: 10px; background: var(--bg); }
+  #detail form button { height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--ink); color: var(--bg); font-weight: 500; }
+
+  /* The screenshot's box is reserved before it arrives; it keeps its own proportions inside it. */
+  img.shot { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: var(--raw); }
+  .inputs { display: grid; grid-template-columns: 72px 96px minmax(0, 1fr); gap: 8px 16px; margin-top: 24px; font-size: 13px; align-items: baseline; }
+  .inputs b { font-weight: 500; }
+  .inputs span:nth-child(3n) { overflow-wrap: anywhere; }
+  details.folded { margin-top: 12px; }
+  details.folded > summary { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--faint); padding: 4px 0; }
+  details.folded[open] > summary svg { transform: rotate(90deg); }
+  details.folded .inputs { margin-top: 8px; color: var(--dim); }
+  nav.steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); }
+  nav.steps button.more { margin: 0; max-width: 100%; }
+
+  .scores { display: grid; grid-template-columns: 88px minmax(0, 1fr) 40px; gap: 10px 14px; align-items: center; font-size: 13px; max-width: 520px; margin-top: 4px; }
+  .scores > span:first-child { font-weight: 500; }
+  .scores .track { height: 6px; border-radius: 3px; }
+  .scores .num { text-align: right; }
+  .compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 32px; }
+  @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+  .compare h2 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  ol.actions { display: flex; flex-direction: column; gap: 6px; }
+  ol.actions li { display: grid; grid-template-columns: 18px 8px minmax(0, 1fr); gap: 0 10px; align-items: baseline; padding: 8px 12px;
+                  border: 1px solid var(--line); border-radius: 8px; }
+  ol.actions.truth li { background: var(--raw); }
+  ol.actions .dim { font-size: 12px; }
+  ol.actions .light { align-self: center; }
+  .sections { margin-top: 32px; border-top: 1px solid var(--line); }
+  details.section { border-bottom: 1px solid var(--line); }
+  details.section > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
+  details.section > summary b { font-weight: 500; }
+  details.section > summary span { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--faint); text-align: right; }
+  details.section[open] > summary svg { transform: rotate(180deg); }
+  .section-body { padding-bottom: 16px; }
+  .section-body h3 { font-size: 13px; color: var(--dim); font-weight: 500; margin: 12px 0 4px; }
+  pre { font: 12px/1.4 ui-monospace, monospace; margin: 4px 0 0; padding: 10px 12px; background: var(--raw); border-radius: 6px; overflow-x: auto; }
+  pre.wrap { white-space: pre-wrap; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 8px; margin: 8px 0; }
+  .shots img { display: block; width: 100%; cursor: zoom-in; border: 1px solid var(--line); border-radius: 4px; }
   .shots img.big { grid-column: 1 / -1; cursor: zoom-out; }
 
-  /* The camera with the hand keypoints (hand.js), mirrored like a mirror. */
-  #hand { position: fixed; right: 1rem; top: 1rem; width: 240px; background: var(--bg); }
+  /* The camera with the hand keypoints (hand.js), mirrored like a mirror. Minimized,
+     only the chip shows; the feed stays drawn at one pixel so its frames keep coming. */
+  #hand { position: absolute; top: 16px; right: 16px; z-index: 1; }
+  #camera-box { width: 240px; background: var(--deck); color: var(--deck-ink); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(23, 25, 28, .18); }
+  #camera-hide { display: flex; width: 100%; align-items: center; justify-content: space-between; height: 32px; padding: 0 8px 0 12px; border: 0; background: none;
+                 font-size: 12px; font-weight: 500; }
+  #feed { position: relative; background: var(--deck-field); }
   #camera, #overlay { display: block; width: 100%; transform: scaleX(-1); }
   #overlay { position: absolute; top: 0; left: 0; }
+  #hand-label { padding: 8px 12px; font-size: 11px; color: var(--deck-dim); overflow-wrap: anywhere; }
+  #camera-show { display: none; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 10px; border: 1px solid var(--field); border-radius: 18px;
+                 background: var(--bg); box-shadow: 0 2px 8px rgba(23, 25, 28, .08); font-size: 12px; font-weight: 500; }
+  #camera-show .light { width: 10px; height: 10px; background: var(--active, var(--idle)); }
+  #hand.minimized #camera-show { display: inline-flex; }
+  #hand.minimized #camera-box { position: absolute; top: 0; right: 0; width: 1px; height: 1px; opacity: .01; pointer-events: none; box-shadow: none; }
+
+  @media (prefers-reduced-motion: reduce) { .sw::after, .group > summary > svg { transition: none; } }
 </style>
 </head>
 <body>
 
-<div id="hand">
-  <video id="camera" muted playsinline></video>
-  <canvas id="overlay"></canvas>
-  <div id="hand-label"></div>
+<div id="app">
+  <aside>
+    <section class="pane" id="chats-pane">
+      <header>
+        <h2>Juno</h2>
+        <button class="new" id="new-chat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New chat</button>
+      </header>
+      <div class="scroll" id="chats"></div>
+    </section>
+    <section class="pane" id="timeline-pane" hidden></section>
+    <section class="pane" id="predictions-pane" hidden></section>
+
+    <section id="deck">
+      <div id="panel" hidden></div>
+      <div id="bar">
+        <button class="tab" data-view="chats" aria-pressed="true" aria-label="Chats" title="Chats">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button class="tab" data-view="timeline" aria-pressed="false" aria-label="Timeline" title="Timeline">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
+        <button class="tab" data-view="predictions" aria-pressed="false" aria-label="Predictions" title="Predictions">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        </button>
+        <span class="spacer"></span>
+        <button class="tab" data-panel="devices" aria-expanded="false" aria-label="Devices" title="Devices">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span class="light offline" id="devices-light"></span>
+        </button>
+        <button class="tab" data-panel="settings" aria-expanded="false" aria-label="Settings" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </section>
+  </aside>
+
+  <main>
+    <div id="detail"></div>
+    <div id="hand">
+      <div id="camera-box">
+        <button id="camera-hide" aria-label="Minimize camera"><span>Camera</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg></button>
+        <div id="feed">
+          <video id="camera" muted playsinline></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div id="hand-label"></div>
+      </div>
+      <button id="camera-show" aria-label="Show camera">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span id="camera-role">Camera</span><span class="light"></span>
+      </button>
+    </div>
+  </main>
 </div>
 
-<main>
-  <nav>
-    <ul id="pinned">
-      <li><button id="timeline">Timeline<br><small>Every device's events, newest first</small></button></li>
-      <li><button id="predictions">Predictions<br><small>Graded benchmark predictions, newest first</small></button></li>
-      <li><button id="status">Status<br><small>Recording and annotation, with their switches</small></button></li>
-    </ul>
-    <h2>Chats <button id="new-chat" class="more">New</button></h2>
-    <section id="chats"></section>
-  </nav>
-  <div id="detail"><p class="status">Pick the timeline, predictions, status or a chat.</p></div>
-</main>
-
 <script type="module">
-  // The desktop browser: the timeline, predictions, status and chats, two panes,
-  // drawn with the modules in apps/web/src that the phone page shares. Data comes
-  // from the Electron bridge (window.juno) or, opened in a browser, from the server
-  // on this computer, else from the examples below.
-  import { api, send, useExamples } from "../../../web/src/api.js";
+  // The desktop browser: chats, the timeline and predictions in the left pane,
+  // one at a time, with what is open in the detail pane; devices and settings in
+  // the deck below. It draws with the modules in apps/web/src that the phone page
+  // shares. Data comes from the Electron bridge (window.juno) or, opened in a
+  // browser, from the server on this computer, else from the examples below.
+  import { BASE, api, patch, send, useExamples } from "../../../web/src/api.js";
   import { markdown } from "../../../web/src/markdown.js";
-  import { controlView, el, load, messageOf, paged, predictionDetail, score, time, timelineEvent } from "../../../web/src/views.js";
+  import { deviceNote, el, load, messageOf, paged, queueNote, status, switchBox, time } from "../../../web/src/views.js";
+  import { icon, predictionsPane, select, timelinePane } from "./browse.js";
+  import { deviceState, overallState } from "./rows.mjs";
 
   // Stand-in responses, in the server's shapes, for viewing this page without a server.
   const EXAMPLE = {
-    "/chats?limit=20": { object: "list", data: [
+    "/chats": { object: "list", data: [
       { id: "chat-a", title: "What did I work on this morning", message_count: 4, updated_at: 1791100000 },
       { id: "chat-b", title: null, message_count: 0, updated_at: 1791090000 }],
       first_id: "chat-a", last_id: "chat-b", has_more: false },
@@ -117,16 +305,18 @@
       { role: "user", content: "Anything else?" },
       { role: "assistant", content: "A short detour into the config loader." }] },
     "/chats/chat-b": { id: "chat-b", messages: [] },
-    "/events?limit=20": { object: "list", data: [
+    "/events": { object: "list", data: [
+      { id: "laptop-session_20261003_091500-000000", device_id: "laptop", timestamp: 1791100100.2, screenshot_url: null,
+        inputs: [{ type: "key_press", timestamp: 1791100100.3, key: "a" }, { type: "key_release", timestamp: 1791100100.4, key: "a" }],
+        caption: null },
       { id: "laptop-session_20261003_091500-000001", device_id: "laptop", timestamp: 1791100200.5,
         screenshot_url: "/events/laptop-session_20261003_091500-000001/screenshot",
-        inputs: [{ type: "mouse_down", timestamp: 1791100200.4, button: "Button.left", x: 640, y: 400 }],
-        caption: "Clicks into the terminal." },
-      { id: "laptop-session_20261003_091500-000000", device_id: "laptop", timestamp: 1791100100.2, screenshot_url: null,
-        inputs: [{ type: "key_press", timestamp: 1791100100.0, key: "a" }, { type: "key_release", timestamp: 1791100100.1, key: "a" }],
-        caption: null }],
-      first_id: "laptop-session_20261003_091500-000001", last_id: "laptop-session_20261003_091500-000000", has_more: false },
-    "/predictions?limit=20": { object: "list", data: [
+        inputs: [{ type: "mouse_move", timestamp: 1791100200.55, x: 600, y: 380 },
+                 { type: "mouse_down", timestamp: 1791100200.6, button: "Button.left", x: 640, y: 400 },
+                 { type: "mouse_up", timestamp: 1791100200.7, button: "Button.left", x: 640, y: 400 }],
+        caption: "Clicks into the terminal." }],
+      first_id: "laptop-session_20261003_091500-000000", last_id: "laptop-session_20261003_091500-000001", has_more: false },
+    "/predictions": { object: "list", data: [
       { id: "laptop-session_20261003_091500-20261004_100000-0000", device_id: "laptop", session_id: "laptop-session_20261003_091500",
         run: "20261004_100000", index: 0, graded_at: 1791200000, dataset: "datasets/20261004_095500.jsonl",
         predictor: { model: "hosted_vllm/local-model", api_base: "http://localhost:8000/v1", max_tokens: 2048, temperature: 1.0 },
@@ -142,39 +332,32 @@
                          reported_at: 1791100200, online: true } },
     poll_seconds: 5 };
   EXAMPLE["/predictions/laptop-session_20261003_091500-20261004_100000-0000"] = {
-    ...EXAMPLE["/predictions?limit=20"].data[0],
+    ...EXAMPLE["/predictions"].data[0],
     messages: [{ role: "user", content: [{ type: "text", text: "You will analyze user behavior and predict what the user will do next. Below are the actions the user took.\n\n<actions>\n    <action>Types a letter in the editor.</action>\n</actions>\n\nPredict the next 2 actions the user will take." }] }],
     retrieved: "",
     accuracy_prompt: "You are an expert evaluator. …", accuracy_reply: "{\"candidates\": [{\"id\": 1, \"score\": 0.55}]}",
     formatting_prompt: "You are an expert evaluator. …", formatting_reply: "{\"score\": 0.78}" };
   useExamples(EXAMPLE);
 
-  // A collapsed level that fetches its contents the first time it is opened.
-  function level(summary, work) {
-    const body = el("div", { className: "nest" });
-    const d = el("details", {}, el("summary", {}, summary));
-    d.ontoggle = () => { if (d.open && !body.parentNode) { d.append(body); load(body, work); } };
-    return d;
-  }
-
   const detail = document.getElementById("detail");
-  let current = null;
-  function select(button) {
-    current && current.removeAttribute("aria-current");
-    (current = button) && button.setAttribute("aria-current", "true");
-  }
-  function show(button, path, render) {
-    select(button);
-    load(detail, async () => render(await api(path)));
-  }
-  const row = (label, meta, onclick) => el("li", {}, el("button", { onclick }, label, el("br"), el("small", { textContent: meta })));
+  const chats = document.getElementById("chats");
+  const keyed = (node, key) => { node.dataset.key = key; return node; };
+
+  // Chats
+
+  // A chat's title is the first line of its first user message (the server's chat_title).
+  const titleOf = (messages) => messages.find((m) => m.role === "user")?.content.split("\n")[0] ?? "New chat";
+  const message = (m) => [el("span", { className: "who", textContent: m.role === "user" ? "You" : m.role === "assistant" ? "Juno" : m.role }),
+    m.role === "assistant" ? markdown(m.content) : el("p", { textContent: m.content })];
 
   // A chat: its messages, then a box to send the next one.
-  const message = (m) => el("article", {}, el("b", { textContent: m.role }),
-    m.role === "assistant" ? markdown(m.content) : el("p", { textContent: m.content }));
+  let openChat = null;
   function chatView(chatId, messages) {
-    const input = el("input", { id: "composer", placeholder: "Message", autocomplete: "off" });
-    const button = el("button", { className: "more", textContent: "Send" });
+    openChat = chatId;
+    const transcript = el("div", { className: "transcript" }, ...messages.flatMap(message));
+    const scroller = el("div", { className: "scroll" }, el("h1", { textContent: titleOf(messages) }), transcript);
+    const input = el("input", { id: "composer", placeholder: "Message", autocomplete: "off", ariaLabel: "Message" });
+    const button = el("button", { textContent: "Send" });
     const form = el("form", {}, input, button);
     form.onsubmit = async (event) => {
       event.preventDefault();
@@ -183,80 +366,173 @@
       input.value = "";
       input.disabled = button.disabled = true;
       const sent = message({ role: "user", content });
-      const waiting = el("p", { className: "status", textContent: "…" });
-      form.before(sent, waiting);
+      const waiting = [el("span", { className: "who", textContent: "Juno" }), el("p", { className: "dim", textContent: "…" })];
+      transcript.append(...sent, ...waiting);
+      scroller.scrollTop = scroller.scrollHeight;
       try {
         const chat = await send(chatId, content);
+        if (openChat !== chatId) return;
         detail.replaceChildren(...chatView(chatId, chat.messages));
         listChats();  // a new chat appears; an existing one moves to the top
       } catch (error) {
         // The server keeps nothing on failure, so the message goes back in the box.
-        sent.remove();
-        waiting.textContent = messageOf(error);
+        sent.forEach((node) => node.remove());
+        waiting[1].textContent = messageOf(error);
         input.value = content;
         input.disabled = button.disabled = false;
         input.focus();
       }
     };
-    requestAnimationFrame(() => { detail.scrollTop = detail.scrollHeight; input.focus(); });
-    return [...messages.map(message), form];
+    requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; input.focus(); });
+    return [scroller, form];
   }
 
-  const chats = document.getElementById("chats");
-  const listChats = () => load(chats, async () => [await paged("/chats", (chat) =>
-    row(chat.title || chat.id, `${chat.message_count} messages · ${time(chat.updated_at)}`, (event) =>
-      show(event.currentTarget, `/chats/${chat.id}`, (full) => chatView(full.id, full.messages))))]);
-  listChats();
+  const chatRow = (chat) => {
+    const button = keyed(el("button", { className: "row" },
+      el("b", { textContent: chat.title || "New chat" }),
+      el("small", { textContent: `${chat.message_count} messages · ${time(chat.updated_at)}` })), chat.id);
+    button.onclick = () => {
+      select(button);
+      load(detail, async () => {
+        const full = await api(`/chats/${chat.id}`);
+        return chatView(full.id, full.messages);
+      }, () => button.getAttribute("aria-current") === "true");
+    };
+    return el("li", {}, button);
+  };
+  const reselectChat = () => select(chats.querySelector(`[data-key="${CSS.escape(openChat ?? "")}"]`));
+  const listChats = () => load(chats, async () => [await paged("/chats", chatRow)]).then(reselectChat);
   // A new chat exists only on the client until its first message is sent.
   document.getElementById("new-chat").onclick = () => {
     select(null);
     detail.replaceChildren(...chatView(crypto.randomUUID(), []));
   };
 
-  document.getElementById("timeline").onclick = (event) => {
-    select(event.currentTarget);
-    load(detail, async () => [el("h2", { textContent: "Timeline" }), await paged("/events", timelineEvent)]);
-  };
+  // On startup: the chats, with the most recent one open; one pending state for both.
+  load(detail, async () => {
+    const first = await api("/chats?limit=20");
+    const latest = first.data[0];
+    const full = latest ? await api(`/chats/${latest.id}`) : null;
+    chats.replaceChildren(await paged("/chats", chatRow, first));
+    if (!full) return chatView(crypto.randomUUID(), []);
+    const view = chatView(full.id, full.messages);
+    reselectChat();
+    return view;
+  });
 
-  // Predictions: a row per graded prediction, newest first; a row opens in place.
-  const graded = (g) => el("li", {}, level(
-    `${time(g.graded_at)} · ${g.error ? "failed" : `reward ${score(g.reward)} (accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)})`} · ${g.predictor.model} → ${g.grader.model}`,
-    async () => predictionDetail(await api(`/predictions/${g.id}`))));
-  document.getElementById("predictions").onclick = (event) => {
-    select(event.currentTarget);
-    load(detail, async () => [el("h2", { textContent: "Predictions" }), await paged("/predictions", graded)]);
-  };
+  // The deck: devices and settings, from GET /control polled every poll_seconds.
 
-  // Status: the shared switches, with this computer's recorder above the devices.
-  // The recorder is a process of the desktop app; null outside it.
-  const statusButton = document.getElementById("status");
-  const recorderStatus = () => window.juno && window.juno.captureStatus ? window.juno.captureStatus() : null;
-  const recorderView = (recorder) => recorder === null ? []
-    : recorder.running ? [el("small", { textContent: "This computer's recorder is running." })]
-    : [el("small", { textContent: `This computer's recorder exited (${recorder.exitCode}). Fix the cause and restart the app.` }),
-       el("pre", { textContent: recorder.log.join("\n") })];
-  const statusView = (control, recorder) => controlView(control, redraw, recorderView(recorder));
-  async function redraw(control) {
-    const recorder = await recorderStatus();
-    if (current === statusButton) detail.replaceChildren(...statusView(control, recorder));
+  // This computer's recorder is a process of the desktop app; null outside it.
+  const recorderStatus = () => (window.juno?.captureStatus ? window.juno.captureStatus() : Promise.resolve(null));
+  let control = null;
+  let controlError = null;
+  let recorder = null;
+  let polled = false;
+
+  const panel = document.getElementById("panel");
+  const light = document.getElementById("devices-light");
+  let open = null;  // the panel shown: "devices", "settings" or null
+
+  const head = (title) => el("header", {}, el("b", { textContent: title }),
+    el("button", { className: "close", ariaLabel: `Close ${title.toLowerCase()}`, onclick: () => showPanel(null) }, icon("down")));
+  const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+  const unreachable = () => (polled ? `The server cannot be reached · ${messageOf(controlError)}` : "Reaching the server…");
+
+  // One switch of /control: a light, what it is and what it last reported, the switch.
+  function switchItem(state, name, note, on, word, set) {
+    const line = el("small", { textContent: capitalized(note) });
+    const onChanged = (next) => { control = next; drawDeck(); };
+    return el("li", {}, el("span", { className: `light ${state}` }), el("div", {}, el("b", { textContent: name }), line),
+      el("label", { className: "toggle" }, switchBox(on, line, set, onChanged, { className: "sw" }), word));
   }
-  statusButton.onclick = () => {
-    select(statusButton);
-    load(detail, async () => {
-      const [control, recorder] = await Promise.all([api("/control"), recorderStatus()]);
-      // Secondary to the first fetch: the same data again, drawn over in place without a loading state.
-      const refresh = () => setTimeout(async () => {
-        if (current !== statusButton) return;
-        try {
-          const next = await Promise.all([api("/control"), recorderStatus()]);
-          if (current === statusButton && !detail.querySelector("input:disabled")) detail.replaceChildren(...statusView(...next));
-        } catch {}
-        refresh();
-      }, control.poll_seconds * 1000);
-      refresh();
-      return statusView(control, recorder);
-    });
+  const recorderLines = () => (recorder === null ? []
+    : recorder.running ? [el("p", { className: "note", textContent: "This computer's recorder is running." })]
+    : [el("p", { className: "note", textContent: `This computer's recorder exited (${recorder.exitCode}). Fix the cause and restart the app.` }),
+       el("pre", { textContent: recorder.log.join("\n") })]);
+  function devicesPanel() {
+    if (!control) return [head("Devices"), ...recorderLines(), el("p", { className: "note", textContent: unreachable() })];
+    const { server, devices } = control;
+    const ids = Object.keys(devices);
+    return [head("Devices"), ...recorderLines(), el("ul", {},
+      switchItem(server.annotate ? "recording" : "idle", "Annotation", queueNote(server), server.annotate, "Annotate",
+                 (on) => patch("/control/server", { annotate: on })),
+      ...ids.map((id) => switchItem(deviceState(devices[id]), id, deviceNote(devices[id]), devices[id].capture, "Record",
+                                    (on) => patch(`/control/devices/${id}`, { capture: on })))),
+      ...(ids.length ? [] : [el("p", { className: "note", textContent: "No device has reported yet." })])];
+  }
+
+  const connection = () => {
+    const n = control ? Object.keys(control.devices).length : 0;
+    return [el("span", { className: `light ${control ? "recording" : "offline"}` }),
+            control ? `Connected · ${n} device${n === 1 ? " has" : "s have"} reported` : unreachable()];
   };
+  // The address is kept by the desktop app (window.juno.setServerUrl); a page the
+  // server serves can only show the one it was opened at.
+  function settingsPanel() {
+    const input = el("input", { id: "server", type: "url", value: BASE || location.origin, spellcheck: false, required: true });
+    const save = el("button", { textContent: "Save", hidden: !window.juno?.setServerUrl });
+    input.readOnly = save.hidden;
+    const note = el("p", { className: "note", id: "connection" }, ...connection());
+    const form = el("form", {}, input, save);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      let saved;
+      try {
+        saved = await window.juno.setServerUrl(input.value.trim());
+      } catch (error) {
+        saved = { error: messageOf(error) };
+      }
+      if (saved.error) {
+        note.replaceChildren(el("span", { className: "light changing" }), saved.error);
+        save.disabled = false;
+        return;
+      }
+      location.reload();  // every view is read again from the new address
+    };
+    return [head("Settings"), el("label", { className: "field", htmlFor: "server", textContent: "Server address" }), form, note];
+  }
+
+  function showPanel(name) {
+    open = name;
+    panel.hidden = !open;
+    for (const tab of document.querySelectorAll("[data-panel]")) tab.setAttribute("aria-expanded", String(tab.dataset.panel === open));
+    panel.replaceChildren(...(open === "devices" ? devicesPanel() : open === "settings" ? settingsPanel() : []));
+  }
+  // Redraws what shows /control without a loading state: the light always, the
+  // devices panel unless a switch is waiting for the server, the settings
+  // panel's connection line only, so a half-typed address stays.
+  function drawDeck() {
+    const state = overallState(control, recorder);
+    light.className = `light ${state}`;
+    document.querySelector('[data-panel="devices"]').ariaLabel = `Devices: ${state}`;
+    if (open === "devices" && !panel.querySelector("input:disabled")) panel.replaceChildren(...devicesPanel());
+    if (open === "settings") document.getElementById("connection")?.replaceChildren(...connection());
+  }
+  async function poll() {
+    const [next, local] = await Promise.allSettled([api("/control"), recorderStatus()]);
+    control = next.status === "fulfilled" ? next.value : null;
+    controlError = next.status === "rejected" ? next.reason : null;
+    recorder = local.status === "fulfilled" ? local.value : null;
+    polled = true;
+    drawDeck();
+    setTimeout(poll, (control?.poll_seconds ?? 5) * 1000);
+  }
+  poll();
+
+  // The view buttons: each shows its pane, read anew; pressing the shown one goes back to the chats.
+  const panes = { chats: document.getElementById("chats-pane"), timeline: document.getElementById("timeline-pane"),
+                  predictions: document.getElementById("predictions-pane") };
+  let view = "chats";
+  function showView(next) {
+    view = next === view ? "chats" : next;
+    for (const tab of document.querySelectorAll("[data-view]")) tab.setAttribute("aria-pressed", String(tab.dataset.view === view));
+    for (const [name, pane] of Object.entries(panes)) pane.hidden = name !== view;
+    if (view === "timeline") timelinePane(panes.timeline, detail, () => control);
+    if (view === "predictions") predictionsPane(panes.predictions, detail);
+  }
+  for (const tab of document.querySelectorAll("[data-view]")) tab.onclick = () => showView(tab.dataset.view);
+  for (const tab of document.querySelectorAll("[data-panel]")) tab.onclick = () => showPanel(open === tab.dataset.panel ? null : tab.dataset.panel);
 </script>
 <script type="module" src="hand.js"></script>
 </body>
