@@ -68,7 +68,7 @@ capture:
   verbose: false
 
 annotate:
-  # The litellm model that annotates recorded sessions (`python -m annotate`).
+  # The litellm model that annotates recorded sessions (`scripts/annotate_session_activity.py`).
   # A gemini/ model reads its key from GEMINI_API_KEY, in the environment or .env.
   model: gemini/gemini-3.1-flash-lite
   # Upper bound on the reply, hidden reasoning included.

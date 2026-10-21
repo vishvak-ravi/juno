@@ -1,6 +1,6 @@
 """Make a next-action benchmark dataset from one annotated session.
 
-    uv run --project app python scripts/make_dataset.py SESSION_ID [--out PATH]
+    uv run python scripts/make_prediction_dataset.py SESSION_ID [--out PATH]
 
 Each sample is a window of the session's annotated actions: the request Juno's
 predictor (``predict.predictor``, Tada's ``PromptedPredictor``) sends for the
