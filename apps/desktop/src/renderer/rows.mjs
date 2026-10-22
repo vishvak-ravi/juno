@@ -46,6 +46,17 @@ export function momentText(moment) {
   return text ? text(who) : moment.type.replaceAll("_", " ");
 }
 
+// The moment rail's lines: `height` px shared out over `count` lines, no closer
+// than LINE_MIN and no further than LINE_MAX apart, LINE_INSET kept clear at
+// each end.
+export const LINE_MIN = 5;
+export const LINE_MAX = 14;
+export const LINE_INSET = 8;
+export function linePitch(count, height) {
+  const room = Math.max(0, height - 2 * LINE_INSET);
+  return Math.max(LINE_MIN, Math.min(LINE_MAX, count ? room / count : LINE_MAX));
+}
+
 // GET /indices laid out on the day from `since` to `until`: per index name, the
 // runs of consecutive buckets with a value, each point `{ x, y, start, value }`
 // with x the bucket's middle as a fraction of the day and y the value (0..1). A

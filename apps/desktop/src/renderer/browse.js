@@ -8,7 +8,7 @@ import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
   actions, chips, clock, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel, indexLanes,
-  inputLine, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
+  inputLine, linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
   weekStart, weekdays,
 } from "./rows.mjs";
 
@@ -18,6 +18,8 @@ const PAGE = 100;
 const TONES = 6;
 // Rows of an open session or run shown before its "more" button.
 const SHOWN_ROWS = 6;
+// How long a moment's divider stays lit after its line on the rail is pressed.
+const LIT_MS = 1500;
 
 const ICONS = {
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>'
@@ -209,9 +211,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 // The timeline pane: the view switch, the day shown with a button that opens the
-// calendar to pick another, then that day in the view picked. `control()` is the
-// latest GET /control, for which sessions are being recorded and which devices
-// there are.
+// calendar to pick another, then that day in the view picked, with the moment
+// rail down the pane's left edge in the linear view. `control()` is the latest
+// GET /control, for which sessions are being recorded and which devices there are.
 export function timelinePane(pane, detail, control) {
   let view = savedView();
   let date = new Date();
@@ -230,6 +232,7 @@ export function timelinePane(pane, detail, control) {
     return button;
   });
   const list = el("div", { className: "scroll" });
+  const rail = momentRail(list);
   const cal = calendar((picked) => {
     cal.close();
     date = picked;
@@ -237,15 +240,17 @@ export function timelinePane(pane, detail, control) {
   });
   pane.replaceChildren(el("header", {},
     el("span", { className: "views", role: "group", ariaLabel: "Timeline view" }, ...switches),
-    el("span", { className: "day" }, pick, cal.box)), list);
+    el("span", { className: "day" }, pick, cal.box)), list, rail.strip);
   const tone = tones(Object.keys(control()?.devices ?? {}));
   const show = () => {
     const mine = ++shown;
     const { since, until, start } = day(date);
     label.textContent = dayLabel(start);
     switches.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
+    rail.clear();
+    rail.strip.hidden = view !== "linear";
     const views = {
-      linear: () => linearView(since, until, detail, tone),
+      linear: () => linearView(since, until, detail, tone, rail),
       sessions: () => sessionsView(since, until, detail, liveSessions(control()), tone),
       indices: () => indicesView(since, until),
     };
@@ -289,32 +294,96 @@ function pager(path, add, label) {
 }
 
 // The linear view: every event of the day on one line, newest first, an hour
-// mark where the hour changes and the device named where it changes. Opened
+// mark where the hour changes, the device named where it changes and a divider
+// where a moment starts, each divider also a line on the moment rail. Opened
 // events step through the rows fetched, earlier and later.
-async function linearView(since, until, detail, tone) {
+async function linearView(since, until, detail, tone, rail) {
   const path = `/events?since=${since}&until=${until}&order=desc&limit=${PAGE}`;
   const rows = [];  // newest first
   const sequence = { events: () => rows.toReversed(), note: () => null };
-  const rail = el("ol", { className: "rail" });
+  const list = el("ol", { className: "rail" });
   const { more, next } = pager(path, (page) => {
-    rail.append(...railItems(page.data, rows.at(-1)).map((item) =>
-      (item.hour != null ? hourMark(item.hour)
-        : item.moment ? momentMark(item) : railRow(item, sequence, detail, tone))));
+    list.append(...railItems(page.data, rows.at(-1)).map((item) => {
+      if (item.hour != null) return hourMark(item.hour);
+      if (!item.moment) return railRow(item, sequence, detail, tone);
+      const mark = momentMark(item);
+      rail.add(item, mark);
+      return mark;
+    }));
     rows.push(...page.data);
-    reselect(rail);
+    requestAnimationFrame(rail.layout);  // once the rows are in the document
+    reselect(list);
   }, "Earlier events");
   const first = await api(path);
   if (!first.data.length) return [status("Nothing recorded this day.")];
   next(first);
-  return [rail, more];
+  return [list, more];
 }
 
 const hourMark = (hour) => el("li", { className: "hour" },
   el("span", { className: "when", textContent: hourLabel(hour) }), el("span", { className: "node" }));
 
+// The colour of a moment, by its type (--moment-<type> in index.html).
+const momentTone = (moment) => `var(--moment-${moment.type}, var(--dim))`;
+
 // A divider where a moment starts, above the event it starts at.
-const momentMark = ({ moment }) => el("li", { className: "moment" },
-  el("span"), el("span", { className: "node" }), el("span", { className: "what", textContent: momentText(moment) }));
+function momentMark({ moment }) {
+  const mark = el("li", { className: "moment" },
+    el("span"), el("span", { className: "node" }), el("span", { className: "what", textContent: momentText(moment) }));
+  mark.style.setProperty("--c", momentTone(moment));
+  return mark;
+}
+
+// The moment rail: one line per moment divider of the list, in the list's
+// order, down the left edge of `scroll`, folded to a sliver until the pointer
+// reaches it. A line's heading shows on hover; pressing it scrolls the list to
+// its divider. The band marks the lines whose dividers are in view.
+function momentRail(scroll) {
+  const band = el("span", { className: "band", hidden: true });
+  const strip = el("nav", { className: "moments", ariaLabel: "Moments of the day" }, band);
+  const marks = [];
+  const layout = () => {
+    strip.style.setProperty("--pitch", `${linePitch(marks.length, strip.clientHeight)}px`);
+    const top = scroll.getBoundingClientRect().top;
+    const inView = marks.map((mark) => {
+      const y = mark.getBoundingClientRect().top - top;
+      return y >= 0 && y <= scroll.clientHeight;
+    });
+    const first = inView.indexOf(true);
+    band.hidden = first < 0;
+    band.style.setProperty("--from", first);
+    band.style.setProperty("--n", inView.lastIndexOf(true) - first + 1);
+  };
+  let queued = false;
+  scroll.addEventListener("scroll", () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; layout(); });
+  });
+  new ResizeObserver(layout).observe(strip);
+  return {
+    strip,
+    layout,
+    clear() {
+      marks.length = 0;
+      strip.replaceChildren(band);
+    },
+    add({ moment, event }, mark) {
+      const line = el("button", { className: "m", ariaLabel: `${momentText(moment)}, ${clock(event.timestamp)}` },
+        el("i"), el("span", { className: "h" },
+          el("b", { textContent: momentText(moment) }), el("small", { textContent: clock(event.timestamp) })));
+      line.style.setProperty("--i", marks.length);
+      line.style.setProperty("--c", momentTone(moment));
+      line.onclick = () => {
+        mark.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        mark.classList.add("lit");
+        setTimeout(() => mark.classList.remove("lit"), LIT_MS);
+      };
+      marks.push(mark);
+      strip.append(line);
+    },
+  };
+}
 
 function railRow({ event, named }, sequence, detail, tone) {
   const button = el("button", { className: "row tick" },
