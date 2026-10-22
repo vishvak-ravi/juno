@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar, in one of three views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour and by moment; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
+| Timeline | one day, the day picked from a calendar, in one of four views picked by a switch above it and remembered on the computer: **Activity**, what the user did, newest first, a time and a line per item coloured by its kind, marked by hour and by moment; **Linear**, every device's events on one line, newest first, marked by hour and by moment; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the activity or linear view's rows fetched, also on the arrow keys; an activity item opens the event it began in |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -31,6 +31,12 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | Shown | From |
 |---|---|
 | A day, linear | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it; the next page is fetched when "Earlier events" scrolls into view |
+| A day, activity | the same pages, every row fetched so far folded again as each page arrives (`src/renderer/activity.mjs`): each device's inputs in time order, pointer moves and releases making no item |
+| Typed text | characters and spaces pressed with no modifier but Shift (the character comes shifted), Backspace taking off the last one; it goes on past scrolls and ends at Enter (marked ⏎), a pause of `GAPS.typing` seconds, a click or any other named key but Backspace |
+| A shortcut | a key pressed while Ctrl, Alt or Cmd is held, or Shift with a named key; the same one again within `GAPS.keys` counts up; a modifier pressed more than `GAPS.modifier` seconds before with no key since is taken as released |
+| Keys | named keys (arrows, Esc, Tab, …) within `GAPS.keys` of each other, repeats counted; Cmd or Alt pressed and released alone is a key |
+| A click | each press of a button; two of one button within `GAPS.click` are a double click |
+| A scroll | scroll steps within `GAPS.scroll` of each other, summed per direction; `dy > 0` is up, as napsack reads it |
 | An hour mark | wherever the local hour of an event differs from the one above it |
 | A moment | a divider above the event of each of its `moments`, under that event's hour mark; its text from the moment's `type` and the assistant in its `label` |
 | A day, indices | `GET /indices?since=&until=`, the day's buckets of `keypoints.bucket_seconds`; a lane per name in `names`, the line broken where a bucket is missing or has no value; nothing drawn when no bucket was answered |
