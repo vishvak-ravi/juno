@@ -1,7 +1,8 @@
-"""The chat model's tools: bash, web_search and the past chats, and which tools agents get
-over MCP."""
+"""The chat model's tools: bash, web_search and the past chats, and the session tools agents
+get over MCP."""
 
 import asyncio
+import base64
 import json
 import shutil
 import time
@@ -11,13 +12,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server.agent.tools
-from juno.config import (BashConfig, CaptureConfig, ClaudeConfig, Config, LlmConfig, ToolsConfig,
-                         WebSearchConfig)
+from annotate.store import read_record, write_record
+from juno.config import (AnnotateConfig, BashConfig, CaptureConfig, ClaudeConfig, Config,
+                         KeypointsConfig, LlmConfig, ToolsConfig, WebSearchConfig)
 from server.app import create_app
 from server.agent.search import SearchError
 from server.agent.shell import run_bash
 from server.agent.tools import call_chat_tool
 from test_chats import model_server, store_chat  # noqa: F401  (model_server is a fixture)
+from test_keypoints import SESSION, FakeJev, wait_for_detection, write_session
 
 needs_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
 UNSANDBOXED = BashConfig(sandbox=False)
@@ -112,7 +115,7 @@ def test_tools_turned_off_are_not_offered(tmp_path):
     with app_client(tmp_path / "off", off) as client:
         off_names = set(client.app.state.chat_tools)
     assert on_names - off_names == {"bash", "web_search"}
-    assert {"list_annotations", "search_chats"} <= off_names
+    assert {"find_events", "search_chats"} <= off_names
 
 
 def test_agents_get_only_the_session_tools_over_mcp(tmp_path):
@@ -121,8 +124,64 @@ def test_agents_get_only_the_session_tools_over_mcp(tmp_path):
         names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
         refused = mcp_request(client, "tools/call", {"name": "bash",
                                                      "arguments": {"command": "true"}})
-    assert names == {"list_annotations", "get_annotation", "predict_next_actions"}
+    assert names == {"list_sessions", "find_events", "get_event"}
     assert refused["isError"]
+
+
+def tool_text(client: TestClient, name: str, arguments: dict):
+    """What an agent is shown over MCP: the JSON of the first block, or the error."""
+    result = mcp_request(client, "tools/call", {"name": name, "arguments": arguments})
+    text = result["content"][0]["text"]
+    return text if result["isError"] else json.loads(text)
+
+
+def test_an_agent_finds_what_the_user_saw_and_opens_it_with_its_screenshot(tmp_path):
+    # Three rows, a second apart, all captioned "Typed."; Jev sees an error and every action.
+    directory = write_session(tmp_path, [["key_press"], [], ["mouse_down"]])
+    record = read_record(directory, 1)
+    write_record(directory, record.model_copy(update={"annotation": record.annotation.model_copy(
+        update={"dense_caption": "~/work $ python -m server"})}))
+    config = Config(capture=CaptureConfig(data_dir=tmp_path),
+                    annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
+                    keypoints=KeypointsConfig(moment_on=0.7, moment_off=0.4))
+    app = create_app(config, annotate_request=lambda request: None, ask=FakeJev())
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        wait_for_detection(directory, 2)
+        sessions = tool_text(client, "list_sessions", {})
+        found = tool_text(client, "find_events", {"query": "Python server"})
+        nothing = tool_text(client, "find_events", {"query": "submarine"})
+        landed = tool_text(client, "find_events", {"moment": "code_landed"})
+        bad_moment = tool_text(client, "find_events", {"moment": "lunch"})
+        newest = mcp_request(client, "tools/call",
+                             {"name": "get_event", "arguments": {"device": "laptop"}})
+        missing = tool_text(client, "get_event", {"event_id": "nope"})
+        chat_view = call(client, "get_event", {"event_id": f"{SESSION}-000000"})
+
+    [session] = sessions["sessions"]
+    assert (session["id"], session["device"], session["events"]) == (SESSION, "laptop", 3)
+    # An action moment on each of the two rows with input; the error stays on screen: one.
+    assert session["moments"]["code_landed"] == 2 and session["moments"]["error_shown"] == 1
+    assert session["indices"] == {"sensitivity": 0.0, "agent": 0.1, "error": 0.9}
+
+    # One caption across the session: one run, found by the text on screen of its second chunk.
+    assert [(run["first_event"], run["events"]) for run in found["runs"]] == [
+        (f"{SESSION}-000000", 3)]
+    assert "python -m server" in found["runs"][0]["snippet"]
+    assert nothing["runs"] == []
+    assert [run["first_event"] for run in landed["runs"]] == [f"{SESSION}-000000"]
+    assert "code_landed" in bad_moment
+
+    event = json.loads(newest["content"][0]["text"])
+    assert (event["id"], event["caption"]) == (f"{SESSION}-000002", "Typed.")
+    assert event["text_on_screen"] == "~/work $ python -m server"
+    assert "code_landed" in event["moments"]
+    image = newest["content"][1]
+    assert image["type"] == "image" and image["mimeType"] == "image/png"
+    assert base64.b64decode(image["data"]) == (directory / "2.png").read_bytes()
+    assert "first_event from find_events" in missing
+    # Juno's own chat model gets the text without the image.
+    assert json.loads(chat_view.rsplit("\n", 1)[0])["id"] == f"{SESSION}-000000"
+    assert chat_view.endswith("[an image you are not shown]")
 
 
 def test_the_model_can_run_a_command_before_it_answers(tmp_path, model_server):  # noqa: F811

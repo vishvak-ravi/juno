@@ -388,13 +388,22 @@ def upload_event(event_id: EventId, request: Request, response: Response,
     return find(request, event_id, include_deleted=True)
 
 
+def screenshot_file(directory: Path, aggregation: Aggregation) -> Optional[Path]:
+    """The screenshot of a row of the session in ``directory``; None if it has none.
+
+    Only a file stored inside that session counts.
+    """
+    path = Path(aggregation.screenshot_path).resolve() if aggregation.screenshot_path else None
+    if path is None or not path.is_file() or directory.resolve() not in path.parents:
+        return None
+    return path
+
+
 @router.get("/{event_id}/screenshot")
 def get_screenshot(event_id: EventId, request: Request) -> FileResponse:
     find(request, event_id)
     directory, row = locate(request.app.state.devices_dir, event_id)
-    aggregation = read_aggregations(directory)[row]
-    path = Path(aggregation.screenshot_path).resolve() if aggregation.screenshot_path else None
-    # Only files stored inside that session are served.
-    if path is None or not path.is_file() or directory.resolve() not in path.parents:
+    path = screenshot_file(directory, read_aggregations(directory)[row])
+    if path is None:
         raise HTTPException(status_code=404, detail=f"{event_id} has no screenshot")
     return FileResponse(path, media_type="image/png")

@@ -93,12 +93,13 @@ def create_app(config: Optional[Config] = None,
     data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"
     predictor = Predictor(config.predict)
+    questions = load_questions()
     chat_tools = create_chat_tools(devices_dir(data_dir), chats_dir,
                                    config.llm.tool_result_chars, config.tools,
                                    workspace_dir(data_dir), claude_results_dir(data_dir),
-                                   predictor, config.llm)
+                                   config.annotate.chunk_size, config.keypoints, questions)
     mcp = create_mcp(session_tools(devices_dir(data_dir), config.llm.tool_result_chars,
-                                   predictor, config.llm))
+                                   config.annotate.chunk_size, config.keypoints, questions))
 
     if ask is None and config.keypoints.enabled:
         if os.environ.get(TYPESAFE_KEY_ENV):
@@ -136,7 +137,7 @@ def create_app(config: Optional[Config] = None,
     app.state.worker = AnnotationWorker(
         app.state.devices_dir, config.annotate, annotate_request, annotating=annotating)
     app.state.keypoints = config.keypoints
-    app.state.questions = load_questions()
+    app.state.questions = questions
     # None when keypoints are off or no key is set.
     app.state.detector = (DetectionWorker(app.state.devices_dir, config.annotate,
                                           config.keypoints, app.state.questions, ask,

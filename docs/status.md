@@ -1,5 +1,14 @@
 # Status
 
+## 2026-10-22: MCP over the record
+
+| Piece | State |
+|---|---|
+| `list_sessions`, `find_events`, `get_event` replace `list_annotations`, `get_annotation`, `predict_next_actions`, over MCP and in Juno's chat | done; tested end to end over MCP with a fake Jev; run read-only against the stored sessions of 2026-10-21 |
+| `get_event` returns the screenshot as an MCP image | done over MCP; Juno's chat model is told an image exists but not shown it |
+| Each call reads every stored session (about 3 s over 3,000 events) | not optimized |
+| Tablet captions: new prompt and chunking | not started |
+
 ## 2026-10-21: Jev keypoints
 
 | Piece | State |

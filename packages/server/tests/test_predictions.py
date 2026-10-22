@@ -16,7 +16,6 @@ from annotate.store import new_record, write_record
 from juno.config import CaptureConfig, Config, LlmConfig, PredictConfig, devices_dir
 from predict.benchmarks import GradedRow, GraderSettings, PredictorSettings, run_file
 from server.app import create_app
-from test_tools import mcp_request
 
 REPLY = "<actions>\n    <action>Saved the file.</action>\n</actions>"
 SANITIZATION = Sanitization(algorithm="none", version=1, text=False, images=False,
@@ -198,27 +197,6 @@ def test_an_unreachable_model_server_is_a_502(tmp_path):
     client = client_for(tmp_path, "http://127.0.0.1:1")
 
     assert client.post("/predictions").status_code == 502
-
-
-def test_an_agent_asks_for_a_prediction_over_mcp(tmp_path, model_server):
-    write_annotation(tmp_path, 0, ["One.", "Two.", "Three.", "Four."], "some text")
-    write_annotation(tmp_path, 1, ["Phone one."], "phone text", device="phone")
-    with client_for(tmp_path, model_server.url) as client:
-        names = {tool["name"] for tool in mcp_request(client, "tools/list", {})["tools"]}
-        predicted = mcp_request(client, "tools/call", {
-            "name": "predict_next_actions", "arguments": {"device": "laptop"}})
-        too_few = mcp_request(client, "tools/call", {
-            "name": "predict_next_actions", "arguments": {"device": "phone"}})
-        unknown = mcp_request(client, "tools/call", {
-            "name": "predict_next_actions", "arguments": {"device": "tablet"}})
-
-    assert "predict_next_actions" in names
-    assert json.loads(predicted["content"][0]["text"])["predicted_actions"] == ["Saved the file."]
-    _, text = sent_parts(model_server)
-    assert "Four." in text and "Phone" not in text
-    assert too_few["isError"] and "not enough data (1/4)" in too_few["content"][0]["text"]
-    assert unknown["isError"] and "the devices are: laptop, phone" in unknown["content"][0]["text"]
-    assert len(model_server.requests) == 1
 
 
 def write_graded(tmp_path, run: str, graded_at: list[float], device: str = "laptop",
