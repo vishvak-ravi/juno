@@ -120,8 +120,9 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 // Timeline
 
 // The timeline pane: the day shown, a button that opens the calendar to pick
-// another, then that day's sessions oldest first. `control()` is the latest
-// GET /control, for which sessions are being recorded.
+// another, then that day's sessions newest first, so the page opens on the
+// latest activity and "Load more" reaches back through the day. `control()` is
+// the latest GET /control, for which sessions are being recorded.
 export function timelinePane(pane, detail, control) {
   let shown = null;
   const label = el("span");
@@ -136,7 +137,7 @@ export function timelinePane(pane, detail, control) {
     input.value = dayValue(start);
     const live = liveSessions(control());
     load(list, async () => (await groupedPages(
-      `/events?since=${since}&until=${until}&order=asc&limit=${PAGE}`, groupSessions,
+      `/events?since=${since}&until=${until}&order=desc&limit=${PAGE}`, groupSessions,
       (session) => sessionGroup(session, live, detail), "Nothing recorded this day.")).nodes,
     () => shown === date);
   };

@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day's sessions, oldest first, the day picked from a calendar; a session opens to its events | one event: caption, screenshot, inputs; a bar above it steps to the previous and next event of the session, also on the arrow keys |
+| Timeline | one day's sessions, newest first, the day picked from a calendar; a session opens to its events, oldest first | one event: caption, screenshot, inputs; a bar above it steps to the previous and next event of the session, also on the arrow keys |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -30,8 +30,8 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 
 | Shown | From |
 |---|---|
-| A day | `GET /events?since=&until=&order=asc&limit=100`, since and until the local midnights around it |
-| A session | the events of the pages fetched whose ids share the part before the six-digit row; start and end are the first and last timestamp, counts are of the rows fetched |
+| A day | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it; "Load more" pages `after=` the last event shown, back toward midnight |
+| A session | the events of the pages fetched whose ids share the part before the six-digit row, sorted oldest first; start and end are the first and last timestamp, counts are of the rows fetched |
 | A session's light | green when `GET /control` reports a device recording that session |
 | An event's chips | its `inputs` counted by type: key presses, clicks, scrolls; key and button releases and pointer moves are left out of the chips and listed folded in the event's detail |
 | An input's time | its `timestamp` minus its event's `timestamp` |

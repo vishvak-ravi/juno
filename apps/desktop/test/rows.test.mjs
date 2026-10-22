@@ -11,17 +11,18 @@ const event = (session, row, timestamp, fields = {}) => ({
   screenshot_url: null, inputs: [], caption: null, ...fields,
 });
 
-test("events of one page are grouped by session in page order, with span and caption counts", () => {
+test("events of one page are grouped by session in page order, each oldest first, with span and caption counts", () => {
   const sessions = groupSessions([
-    event("laptop-session_20261003_091500", 0, 100, { caption: "Opens the editor." }),
-    event("laptop-session_20261003_091500", 1, 160),
-    event("tablet-session_20261003_093000", 0, 200, { caption: "Draws a box." }),
     event("laptop-session_20261003_091500", 2, 400, { caption: "Saves." }),
+    event("tablet-session_20261003_093000", 0, 200, { caption: "Draws a box." }),
+    event("laptop-session_20261003_091500", 1, 160),
+    event("laptop-session_20261003_091500", 0, 100, { caption: "Opens the editor." }),
   ]);
   assert.deepEqual(sessions.map((s) => [s.id, s.device, s.events.length, s.start, s.end, s.captioned]), [
     ["laptop-session_20261003_091500", "laptop", 3, 100, 400, 2],
     ["tablet-session_20261003_093000", "tablet", 1, 200, 200, 1],
   ]);
+  assert.deepEqual(sessions[0].events.map((e) => e.timestamp), [100, 160, 400]);
 });
 
 test("chips count what the user did and leave out releases and pointer moves", () => {

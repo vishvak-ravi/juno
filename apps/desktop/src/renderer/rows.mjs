@@ -6,8 +6,9 @@
 // Event `<session id>-<row as six or more digits>` (juno.events.EVENT_ID).
 export const sessionOf = (eventId) => eventId.replace(/-\d{6,}$/, "");
 
-// The events of one page grouped by session, in the order the page lists them.
-// A session's counts are of the rows loaded, not of the whole session.
+// The events of one page grouped by session, the sessions in the order the page
+// lists them and each session's events oldest first. A session's counts are of
+// the rows loaded, not of the whole session.
 export function groupSessions(events) {
   const sessions = new Map();
   for (const event of events) {
@@ -16,6 +17,7 @@ export function groupSessions(events) {
     sessions.get(id).events.push(event);
   }
   return [...sessions.values()].map((session) => {
+    session.events.sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
     const times = session.events.map((e) => e.timestamp);
     return { ...session, start: Math.min(...times), end: Math.max(...times),
              captioned: session.events.filter((e) => e.caption != null).length };
