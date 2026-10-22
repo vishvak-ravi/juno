@@ -7,7 +7,7 @@
 import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
-  actions, chips, clock, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel, indexLanes,
+  actions, chips, clock, conversationsOf, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel, indexLanes,
   inputLine, linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
   weekStart, weekdays,
 } from "./rows.mjs";
@@ -584,12 +584,38 @@ const inputGrid = (inputs, event) => el("div", { className: "inputs" }, ...input
           el("span", { textContent: details })];
 }));
 
+// This computer's device id, known shortly after startup: a conversation is
+// reopened only on the computer that recorded its event, and only from the
+// desktop app (window.juno), which can open a terminal.
+let here = null;
+window.juno?.deviceId().then((id) => { here = id; });
+
+// A button per conversation the event's moments carry, opening it again in a
+// terminal; on another computer's event, where it is instead.
+function conversationLinks(event) {
+  const conversations = conversationsOf(event);
+  if (!conversations.length || !window.juno) return [];
+  if (event.device_id !== here) return [status(`The Claude Code conversation of this prompt is on ${event.device_id}.`)];
+  return [el("div", { className: "resume" }, ...conversations.map((conversation) => {
+    const button = el("button", { className: "more", title: conversation.cwd }, "Resume in Claude Code");
+    const said = el("span", { className: "dim" });
+    button.onclick = async () => {
+      button.disabled = true;
+      const { error } = await window.juno.resume(event.device_id, conversation);
+      said.textContent = error ?? "";
+      button.disabled = false;
+    };
+    return el("span", {}, button, said);
+  }))];
+}
+
 function eventPage(event, note) {
   const shown = shownInputs(event.inputs);
   const folded = foldedNote(event.inputs);
   return el("div", { className: "page" },
     el("p", { className: "meta", textContent: [time(event.timestamp), event.device_id, ...(note ? [note] : [])].join(" · ") }),
     el("h1", { className: event.caption == null ? "none" : "", textContent: event.caption ?? "No caption yet" }),
+    ...conversationLinks(event),
     event.screenshot_url ? screenshot(event) : status("No screenshot with this event."),
     shown.length ? inputGrid(shown, event) : status("No keys, clicks or scrolls in this event."),
     ...(folded ? [el("details", { className: "folded" }, el("summary", {}, icon("right", 14), folded),

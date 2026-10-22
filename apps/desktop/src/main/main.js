@@ -3,6 +3,7 @@ const { app, BrowserWindow } = require("electron");
 
 const { startCapture } = require("./recorder");
 const { startDictation } = require("./dictation");
+const { registerResume } = require("./resume");
 const { registerServerApi } = require("./server");
 const { registerSettings } = require("./settings");
 
@@ -47,6 +48,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerServerApi(registerSettings(DEFAULT_SERVER_URL));
+  registerResume(REPO_DIR);
   startCapture(REPO_DIR);
   if (PASSIVE_AGENT) startDictation();
   createWindow();

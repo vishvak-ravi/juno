@@ -24,6 +24,7 @@ from server.routes.chats import router as chats_router
 from server.routes.control import router as control_router
 from server.routes.draw import router as draw_router
 from server.routes.events import router as events_router
+from server.routes.hooks import router as hooks_router
 from server.routes.indices import router as indices_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
@@ -148,6 +149,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(control_router)
     app.include_router(draw_router)
     app.include_router(events_router)
+    app.include_router(hooks_router)
     app.include_router(indices_router)
     app.include_router(predictions_router)
     app.include_router(sessions_router)

@@ -46,6 +46,17 @@ export function momentText(moment) {
   return text ? text(who) : moment.type.replaceAll("_", " ");
 }
 
+// The conversations an event's moments carry (those an assistant's hook
+// reported), each once, in the order of its moments.
+export function conversationsOf(event) {
+  const seen = new Map();
+  for (const { conversation } of event.moments ?? []) {
+    const key = conversation && `${conversation.harness} ${conversation.session_id}`;
+    if (key && !seen.has(key)) seen.set(key, conversation);
+  }
+  return [...seen.values()];
+}
+
 // The moment rail's lines: `height` px shared out over `count` lines, no closer
 // than LINE_MIN and no further than LINE_MAX apart, LINE_INSET kept clear at
 // each end.

@@ -1,5 +1,14 @@
 # Status
 
+## 2026-10-22: Claude Code prompts as moments
+
+| Piece | State |
+|---|---|
+| `POST /hooks/claude-code`, the origin gate, prompts placed on the device's row | done; tested, and run with an interactive `claude` in tmux (kept) and `claude -p` (left out) against a server on this checkout |
+| `python -m capture.claude_hook install` / `uninstall`, offered by the client install | done; tested against a scratch `CLAUDE_CONFIG_DIR` |
+| "Resume in Claude Code" on the event: a new Ghostty window running `claude --resume` in the conversation's directory | done on Linux, pressed in the client against rows uploaded by hand (the recorder writes rows only on real input); macOS (`open -na Ghostty`) not yet run |
+| Cloud sessions, the Claude desktop app, IDE extensions, claude.ai chats | left out at the route |
+
 ## 2026-10-21: Jev keypoints
 
 | Piece | State |

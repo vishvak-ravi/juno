@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, chips, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, indexLanes, inputLine,
+  actions, chips, conversationsOf, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, indexLanes, inputLine,
   linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, railItems, runTime, shade,
   shownInputs, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
@@ -157,4 +157,14 @@ test("the devices light reads the whole of /control", () => {
   assert.equal(overallState(control({ laptop: device(true, true) }), { running: false }), "changing");
   assert.equal(overallState(control({ laptop: device(false, false), desk: device(true, true, false) }), null), "idle");
   assert.deepEqual([...liveSessions(control({ laptop: device(true, true) }))], ["laptop-session_1"]);
+});
+
+test("an event's conversations are those its hook-reported moments carry, each once", () => {
+  const conversation = (session_id) => ({ harness: "claude_code", session_id, cwd: "/work" });
+  const reported = (session_id) => ({ type: "agent_prompt_submitted", probability: 1, detector: "claude_code_hook",
+                                      label: "claude_code", conversation: conversation(session_id) });
+  const guessed = { type: "error_shown", probability: 0.9, detector: "jev", label: null, conversation: null };
+  const e = event("laptop-session_20261021_152109", 0, 0, { moments: [reported("a"), guessed, reported("b"), reported("a")] });
+  assert.deepEqual(conversationsOf(e), [conversation("a"), conversation("b")]);
+  assert.deepEqual(conversationsOf(event("laptop-session_20261021_152109", 1, 0)), []);
 });

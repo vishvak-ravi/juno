@@ -54,6 +54,7 @@ from annotate.store import read_record
 from keypoints.derive import Moment, row_indices, session_moments
 from keypoints.questions import QuestionSet
 from keypoints.store import session_answers
+from server.hooks import merge_moments, prompt_moments, read_prompts
 from server.routes.paging import DeviceFilter, Page
 from server.worker import Priority
 
@@ -180,7 +181,8 @@ def session_events(directory: Path, chunk_size: int, keypoints: KeypointsConfig,
     """The events of one session, by row; none if it has no rows.
 
     Moments are found over every answered row, deleted ones included, so
-    deleting an event does not start a new moment at the next one.
+    deleting an event does not start a new moment at the next one. The prompts
+    Claude Code reported on this device are added where they fall (``server.hooks``).
     """
     try:
         aggregations = read_aggregations(directory)
@@ -191,7 +193,9 @@ def session_events(directory: Path, chunk_size: int, keypoints: KeypointsConfig,
     edits = read_edits(directory).rows
     captions = model_captions(directory, aggregations, chunk_size)
     answers = session_answers(directory)
-    moments = session_moments(answers, questions, keypoints.moment_on, keypoints.moment_off)
+    moments = merge_moments(
+        session_moments(answers, questions, keypoints.moment_on, keypoints.moment_off),
+        prompt_moments(aggregations, read_prompts(directory.parent.parent)))
     events = {}
     for row, aggregation in enumerate(aggregations):
         edit = edits.get(row, EventEdit())

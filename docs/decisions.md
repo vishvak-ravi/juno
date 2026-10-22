@@ -2,6 +2,35 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-22: Claude Code reports its own prompts
+
+Outside "Capture follows Tada", like Jev's moments. Claude Code's
+UserPromptSubmit hook, of the `http` type, posts each prompt's hook input to
+`POST /hooks/claude-code?device=<id>`; `python -m capture.claude_hook install`
+writes it into `~/.claude/settings.json` with the address and device id the
+recorder uploads with. The body says nothing of where Claude Code runs, so the
+hook interpolates `CLAUDE_CODE_ENTRYPOINT` and `CLAUDE_CODE_REMOTE` into two
+headers. The server keeps the session id and cwd, never the prompt's text
+(the recorder already has the keystrokes), stamped with its own clock on
+arrival; at read time the prompt is an `agent_prompt_submitted` moment on the
+device's row whose span holds that time, replacing Jev's guess of that type on
+that row, and carries `conversation` so the client can run
+`claude --resume <session id>` in a new Ghostty window in that cwd.
+
+The route keeps only prompts typed into Claude Code in a terminal
+(`entrypoint` `cli`, not remote, not a subagent), the one origin the button
+can reopen; `server.routes.hooks.unsupported` names each origin left out. A
+cloud session's conversation and cwd are not on the device; the Claude
+desktop app, IDE extensions and the SDK (`claude -p`) reopen their sessions in
+their own window, or are scripts; claude.ai and Claude app chats run no hooks.
+Each of these needs its own way back to the conversation before it is kept.
+The route answers 204 with no body whatever it decides, and the hook waits
+`claude_hook.timeout_seconds` at most, so a slow or absent server delays a
+prompt by that much and never blocks it.
+
+A prompt sent while nothing was recorded on its device is stored and shown
+on no event.
+
 ## 2026-10-21: Jev indexes the timeline
 
 An exploration, outside "Capture follows Tada": Tada has no indices or

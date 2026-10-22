@@ -12,14 +12,26 @@ from keypoints.questions import QuestionSet
 from keypoints.store import DETECTOR, Answer, ChoiceAnswer, NoulAnswer, ScoreAnswer
 
 
+class Conversation(BaseModel):
+    """The assistant conversation a moment happened in, as its own hook reported it."""
+    # The ``agent_harness`` option of the assistant, e.g. ``claude_code``.
+    harness: str
+    # The assistant's id of the conversation, e.g. what ``claude --resume`` takes.
+    session_id: str
+    # The directory the conversation runs in, on the device of the moment's event.
+    cwd: str
+
+
 class Moment(BaseModel):
     # A moment question id of ``questions.json``.
     type: str
     probability: float
-    # What produced it.
+    # What produced it: ``jev``, or an assistant's hook such as ``claude_code_hook``.
     detector: str
     # The option of the moment's label Choice, e.g. which assistant; None without one.
     label: Optional[str] = None
+    # Set on moments an assistant's hook reported; None on Jev's.
+    conversation: Optional[Conversation] = None
 
 
 def probability(answer: Answer) -> float:

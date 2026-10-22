@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar shaded by activity, in one of three views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour and by moment, with a rail of the day's moments folded into the pane's left edge; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar below it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
+| Timeline | one day, the day picked from a calendar shaded by activity, in one of three views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour and by moment, with a rail of the day's moments folded into the pane's left edge; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, a button per Claude Code conversation its moments carry, screenshot, inputs; a bar below it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -41,6 +41,7 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | A session's events | `GET /sessions/{id}`, the first time the session is opened |
 | A session's light | green when `GET /control` reports a device recording that session |
 | An event's chips | its `inputs` counted by type: key presses, clicks, scrolls; key and button releases and pointer moves are left out of the chips and listed folded in the event's detail |
+| A conversation's button | each distinct `conversation` among the event's `moments`, drawn when the event's `device_id` is this computer's (`resolve_device_id`, asked of the checkout's Python at startup); on another device's event, a line naming that device. Pressing it runs `claude --resume <session_id>` in a new Ghostty window in `cwd` (`src/main/terminal.js`), without the variables of a Claude Code the app was started from |
 | An input's time | its `timestamp` minus its event's `timestamp` |
 | A run | `GET /predictions?limit=100` rows grouped by `run`; its time read from the run's name (`YYYYMMDD_HHMMSS`); mean reward over the rows with a reward; failed rows are those with an `error` |
 | Model names | `predictor.model` and `grader.model` without the provider before the first `/` |

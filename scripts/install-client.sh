@@ -4,7 +4,7 @@
 # Clones the repository into $JUNO_DIR (default ~/juno), installs the client's
 # dependencies (the Electron app and the recorder it starts), asks for the
 # capture permissions, offers the passive agent module on macOS, asks for the
-# server's address, and prints the command that
+# server's address, offers the Claude Code prompt hook, and prints the command that
 # starts the client. The client is described in docs/client.md, the recorder
 # and its permissions in docs/capture.md.
 set -euo pipefail
@@ -130,6 +130,14 @@ default_id=$(uv run python -c 'from juno.config import resolve_device_id; print(
 device_id=$(ask "Name for this computer on the server (lowercase letters and digits) [$default_id]: ")
 set_env JUNO_DEVICE_ID "${device_id:-$default_id}"
 set_env JUNO_PASSIVE_AGENT "$passive_agent"
+
+# The Claude Code prompt hook (python -m capture.claude_hook, docs/decisions.md).
+if command -v claude >/dev/null; then
+  echo
+  if confirm "Mark each Claude Code prompt typed on this computer in the timeline, with a button that reopens the conversation?"; then
+    uv run python -m capture.claude_hook install
+  fi
+fi
 
 cat <<MESSAGE
 
