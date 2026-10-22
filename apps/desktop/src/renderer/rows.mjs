@@ -89,13 +89,30 @@ export function dayLabel(start, now = new Date()) {
   return back === 0 ? "Today" : back === 1 ? "Yesterday"
     : start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
-// A local day as the value of a date input, YYYY-MM-DD, and back.
-export const dayValue = (date) => [date.getFullYear(), date.getMonth() + 1, date.getDate()]
-  .map((n, i) => String(n).padStart(i ? 2 : 4, "0")).join("-");
-export function dayFromValue(value) {
-  const [year, month, date] = value.split("-").map(Number);
-  return new Date(year, month - 1, date);
+// The six weeks a month's calendar shows, as 42 local midnights from the first
+// `weekStart` (0 Sunday … 6 Saturday) on or before the first of the month.
+export function monthGrid(year, month, weekStart = 0) {
+  const lead = (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
+  return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - lead + i));
 }
+// The grid's days as GET /events/activity edges: each midnight and the one after the last day.
+export const gridEdges = (days) => [...days, new Date(days[days.length - 1].getFullYear(), days[days.length - 1].getMonth(),
+                                                     days[days.length - 1].getDate() + 1)].map((d) => d.getTime() / 1000);
+// How dark a day is drawn, 0 to 1, by its count against the busiest day shown;
+// square-rooted so a quiet day still shows beside a busy one.
+export const shade = (count, max) => (count > 0 && max > 0 ? Math.sqrt(count / max) : 0);
+// The first day of the week in `locale`, 0 Sunday … 6 Saturday; Sunday where unknown.
+export function weekStart(locale) {
+  try {
+    const info = new Intl.Locale(locale);
+    return ((info.getWeekInfo?.() ?? info.weekInfo).firstDay) % 7;
+  } catch {
+    return 0;
+  }
+}
+// The seven weekday initials from `start`, in `locale`.
+export const weekdays = (start, locale) => Array.from({ length: 7 }, (_, i) =>
+  new Date(2024, 0, 7 + ((start + i) % 7)).toLocaleDateString(locale, { weekday: "narrow" }));
 
 // "4 PM": the hour starting at `seconds`.
 export const hourLabel = (seconds) => new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "numeric" });

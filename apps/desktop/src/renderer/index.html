@@ -61,13 +61,27 @@
                border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; }
   button.more { display: inline-flex; align-items: center; gap: 6px; height: 32px; margin: 8px 12px; padding: 0 12px; border: 1px solid var(--field);
                 border-radius: 8px; background: var(--bg); font-size: 13px; }
-  /* The day of the timeline: a button over its date input, whose calendar the button opens. */
+  /* The day of the timeline: a button that opens the calendar below it. Each day of the
+     calendar is tinted by how much was recorded on it, --shade from 0 to 1. */
   .day { position: relative; display: inline-flex; }
   .day > button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--field);
                   border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; white-space: nowrap; }
-  .day > input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; border: 0; }
-  .day > input.shown { position: static; opacity: 1; pointer-events: auto; height: 32px; padding: 0 10px; border: 1px solid var(--field);
-                       border-radius: 8px; background: var(--bg); font-size: 13px; }
+  .calendar { position: absolute; top: calc(100% + 6px); right: 0; z-index: 2; width: 256px; padding: 10px; border: 1px solid var(--field);
+              border-radius: 10px; background: var(--bg); box-shadow: 0 8px 24px rgba(23, 25, 28, .18); }
+  .calendar > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .calendar > header b { font-size: 13px; font-weight: 600; }
+  .calendar button.step { width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; display: flex; align-items: center; justify-content: center; }
+  .calendar button.step:hover:not(:disabled) { background: var(--hover); }
+  .calendar .weekdays, .calendar .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .calendar .weekdays span { text-align: center; font-size: 11px; color: var(--faint); padding: 2px 0 4px; }
+  .calendar .grid { min-height: 190px; align-content: start; }
+  .calendar .grid > .status { grid-column: 1 / -1; padding: 8px 0; }
+  .calendar .grid button { height: 30px; border: 0; border-radius: 6px; font-size: 12px; font-variant-numeric: tabular-nums;
+                           background: color-mix(in srgb, var(--ink) calc(var(--shade, 0) * 40%), transparent); }
+  .calendar .grid button:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--field); }
+  .calendar .grid button.other { color: var(--faint); }
+  .calendar .grid button.today { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .calendar .grid button.picked { box-shadow: inset 0 0 0 2px var(--ink); }
 
   /* The timeline's view switch: two buttons in one outline, the shown one filled. */
   .views { display: inline-flex; padding: 2px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); }
@@ -215,11 +229,10 @@
   details.folded > summary { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--faint); padding: 4px 0; }
   details.folded[open] > summary svg { transform: rotate(90deg); }
   details.folded .inputs { margin-top: 8px; color: var(--dim); }
-  /* The bar above an event that steps through its session: the buttons stay put, only the count changes. */
+  /* The bar below an event that steps through its session: the buttons stay put, only the count changes. */
   nav.steps { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 48px;
-              border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+              border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
   nav.steps button.more { margin: 0; }
-  nav.steps + .scroll { padding-top: 28px; }
 
   .scores { display: grid; grid-template-columns: 88px minmax(0, 1fr) 40px; gap: 10px 14px; align-items: center; font-size: 13px; max-width: 520px; margin-top: 4px; }
   .scores > span:first-child { font-weight: 500; }
@@ -362,6 +375,8 @@
                  { type: "mouse_up", timestamp: 1791100200.7, button: "Button.left", x: 640, y: 400 }],
         caption: "Clicks into the terminal." }],
       first_id: "laptop-session_20261003_091500-000000", last_id: "laptop-session_20261003_091500-000001", has_more: false },
+    "/events/activity": { edges: [], counts: [0, 0, 0, 0, 1, 0, 0, 3, 0, 5, 2, 0, 0, 0, 0, 4, 1, 0, 6, 0, 0,
+                                              2, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     "/predictions": { object: "list", data: [
       { id: "laptop-session_20261003_091500-20261004_100000-0000", device_id: "laptop", session_id: "laptop-session_20261003_091500",
         run: "20261004_100000", index: 0, graded_at: 1791200000, dataset: "datasets/20261004_095500.jsonl",

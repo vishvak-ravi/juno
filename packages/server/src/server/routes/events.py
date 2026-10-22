@@ -17,8 +17,13 @@ each chunk the moment its last row arrives, unless the request says
 ``PATCH`` sets a caption of the user's own over the model's; ``DELETE`` hides
 the event. Both are kept in the session's ``event_edits.json``: the row, its
 screenshot and its annotation stay on disk.
+
+``GET /events/activity?edges=t0,t1,...`` counts the events in each span between
+consecutive edges (unix seconds, ascending), for a calendar or any other
+overview of when things were recorded.
 """
 
+import bisect
 import json
 import logging
 import os
@@ -249,6 +254,48 @@ def list_events(
                 first_id=data[0].id if data else None,
                 last_id=data[-1].id if data else None,
                 has_more=len(events) > limit)
+
+
+class Activity(BaseModel):
+    edges: list[float]
+    counts: list[int]
+
+
+# The most edges one request may count between.
+MAX_EDGES = 400
+
+
+def parse_edges(text: str) -> list[float]:
+    """The edges of ``GET /events/activity``: at least two unix seconds, ascending."""
+    try:
+        edges = [float(part) for part in text.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="edges must be unix seconds separated by commas")
+    if len(edges) < 2 or len(edges) > MAX_EDGES:
+        raise HTTPException(status_code=400, detail=f"edges must be 2 to {MAX_EDGES} values")
+    if any(b <= a for a, b in zip(edges, edges[1:])):
+        raise HTTPException(status_code=400, detail="edges must be ascending")
+    return edges
+
+
+def count_between(timestamps: list[float], edges: list[float]) -> list[int]:
+    """How many of the sorted ``timestamps`` fall in each ``[edges[i], edges[i + 1])``."""
+    at = [bisect.bisect_left(timestamps, edge) for edge in edges]
+    return [b - a for a, b in zip(at, at[1:])]
+
+
+@router.get("/activity")
+def activity(
+    request: Request,
+    edges: Annotated[str, Query(description="Unix seconds, ascending, separated by commas")],
+    device: DeviceFilter = None,
+) -> Activity:
+    """How many events fall in each span between consecutive edges, every device's or one device's."""
+    state = request.app.state
+    bounds = parse_edges(edges)
+    timestamps = sorted(event.timestamp for directory in session_dirs(state.devices_dir, device)
+                        for event in session_events(directory, state.annotate.chunk_size).values())
+    return Activity(edges=bounds, counts=count_between(timestamps, bounds))
 
 
 @router.get("/{event_id}")

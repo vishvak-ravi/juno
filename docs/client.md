@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar, in one of two views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour; **Sessions**, the day's sessions, newest first, a session fetching its events when opened | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
+| Timeline | one day, the day picked from a calendar shaded by activity, in one of two views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour; **Sessions**, the day's sessions, newest first, a session fetching its events when opened | one event: caption, screenshot, inputs; a bar below it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -30,6 +30,7 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 
 | Shown | From |
 |---|---|
+| A day's tint in the calendar | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
 | A day, linear | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it; the next page is fetched when "Earlier events" scrolls into view |
 | An hour mark | wherever the local hour of an event differs from the one above it |
 | A device's colour | its place among the devices of `GET /control` in id order, then devices not there as they are drawn; one of six |
