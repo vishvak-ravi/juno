@@ -75,6 +75,8 @@ def patch_server(body: ServerPatch, request: Request) -> ControlView:
         state.server.annotate = body.annotate
     state = change_state(request.app.state.control_file, change)
     request.app.state.worker.set_annotating(state.server.annotate)
+    if request.app.state.detector is not None:
+        request.app.state.detector.set_detecting(state.server.annotate)
     return view(request, state)
 
 

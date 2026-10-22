@@ -161,6 +161,23 @@ class AnnotateConfig(Section):
     tail_idle_seconds: float = 300.0
 
 
+class KeypointsConfig(Section):
+    # Jev, TypeSafe's System One model, asked the questions in
+    # ``keypoints/questions.json`` about every row of a chunk once the chunk is
+    # annotated. Its key is TYPESAFE_API_KEY. Runs under the annotate switch.
+    enabled: bool = True
+    model: str = "jev-1.14.0"
+    # Rows asked about at once.
+    max_concurrency: int = 8
+    # A moment starts at a probability of at least moment_on; a moment of the
+    # same type that stays on screen starts again only after the probability
+    # has dropped below moment_off.
+    moment_on: float = 0.7
+    moment_off: float = 0.4
+    # Seconds per bucket of ``GET /indices`` when the request names none.
+    bucket_seconds: float = 300.0
+
+
 class GradeConfig(Section):
     # The judge that scores a candidate sequence of action captions against a
     # reference one (``grade``); Tada's default reward_llm.
@@ -212,6 +229,7 @@ class Config(Section):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     annotate: AnnotateConfig = Field(default_factory=AnnotateConfig)
+    keypoints: KeypointsConfig = Field(default_factory=KeypointsConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
     grade: GradeConfig = Field(default_factory=GradeConfig)
     control: ControlConfig = Field(default_factory=ControlConfig)

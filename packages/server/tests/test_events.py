@@ -93,7 +93,7 @@ def test_an_event_shows_its_inputs_screenshot_and_nothing_of_the_recorders_bookk
             "screenshot_url": f"/events/{LAPTOP}-000000/screenshot",
             "inputs": [{"type": "mouse_down", "timestamp": 1000.5, "button": "left",
                         "x": 3, "y": 4}],
-            "caption": None}
+            "caption": None, "indices": {}, "moments": []}
         assert client.get(event["screenshot_url"]).content == png()
 
 

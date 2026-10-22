@@ -1,0 +1,97 @@
+{
+  "screen": {
+    "sensitivity": {
+      "type": "score",
+      "instructions": "How private is the most private information visible in `screenshot` or written in `caption`? Judge what is on screen, whether or not the user is typing, clicking or scrolling.",
+      "criteria": [
+        "Nothing private: code, documentation, logs, public web pages, the user's own notes about work.",
+        "Personal but low harm: the user's own inbox list, calendar or file names.",
+        "Personal data about a real person: a home address, phone number or personal email next to a name; private message bodies; a lease, offer letter, bank or medical document.",
+        "A secret shown in full: a password, payment card number, card security code, API key or token, or government ID number."
+      ]
+    },
+    "agent": {
+      "type": "noul",
+      "instructions": "Is an AI assistant the main thing in focus in `screenshot`? Answer the same whether the user is typing to it, reading it, or idle in front of it.",
+      "criteria": {
+        "true": "The focused window, pane or tab is an AI assistant's conversation or prompt: Claude Code, Codex, ChatGPT, Hermes, Juno's chat, or another.",
+        "false": "The focused area is a shell, editor, web page or app with no AI assistant, even if an assistant is open in a pane or window not in focus."
+      }
+    },
+    "agent_harness": {
+      "type": "choice",
+      "instructions": "Which AI assistant is in focus in `screenshot`?",
+      "criteria": {
+        "claude_code": "Claude Code in a terminal: a '>' prompt box, status lines such as 'auto mode on', or a gerund like 'Thinking…' while it works.",
+        "codex": "OpenAI Codex, in a terminal or its own app.",
+        "chatgpt": "ChatGPT in a browser tab or its app.",
+        "hermes": "Hermes Agent by Nous Research, run as `hermes` in a terminal.",
+        "juno_chat": "Juno's own chat window.",
+        "other": "An AI assistant not in this list."
+      }
+    },
+    "agent_needs_input": {
+      "type": "noul",
+      "instructions": "Is an AI assistant in `screenshot` stopped and waiting for the user to approve, choose or answer?",
+      "criteria": {
+        "true": "A permission prompt, a numbered or arrow-key menu, or a hint such as 'Enter to confirm · Esc to cancel'.",
+        "false": "The assistant is working, has finished its reply, or is waiting for an ordinary new message."
+      }
+    },
+    "error_shown": {
+      "type": "noul",
+      "instructions": "Is a failure shown in `screenshot` or described in `caption`?",
+      "criteria": {
+        "true": "An error message, a failed test, a refused connection, rejected input, or permission denied is on screen.",
+        "false": "Nothing on screen reports a failure, including warnings the user is only reading about in documentation."
+      }
+    }
+  },
+  "action": {
+    "agent_prompt_submitted": {
+      "type": "noul",
+      "instructions": "Do `inputs` show the user sending a message to an AI assistant in this row, by pressing Enter or clicking Send in its input box?",
+      "criteria": {
+        "true": "The user's own Enter or Send in this row sends the message to the assistant.",
+        "false": "Typing without sending, a line break inside a longer prompt, Enter in a plain shell, a message to a person, or an assistant's earlier message merely on screen."
+      }
+    },
+    "code_landed": {
+      "type": "noul",
+      "instructions": "Do `inputs` show the user committing, pushing, opening a pull request or merging one in this row?",
+      "criteria": {
+        "true": "The user runs `git commit` or `git push`, or clicks a Create pull request or Merge button, in this row.",
+        "false": "Reading git log, a diff, or a pull request that was already merged, even if it is on screen."
+      }
+    },
+    "message_sent": {
+      "type": "noul",
+      "instructions": "Do `inputs` show the user sending a message to another person in this row?",
+      "criteria": {
+        "true": "The user clicks Send in an email, presses Enter in a chat with a person, or posts a comment on GitHub or a document, in this row.",
+        "false": "A message to an AI assistant, a draft still being written, or a sent message merely on screen."
+      }
+    },
+    "web_search_submitted": {
+      "type": "noul",
+      "instructions": "Do `inputs` show the user submitting a web search in this row?",
+      "criteria": {
+        "true": "The user presses Enter in a search engine's box or a browser address bar holding a search query, in this row.",
+        "false": "Typing a web address, searching inside a page, file or app, or search results merely on screen."
+      }
+    }
+  },
+  "indices": {
+    "sensitivity": "sensitivity",
+    "agent": "agent",
+    "error": "error_shown"
+  },
+  "moments": {
+    "state": ["agent_needs_input", "error_shown"],
+    "action": ["agent_prompt_submitted", "code_landed", "message_sent", "web_search_submitted"]
+  },
+  "labels": {
+    "agent_needs_input": {"choice": "agent_harness", "when": "agent"},
+    "agent_prompt_submitted": {"choice": "agent_harness", "when": "agent"}
+  }
+}

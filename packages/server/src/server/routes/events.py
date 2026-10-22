@@ -32,6 +32,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 
+from juno.config import KeypointsConfig
 from juno.events import EVENT_ID, event_id_of
 from juno.sessions import (
     AGGREGATIONS_FILE,
@@ -43,7 +44,11 @@ from juno.sessions import (
     session_dirs,
     session_id_of,
 )
+from annotate.request import framed_rows
 from annotate.store import read_record
+from keypoints.derive import Moment, row_indices, session_moments
+from keypoints.questions import QuestionSet
+from keypoints.store import session_answers
 from server.routes.paging import DeviceFilter, Page
 from server.worker import Priority
 
@@ -108,6 +113,10 @@ class Event(BaseModel):
     inputs: list[Input]
     # The user's caption if they set one, else the model's; None until annotated.
     caption: Optional[str]
+    # Index name -> 0..1 for this row (``keypoints.derive``); empty until Jev has answered.
+    indices: dict[str, float] = {}
+    # The moments starting at this row; the timeline draws them as dividers.
+    moments: list[Moment] = []
 
 
 class EventEdit(BaseModel):
@@ -143,36 +152,31 @@ def write_edits(directory: Path, edits: SessionEdits) -> None:
 
 def model_captions(directory: Path, aggregations: list[Aggregation],
                    chunk_size: int) -> dict[int, str]:
-    """The model's caption of each row its annotations cover, by row.
-
-    Frame ``f`` of a chunk's annotation is the ``f``-th of the chunk's rows
-    that have a screenshot, ordered by screenshot time: the rows
-    ``annotate.request.build_request`` sends, in the order napsack's
-    ``sanitize_records`` puts them.
-    """
+    """The model's caption of each row its annotations cover, by row (frames as in ``framed_rows``)."""
     captions = {}
-    for start in range(0, len(aggregations), chunk_size):
+    for chunk in range(-(-len(aggregations) // chunk_size)):
         try:
-            record = read_record(directory, start // chunk_size)
+            record = read_record(directory, chunk)
         except ValidationError as exc:
             logger.warning("skipping the annotation of %s chunk %d: %s",
-                           session_id_of(directory), start // chunk_size, exc)
+                           session_id_of(directory), chunk, exc)
             continue
         if record is None or record.annotation is None:
             continue
-        framed = sorted((row for row in range(start, min(start + chunk_size, len(aggregations)))
-                         if aggregations[row].screenshot_path is not None
-                         and aggregations[row].screenshot_timestamp is not None),
-                        key=lambda row: aggregations[row].screenshot_timestamp)
+        framed = framed_rows(aggregations, chunk, chunk_size)
         for action in record.annotation.actions:
             for row in framed[action.start - 1:action.end]:
                 captions[row] = action.caption
     return captions
 
 
-def session_events(directory: Path, chunk_size: int,
-                   include_deleted: bool = False) -> dict[int, Event]:
-    """The events of one session, by row; none if it has no rows."""
+def session_events(directory: Path, chunk_size: int, keypoints: KeypointsConfig,
+                   questions: QuestionSet, include_deleted: bool = False) -> dict[int, Event]:
+    """The events of one session, by row; none if it has no rows.
+
+    Moments are found over every answered row, deleted ones included, so
+    deleting an event does not start a new moment at the next one.
+    """
     try:
         aggregations = read_aggregations(directory)
     except FileNotFoundError:
@@ -181,6 +185,8 @@ def session_events(directory: Path, chunk_size: int,
     device_id = session_id.split("-", 1)[0]
     edits = read_edits(directory).rows
     captions = model_captions(directory, aggregations, chunk_size)
+    answers = session_answers(directory)
+    moments = session_moments(answers, questions, keypoints.moment_on, keypoints.moment_off)
     events = {}
     for row, aggregation in enumerate(aggregations):
         edit = edits.get(row, EventEdit())
@@ -193,7 +199,9 @@ def session_events(directory: Path, chunk_size: int,
                             if aggregation.screenshot_path else None),
             inputs=[{"type": e.event_type, "timestamp": e.timestamp, **e.details}
                     for e in aggregation.events],
-            caption=edit.caption if edit.caption is not None else captions.get(row))
+            caption=edit.caption if edit.caption is not None else captions.get(row),
+            indices=row_indices(answers.get(row, {}), questions),
+            moments=moments.get(row, []))
     return events
 
 
@@ -206,7 +214,8 @@ def locate(devices_dir: Path, event_id: str) -> tuple[Path, int]:
 def find(request: Request, event_id: str, include_deleted: bool = False) -> Event:
     state = request.app.state
     directory, row = locate(state.devices_dir, event_id)
-    event = session_events(directory, state.annotate.chunk_size, include_deleted).get(row)
+    event = session_events(directory, state.annotate.chunk_size, state.keypoints,
+                           state.questions, include_deleted).get(row)
     if event is None:
         raise HTTPException(status_code=404, detail=f"no event with id {event_id}")
     return event
@@ -229,7 +238,8 @@ def list_events(
     """Events of every device, newest first by default, optionally of one device or time range."""
     state = request.app.state
     events = [event for directory in session_dirs(state.devices_dir, device)
-              for event in session_events(directory, state.annotate.chunk_size).values()
+              for event in session_events(directory, state.annotate.chunk_size,
+                                          state.keypoints, state.questions).values()
               if (since is None or event.timestamp >= since)
               and (until is None or event.timestamp <= until)]
     events.sort(key=sort_key, reverse=order == "desc")

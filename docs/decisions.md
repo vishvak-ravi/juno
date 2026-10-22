@@ -2,6 +2,30 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-21: Jev indexes the timeline
+
+An exploration, outside "Capture follows Tada": Tada has no indices or
+moments. After a chunk is annotated, every row of it is one request to Jev
+(TypeSafe's System One model, `keypoints.model`): the row's screenshot with
+the pointer drawn in, its input text and its caption, against the questions in
+`packages/server/src/keypoints/questions.json`. A row with no key press, click
+or scroll is asked the `screen` questions only. The answers are stored per
+chunk under `<session>/detections/jev/`, with the model and a hash of the
+questions file; indices and moments are worked out from them when read
+(`keypoints.derive`), so `moment_on`/`moment_off` change what is shown without
+asking again. Changing `questions.json` does not re-ask stored rows; deleting a
+session's `detections/jev/` does.
+
+Every question goes in every row's request for now, as a shotgun: the views
+(dividers in the linear timeline, the indices chart) are for finding out which
+answers are worth keeping. Screenshots go to TypeSafe as they are, which the
+"Dreamer-ready" image support of the API accepts but does not promise to judge
+well. Sanitization before sending is out of scope here.
+
+`engagement` and `friction` from the first drafts are left out: which inputs a
+row has is in its events, and an error on screen is its own Noul
+(`error_shown`).
+
 ## 2026-10-21: The annotator is a litellm model string and an address
 
 `annotate.model` is any litellm model string and `annotate.api_base` the server

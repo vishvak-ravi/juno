@@ -105,6 +105,23 @@ annotate:
   # last full chunk are annotated.
   tail_idle_seconds: 300
 
+keypoints:
+  # Jev, TypeSafe's System One model, asked the questions in
+  # packages/server/src/keypoints/questions.json about every row of a chunk once
+  # the chunk is annotated (key TYPESAFE_API_KEY in .env). Every screenshot then
+  # goes to TypeSafe. Runs under the annotate switch.
+  enabled: true
+  model: jev-1.14.0
+  # Rows asked about at once.
+  max_concurrency: 8
+  # A moment starts at a probability of at least moment_on; a moment of the
+  # same type that stays on screen starts again only after the probability has
+  # dropped below moment_off.
+  moment_on: 0.7
+  moment_off: 0.4
+  # Seconds per bucket of GET /indices when the request names none.
+  bucket_seconds: 300
+
 predict:
   # Next-action prediction (`POST /predictions`); the defaults are Tada's.
   # Annotated actions the model is shown; a prediction needs at least this many.

@@ -106,6 +106,19 @@ def build_requests(aggregations: Sequence[Aggregation],
             yield request
 
 
+def framed_rows(aggregations: Sequence[Aggregation], chunk: int, chunk_size: int) -> list[int]:
+    """The rows of chunk ``chunk`` that ``build_request`` makes frames of, in frame order.
+
+    Frame ``f`` of the chunk's request is row ``framed_rows(...)[f]``: the
+    chunk's rows that have a screenshot, ordered by screenshot time, the order
+    napsack's ``sanitize_records`` puts them in.
+    """
+    rows = range(chunk * chunk_size, min((chunk + 1) * chunk_size, len(aggregations)))
+    return sorted((row for row in rows if aggregations[row].screenshot_path is not None
+                   and aggregations[row].screenshot_timestamp is not None),
+                  key=lambda row: aggregations[row].screenshot_timestamp)
+
+
 def chunk_request(aggregations: Sequence[Aggregation], chunk: int,
                   chunk_size: int = DEFAULT_CHUNK_SIZE,
                   prompt: Optional[str] = None) -> Optional[AnnotationRequest]:

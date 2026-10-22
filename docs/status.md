@@ -1,5 +1,13 @@
 # Status
 
+## 2026-10-21: Jev keypoints
+
+| Piece | State |
+|---|---|
+| Per-row Jev request, answers stored per chunk, scan worker under the annotate switch | done; tested with a fake Jev, the SDK request checked against a mock transport; not yet run against TypeSafe |
+| `indices` and `moments` on `GET /events` and `GET /sessions/{id}`; `GET /indices` | done; tested with a fake Jev |
+| Image token cost per row | not yet measured |
+
 ## 2026-10-21: Desktop window, timeline details
 
 | Piece | State |
