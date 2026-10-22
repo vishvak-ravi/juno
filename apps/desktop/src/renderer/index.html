@@ -11,18 +11,21 @@
     --hover: #eceee9; --current: #e4e7e1; --raw: #f3f4f1; --track: #e1e4df; --bar: #17191c; --bar-dim: #6a7075;
     --deck: #1b1e22; --deck-ink: #e9ece8; --deck-dim: #9aa09b; --deck-line: #2e3338; --deck-field: #262a2f; --deck-field-line: #3a4047;
     --green: #5fd68a; --amber: #e8b04b; --idle: #b8bdb9;
+    --tone-0: #3a7bd5; --tone-1: #c75b39; --tone-2: #8458c9; --tone-3: #23949f; --tone-4: #c2457f; --tone-5: #7d8a2e;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --side: #16181b; --bg: #1e2125; --ink: #e9ece8; --dim: #9aa09b; --faint: #7a8086; --line: #2e3338; --field: #3a4047;
       --hover: #262a2f; --current: #2e3338; --raw: #262a2f; --track: #2e3338; --bar: #e9ece8; --bar-dim: #9aa09b;
       --deck: #111316; --deck-line: #262a2f; --idle: #6a7075; color-scheme: dark;
+      --tone-0: #78a9ec; --tone-1: #e48a6c; --tone-2: #ac8ce4; --tone-3: #5ec2cc; --tone-4: #e57fae; --tone-5: #b3c160;
     }
   }
   :root[data-theme="dark"] {
     --side: #16181b; --bg: #1e2125; --ink: #e9ece8; --dim: #9aa09b; --faint: #7a8086; --line: #2e3338; --field: #3a4047;
     --hover: #262a2f; --current: #2e3338; --raw: #262a2f; --track: #2e3338; --bar: #e9ece8; --bar-dim: #9aa09b;
     --deck: #111316; --deck-line: #262a2f; --idle: #6a7075; color-scheme: dark;
+    --tone-0: #78a9ec; --tone-1: #e48a6c; --tone-2: #ac8ce4; --tone-3: #5ec2cc; --tone-4: #e57fae; --tone-5: #b3c160;
   }
 
   * { box-sizing: border-box; }
@@ -66,6 +69,12 @@
   .day > input.shown { position: static; opacity: 1; pointer-events: auto; height: 32px; padding: 0 10px; border: 1px solid var(--field);
                        border-radius: 8px; background: var(--bg); font-size: 13px; }
 
+  /* The timeline's view switch: two buttons in one outline, the shown one filled. */
+  .views { display: inline-flex; padding: 2px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); }
+  .views button { height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--dim); font-size: 13px; font-weight: 500; }
+  .views button:hover { color: var(--ink); }
+  .views button[aria-pressed="true"] { background: var(--current); color: var(--ink); }
+
   .row { display: block; width: 100%; text-align: left; border: 0; border-radius: 8px; background: none; padding: 10px 12px; }
   .row:hover, .group > summary:hover { background: var(--hover); }
   .row[aria-current="true"] { background: var(--current); }
@@ -102,6 +111,24 @@
   .spark { display: flex; align-items: flex-end; gap: 2px; height: 14px; max-width: 160px; }
   .spark span { flex: 0 1 6px; min-width: 1px; background: var(--bar); }
   .spark span.failed { background: var(--amber); }
+
+  /* The linear timeline: one line down the pane, a dot on it per event in its device's tone,
+     newest at the top; each hour's mark stays pinned while its events scroll under it. */
+  ol.rail { position: relative; padding-bottom: 8px; }
+  ol.rail::before { content: ""; position: absolute; top: 0; bottom: 0; left: 90px; width: 1px; background: var(--line); }
+  .row.tick, li.hour { display: grid; grid-template-columns: 64px 9px minmax(0, 1fr); gap: 0 10px; padding: 6px 12px; }
+  .row.tick .when { text-align: right; }
+  .row.tick .caption { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rail .node { width: 9px; height: 9px; margin-top: 6px; border-radius: 50%; background: var(--tone, var(--idle)); box-shadow: 0 0 0 3px var(--side); }
+  .row.tick:hover .node { box-shadow: 0 0 0 3px var(--hover); }
+  .row.tick[aria-current="true"] .node { box-shadow: 0 0 0 3px var(--current), 0 0 0 4px var(--tone, var(--idle)); }
+  .row.tick .device { display: block; font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--tone, var(--dim)); margin-bottom: 1px; }
+  li.hour { position: sticky; top: 0; z-index: 1; padding-top: 12px; padding-bottom: 6px; align-items: center;
+            background: linear-gradient(var(--side) 75%, transparent); }
+  li.hour .when { text-align: right; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+  li.hour .node { margin-top: 0; background: var(--side); border: 1.5px solid var(--faint); }
+  /* A session's summary carries its device's tone on its left edge. */
+  .group.session > summary { box-shadow: inset 3px 0 0 var(--tone, transparent); }
 
   /* Score bars and status lights. */
   .track { display: block; flex: 1 1 auto; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
@@ -345,6 +372,10 @@
         error: null, reward: 0.66, accuracy: 0.55, formatting: 0.78, validation_errors: [], unparsed_replies: [] }],
       first_id: "laptop-session_20261003_091500-20261004_100000-0000", last_id: "laptop-session_20261003_091500-20261004_100000-0000", has_more: false },
   };
+  EXAMPLE["/sessions"] = { object: "list", data: [
+    { id: "laptop-session_20261003_091500", device_id: "laptop", start: 1791100100.2, end: 1791100200.5, event_count: 2, captioned: 1 }],
+    first_id: "laptop-session_20261003_091500", last_id: "laptop-session_20261003_091500", has_more: false };
+  EXAMPLE["/sessions/laptop-session_20261003_091500"] = { ...EXAMPLE["/sessions"].data[0], events: EXAMPLE["/events"].data };
   EXAMPLE["/control"] = {
     server: { annotate: true, queue: { queued: { live: 1, requested: 0, backfill: 12 }, running: 2, paused_seconds: 0 } },
     devices: { laptop: { capture: true, reported: { capture: "running", session_id: "laptop-session_20261003_091500" },

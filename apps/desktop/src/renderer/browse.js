@@ -1,18 +1,20 @@
 // The timeline and predictions panes of the desktop browser, coarse to fine: the
-// left pane lists one day's sessions (or the graded runs), a session opens to its
-// events (a run to its predictions), and one event or prediction opens in full
-// in the detail pane. A screenshot is requested only when its event is opened; a
-// prediction's prompts and the predictor's screenshots only when it is opened and
-// their section expanded.
+// left pane lists one day's events on one line, newest first, or that day's
+// sessions, each fetched whole when opened (or the graded runs, a run opening to
+// its predictions), and one event or prediction opens in full in the detail pane.
+// A screenshot is requested only when its event is opened; a prediction's prompts
+// and the predictor's screenshots only when it is opened and their section expanded.
 import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
-  actions, chips, clock, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, groupSessions,
-  inputLine, liveSessions, matches, modelName, offset, shownInputs,
+  actions, chips, clock, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourLabel,
+  inputLine, liveSessions, matches, modelName, offset, railItems, shownInputs,
 } from "./rows.mjs";
 
 // The routes' largest page.
 const PAGE = 100;
+// The colours a device's events are drawn in (--tone-0 … in index.html).
+const TONES = 6;
 // Rows of an open session or run shown before its "more" button.
 const SHOWN_ROWS = 6;
 
@@ -45,9 +47,8 @@ const reselect = (root) => {
   if (again) select(again);
 };
 
-// One session or run: a summary that opens to its rows, the first SHOWN_ROWS
-// of them and a button for the rest.
-function group(key, summary, items, moreLabel) {
+// The rows of a session or run: the first SHOWN_ROWS of them and a button for the rest.
+function rowList(items, moreLabel) {
   const list = el("ul", { className: "rows" }, ...items);
   if (items.length > SHOWN_ROWS) {
     items.slice(SHOWN_ROWS).forEach((li) => { li.hidden = true; });
@@ -56,7 +57,11 @@ function group(key, summary, items, moreLabel) {
     reveal.onclick = () => { items.forEach((li) => { li.hidden = false; }); more.remove(); };
     list.append(more);
   }
-  const details = el("details", { className: "group" }, el("summary", {}, ...summary, icon("down")), list);
+  return list;
+}
+// One session or run: a summary that opens to `body`.
+function group(key, summary, body) {
+  const details = el("details", { className: "group" }, el("summary", {}, ...summary, icon("down")), body);
   details.dataset.key = key;
   return details;
 }
@@ -119,26 +124,60 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 
 // Timeline
 
-// The timeline pane: the day shown, a button that opens the calendar to pick
-// another, then that day's sessions oldest first. `control()` is the latest
-// GET /control, for which sessions are being recorded.
+// The views of the timeline pane, the one shown remembered on this computer.
+const VIEWS = [["linear", "Linear"], ["sessions", "Sessions"]];
+const VIEW_KEY = "juno.timeline.view";
+function savedView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "sessions" ? "sessions" : "linear";
+  } catch {
+    return "linear";
+  }
+}
+function saveView(view) {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Not remembered; the linear view shows next time.
+  }
+}
+
+// The timeline pane: the view switch, the day shown with a button that opens the
+// calendar to pick another, then that day in the view picked. `control()` is the
+// latest GET /control, for which sessions are being recorded and which devices
+// there are.
 export function timelinePane(pane, detail, control) {
-  let shown = null;
+  let view = savedView();
+  let date = new Date();
+  let shown = 0;  // which show() the list is filled by; an older one's result is dropped
   const label = el("span");
   const input = el("input", { type: "date", ariaLabel: "Day", ariaHidden: "true", tabIndex: -1, max: dayValue(new Date()) });
   const pick = el("button", { ariaLabel: "Pick a day" }, icon("calendar", 14), label);
+  const switches = VIEWS.map(([value, text]) => {
+    const button = el("button", { textContent: text });
+    button.onclick = () => {
+      if (view === value) return;
+      view = value;
+      saveView(view);
+      show();
+    };
+    button.dataset.view = value;
+    return button;
+  });
   const list = el("div", { className: "scroll" });
-  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }), el("span", { className: "day" }, pick, input)), list);
-  const show = (date) => {
-    shown = date;
+  pane.replaceChildren(el("header", {},
+    el("span", { className: "views", role: "group", ariaLabel: "Timeline view" }, ...switches),
+    el("span", { className: "day" }, pick, input)), list);
+  const tone = tones(Object.keys(control()?.devices ?? {}));
+  const show = () => {
+    const mine = ++shown;
     const { since, until, start } = day(date);
     label.textContent = dayLabel(start);
     input.value = dayValue(start);
-    const live = liveSessions(control());
-    load(list, async () => (await groupedPages(
-      `/events?since=${since}&until=${until}&order=asc&limit=${PAGE}`, groupSessions,
-      (session) => sessionGroup(session, live, detail), "Nothing recorded this day.")).nodes,
-    () => shown === date);
+    switches.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
+    load(list, () => (view === "linear" ? linearView(since, until, detail, tone)
+                                        : sessionsView(since, until, detail, liveSessions(control()), tone)),
+         () => shown === mine);
   };
   // The calendar is the date input's own, opened from the button; where it cannot
   // be opened that way, the input itself takes the button's place.
@@ -153,63 +192,174 @@ export function timelinePane(pane, detail, control) {
       input.focus();
     }
   };
-  input.onchange = () => { if (input.value) show(dayFromValue(input.value)); };
-  show(new Date());
+  input.onchange = () => {
+    if (!input.value) return;
+    date = dayFromValue(input.value);
+    show();
+  };
+  show();
 }
 
-function sessionGroup(session, live, detail) {
-  const n = session.events.length;
+// A device's colour, the same in both views: the devices known to GET /control
+// first, in id order, then the others as they are drawn.
+function tones(known) {
+  const index = new Map([...known].sort().map((id, n) => [id, n]));
+  return (id) => {
+    if (!index.has(id)) index.set(id, index.size);
+    return `var(--tone-${index.get(id) % TONES})`;
+  };
+}
+
+// A paged list that fetches the next page when its button scrolls into view, or is pressed.
+function pager(path, add, label) {
+  const more = el("button", { className: "more", textContent: label, hidden: true });
+  const next = (page) => {
+    add(page);
+    more.hidden = !page.has_more;
+    more.onclick = async () => {
+      more.disabled = true;
+      try {
+        next(await api(`${path}&after=${encodeURIComponent(page.last_id)}`));
+      } catch (error) {
+        more.before(status(messageOf(error)));
+      }
+      more.disabled = false;
+    };
+  };
+  new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting && !more.hidden && !more.disabled) more.click();
+  }).observe(more);
+  return { more, next };
+}
+
+// The linear view: every event of the day on one line, newest first, an hour
+// mark where the hour changes and the device named where it changes. Opened
+// events step through the rows fetched, earlier and later.
+async function linearView(since, until, detail, tone) {
+  const path = `/events?since=${since}&until=${until}&order=desc&limit=${PAGE}`;
+  const rows = [];  // newest first
+  const sequence = { events: () => rows.toReversed(), note: () => null };
+  const rail = el("ol", { className: "rail" });
+  const { more, next } = pager(path, (page) => {
+    rail.append(...railItems(page.data, rows.at(-1)).map((item) =>
+      (item.hour != null ? hourMark(item.hour) : railRow(item, sequence, detail, tone))));
+    rows.push(...page.data);
+    reselect(rail);
+  }, "Earlier events");
+  const first = await api(path);
+  if (!first.data.length) return [status("Nothing recorded this day.")];
+  next(first);
+  return [rail, more];
+}
+
+const hourMark = (hour) => el("li", { className: "hour" },
+  el("span", { className: "when", textContent: hourLabel(hour) }), el("span", { className: "node" }));
+
+function railRow({ event, named }, sequence, detail, tone) {
+  const button = el("button", { className: "row tick" },
+    el("span", { className: "when", textContent: clock(event.timestamp, true) }),
+    el("span", { className: "node" }),
+    el("span", { className: "body" },
+      ...(named ? [el("span", { className: "device", textContent: event.device_id })] : []),
+      ...eventLines(event)));
+  button.style.setProperty("--tone", tone(event.device_id));
+  button.dataset.key = event.id;
+  button.onclick = () => showEvent(sequence, event.id, detail);
+  return el("li", {}, button);
+}
+
+// An event's caption and its chips, as a row shows them.
+const eventLines = (event) => [
+  el("span", { className: event.caption == null ? "caption none" : "caption", textContent: event.caption ?? "No caption yet" }),
+  el("span", { className: "chips" }, ...chips(event).map((chip) => el("span", { className: "chip", textContent: chip })))];
+
+// The sessions view: the day's sessions (GET /sessions), newest first; a session's
+// events (GET /sessions/{id}) are fetched the first time it is opened.
+async function sessionsView(since, until, detail, live, tone) {
+  const path = `/sessions?since=${since}&until=${until}&limit=${PAGE}`;
+  const list = el("div", { className: "groups" });
+  const { more, next } = pager(path, (page) => {
+    list.append(...page.data.map((session) => sessionGroup(session, live, detail, tone)));
+    reselect(list);
+  }, "Earlier sessions");
+  const first = await api(path);
+  if (!first.data.length) return [status("Nothing recorded this day.")];
+  next(first);
+  return [list, more];
+}
+
+function sessionGroup(session, live, detail, tone) {
   const summary = [
     el("span", { className: `light ${live.has(session.id) ? "recording" : "idle"}` }),
     el("span", { className: "label" },
-      el("b", { textContent: `${session.device} · ${clock(session.start)} – ${clock(session.end)}` }),
-      el("small", { textContent: [duration(session.end - session.start), plural(n, "event"),
+      el("b", { textContent: `${session.device_id} · ${clock(session.start)} – ${clock(session.end)}` }),
+      el("small", { textContent: [duration(session.end - session.start), plural(session.event_count, "event"),
                                   session.captioned ? `${session.captioned} captioned` : "no captions yet"].join(" · ") })),
   ];
-  const rows = session.events.map((event, index) => {
-    const caption = el("span", { className: event.caption == null ? "caption none" : "caption",
-                                 textContent: event.caption ?? "No caption yet" });
-    const button = el("button", { className: "row event" },
-      el("span", { className: "when", textContent: clock(event.timestamp, true) }),
-      el("span", {}, caption, el("span", { className: "chips" },
-        ...chips(event).map((chip) => el("span", { className: "chip", textContent: chip })))));
-    button.dataset.key = event.id;
-    button.onclick = () => showEvent(session, index, detail);
-    return el("li", {}, button);
-  });
-  return group(session.id, summary, rows, (more) => `${more} more until ${clock(session.end)}`);
+  const body = el("div", { className: "session-body" });
+  const details = group(session.id, summary, body);
+  details.classList.add("session");
+  details.style.setProperty("--tone", tone(session.device_id));
+  details.ontoggle = () => {
+    if (!details.open || body.dataset.filled) return;
+    body.dataset.filled = "true";
+    load(body, async () => {
+      const whole = await api(`/sessions/${encodeURIComponent(session.id)}`);
+      const sequence = { events: () => whole.events, note: () => `session from ${clock(whole.start)}` };
+      const rows = whole.events.map((event) => {
+        const button = el("button", { className: "row event" },
+          el("span", { className: "when", textContent: clock(event.timestamp, true) }), el("span", {}, ...eventLines(event)));
+        button.dataset.key = event.id;
+        button.onclick = () => showEvent(sequence, event.id, detail);
+        return el("li", {}, button);
+      });
+      const shown = [rowList(rows, (n) => `${n} more until ${clock(whole.end)}`)];
+      requestAnimationFrame(() => reselect(body));
+      return shown;
+    });
+  };
+  return details;
 }
 
-// One event in full: a bar pinned above the page steps through the events of
-// its session, the page below it shows the event. The bar is kept while the
-// session is the same, so its buttons stay where they are under the pointer.
-let steps = null;  // the bar of the open event: its nav, session, index and buttons
-function stepBar(session, detail) {
-  const previous = el("button", { className: "more" }, icon("left", 14), "Previous");
-  const next = el("button", { className: "more" }, "Next", icon("right", 14));
+// One event in full: a bar pinned above the page steps through the events of its
+// sequence (a session, or the linear view's rows), oldest first; the page below
+// it shows the event. The bar is kept while the sequence is the same, so its
+// buttons stay where they are under the pointer.
+let steps = null;  // the bar of the open event: its nav, sequence, event id and buttons
+function stepBar(sequence, detail) {
+  const previous = el("button", { className: "more" }, icon("left", 14), "Earlier");
+  const next = el("button", { className: "more" }, "Later", icon("right", 14));
   const count = el("span", { className: "num" });
-  const bar = { nav: el("nav", { className: "steps", ariaLabel: "Events of this session" }, previous, count, next),
-                session, index: 0, previous, next, count };
-  previous.onclick = () => showEvent(session, bar.index - 1, detail);
-  next.onclick = () => showEvent(session, bar.index + 1, detail);
+  const bar = { nav: el("nav", { className: "steps", ariaLabel: "Earlier and later events" }, previous, count, next),
+                sequence, id: null, previous, next, count };
+  const step = (by) => {
+    const events = sequence.events();
+    const index = events.findIndex((e) => e.id === bar.id) + by;
+    if (events[index]) showEvent(sequence, events[index].id, detail);
+  };
+  previous.onclick = () => step(-1);
+  next.onclick = () => step(1);
   return bar;
 }
-function showEvent(session, index, detail) {
-  const button = document.querySelector(`[data-key="${CSS.escape(session.events[index].id)}"]`);
+function showEvent(sequence, id, detail) {
+  const button = document.querySelector(`[data-key="${CSS.escape(id)}"]`);
   if (button) {
     reveal(button);
     select(button);
+    button.scrollIntoView({ block: "nearest" });
   }
-  if (!steps || steps.session !== session || steps.nav.parentNode !== detail) {
-    steps = stepBar(session, detail);
+  if (!steps || steps.sequence !== sequence || steps.nav.parentNode !== detail) {
+    steps = stepBar(sequence, detail);
     detail.replaceChildren(steps.nav, el("div", { className: "scroll" }));
   }
-  steps.index = index;
+  const events = sequence.events();
+  const index = events.findIndex((e) => e.id === id);
+  steps.id = id;
   steps.previous.disabled = index === 0;
-  steps.next.disabled = index === session.events.length - 1;
-  steps.count.textContent = `${index + 1} of ${session.events.length}`;
+  steps.next.disabled = index === events.length - 1;
+  steps.count.textContent = `${index + 1} of ${events.length}`;
   const page = detail.lastChild;
-  page.replaceChildren(eventPage(session, index));
+  page.replaceChildren(eventPage(events[index], sequence.note()));
   page.scrollTop = 0;
 }
 // The arrow keys step too, while an event is open and nothing is being typed.
@@ -237,12 +387,11 @@ const inputGrid = (inputs, event) => el("div", { className: "inputs" }, ...input
           el("span", { textContent: details })];
 }));
 
-function eventPage(session, index) {
-  const event = session.events[index];
+function eventPage(event, note) {
   const shown = shownInputs(event.inputs);
   const folded = foldedNote(event.inputs);
   return el("div", { className: "page" },
-    el("p", { className: "meta", textContent: `${time(event.timestamp)} · ${event.device_id} · session from ${clock(session.start)}` }),
+    el("p", { className: "meta", textContent: [time(event.timestamp), event.device_id, ...(note ? [note] : [])].join(" · ") }),
     el("h1", { className: event.caption == null ? "none" : "", textContent: event.caption ?? "No caption yet" }),
     event.screenshot_url ? screenshot(event) : status("No screenshot with this event."),
     shown.length ? inputGrid(shown, event) : status("No keys, clicks or scrolls in this event."),
@@ -294,7 +443,7 @@ function runGroup(run, detail) {
     };
     return el("li", {}, button);
   });
-  return group(run.run, summary, rows, (more) => `${more} more`);
+  return group(run.run, summary, rowList(rows, (more) => `${more} more`));
 }
 
 // An ordered action list beside the other one: a green light where both hold

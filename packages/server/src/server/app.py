@@ -22,6 +22,7 @@ from server.routes.control import router as control_router
 from server.routes.draw import router as draw_router
 from server.routes.events import router as events_router
 from server.routes.predictions import router as predictions_router
+from server.routes.sessions import router as sessions_router
 from server.routes.web import WEB_DIR
 from server.routes.web import router as web_router
 from server.agent.tools import create_chat_tools, session_tools
@@ -122,6 +123,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(draw_router)
     app.include_router(events_router)
     app.include_router(predictions_router)
+    app.include_router(sessions_router)
     # The modules the web pages import, at the path the pages name them by.
     app.mount("/src", StaticFiles(directory=WEB_DIR / "src"), name="web-src")
     # After the routes: the MCP app answers MCP_PATH and nothing else.

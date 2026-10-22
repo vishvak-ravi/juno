@@ -1,25 +1,31 @@
 // What the desktop browser makes of the routes' rows, without drawing anything:
-// events grouped into sessions and their inputs counted, graded predictions
-// grouped into runs and their <action> lists read, devices reduced to one state.
-// Every value here is computed from rows already fetched; nothing is requested.
+// events laid out on the linear timeline and their inputs counted, graded
+// predictions grouped into runs and their <action> lists read, devices reduced
+// to one state. Every value here is computed from rows already fetched; nothing
+// is requested.
 
-// Event `<session id>-<row as six or more digits>` (juno.events.EVENT_ID).
-export const sessionOf = (eventId) => eventId.replace(/-\d{6,}$/, "");
+// The start of the local hour holding `seconds`, in Unix seconds.
+export function hourOf(seconds) {
+  const date = new Date(seconds * 1000);
+  date.setMinutes(0, 0, 0);
+  return date.getTime() / 1000;
+}
 
-// The events of one page grouped by session, in the order the page lists them.
-// A session's counts are of the rows loaded, not of the whole session.
-export function groupSessions(events) {
-  const sessions = new Map();
+// The linear timeline's rows for `events` (newest first): `{ hour }` wherever
+// the local hour changes, then `{ event, named }` for each event, `named` where
+// its device differs from the event drawn above it or a new hour begins. `above`
+// is the event drawn just before `events`, null at the top.
+export function railItems(events, above = null) {
+  const items = [];
+  let previous = above;
   for (const event of events) {
-    const id = sessionOf(event.id);
-    if (!sessions.has(id)) sessions.set(id, { id, device: event.device_id, events: [] });
-    sessions.get(id).events.push(event);
+    const hour = hourOf(event.timestamp);
+    const newHour = !previous || hourOf(previous.timestamp) !== hour;
+    if (newHour) items.push({ hour });
+    items.push({ event, named: newHour || previous.device_id !== event.device_id });
+    previous = event;
   }
-  return [...sessions.values()].map((session) => {
-    const times = session.events.map((e) => e.timestamp);
-    return { ...session, start: Math.min(...times), end: Math.max(...times),
-             captioned: session.events.filter((e) => e.caption != null).length };
-  });
+  return items;
 }
 
 // Inputs that say what the user did, by type, and how each is counted; the rest
@@ -90,6 +96,9 @@ export function dayFromValue(value) {
   const [year, month, date] = value.split("-").map(Number);
   return new Date(year, month - 1, date);
 }
+
+// "4 PM": the hour starting at `seconds`.
+export const hourLabel = (seconds) => new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "numeric" });
 
 export const clock = (seconds, withSeconds = false) => new Date(seconds * 1000).toLocaleTimeString(undefined,
   { hour: "numeric", minute: "2-digit", ...(withSeconds ? { second: "2-digit" } : {}) });

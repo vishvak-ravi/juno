@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, chips, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, groupSessions, inputLine,
-  liveSessions, matches, modelName, offset, overallState, runTime, shownInputs,
+  actions, chips, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourOf, inputLine,
+  liveSessions, matches, modelName, offset, overallState, railItems, runTime, shownInputs,
 } from "../src/renderer/rows.mjs";
 
 const event = (session, row, timestamp, fields = {}) => ({
@@ -11,17 +11,23 @@ const event = (session, row, timestamp, fields = {}) => ({
   screenshot_url: null, inputs: [], caption: null, ...fields,
 });
 
-test("events of one page are grouped by session in page order, with span and caption counts", () => {
-  const sessions = groupSessions([
-    event("laptop-session_20261003_091500", 0, 100, { caption: "Opens the editor." }),
-    event("laptop-session_20261003_091500", 1, 160),
-    event("tablet-session_20261003_093000", 0, 200, { caption: "Draws a box." }),
-    event("laptop-session_20261003_091500", 2, 400, { caption: "Saves." }),
+test("the linear timeline marks each new hour and names the device where it changes", () => {
+  const at = (hour, minute) => new Date(2026, 9, 21, hour, minute).getTime() / 1000;
+  const rows = [
+    event("tablet-session_20261021_163420", 1, at(16, 40)),
+    event("laptop-session_20261021_152109", 9, at(16, 35)),
+    event("laptop-session_20261021_152109", 8, at(16, 5)),
+    event("laptop-session_20261021_152109", 7, at(15, 55)),
+  ];
+  const shape = (items) => items.map((i) => (i.hour != null ? `hour ${i.hour}` : `${i.event.timestamp}${i.named ? " named" : ""}`));
+  assert.deepEqual(shape(railItems(rows)), [
+    `hour ${at(16, 0)}`, `${at(16, 40)} named`, `${at(16, 35)} named`, `${at(16, 5)}`,
+    `hour ${at(15, 0)}`, `${at(15, 55)} named`,
   ]);
-  assert.deepEqual(sessions.map((s) => [s.id, s.device, s.events.length, s.start, s.end, s.captioned]), [
-    ["laptop-session_20261003_091500", "laptop", 3, 100, 400, 2],
-    ["tablet-session_20261003_093000", "tablet", 1, 200, 200, 1],
-  ]);
+  // A later page continues from the last row drawn: no new hour mark, no name for the same device.
+  const older = [event("laptop-session_20261021_152109", 6, at(15, 50))];
+  assert.deepEqual(shape(railItems(older, rows.at(-1))), [`${at(15, 50)}`]);
+  assert.equal(hourOf(at(15, 55)), at(15, 0));
 });
 
 test("chips count what the user did and leave out releases and pointer moves", () => {
