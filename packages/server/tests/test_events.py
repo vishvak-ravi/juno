@@ -149,3 +149,21 @@ def test_paging_after_an_unknown_event_is_refused(tmp_path):
     with client_for(tmp_path) as client:
         assert client.get("/events", params={"after": f"{LAPTOP}-000009"}).status_code == 400
         assert client.get("/events", params={"after": "nonsense"}).status_code == 400
+
+
+def test_activity_counts_the_events_between_each_pair_of_edges(tmp_path):
+    with client_for(tmp_path) as client:
+        put(client, LAPTOP, 0, 100.0)
+        put(client, LAPTOP, 1, 150.0)
+        put(client, DESKTOP, 0, 200.0)
+        put(client, LAPTOP, 2, 350.0)
+        client.delete(f"/events/{LAPTOP}-000002")
+
+        body = client.get("/events/activity", params={"edges": "0,100,200,300,400"}).json()
+        assert body == {"edges": [0.0, 100.0, 200.0, 300.0, 400.0], "counts": [0, 2, 1, 0]}
+        laptop = client.get("/events/activity", params={"edges": "0,400", "device": "laptop"}).json()
+        assert laptop["counts"] == [2]
+
+        assert client.get("/events/activity", params={"edges": "100"}).status_code == 400
+        assert client.get("/events/activity", params={"edges": "200,100"}).status_code == 400
+        assert client.get("/events/activity", params={"edges": "a,b"}).status_code == 400
