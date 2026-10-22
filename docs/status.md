@@ -21,8 +21,8 @@
 
 | Piece | State |
 |---|---|
-| Event stepping: a bar pinned above the event with fixed labels and a count, disabled at the ends, arrow keys | done; checked with example data only |
-| Day picked from the date input's calendar | done; the calendar opens through `showPicker()`, checked in Electron only |
+| Event stepping: a bar pinned below the event, clear of the camera, with fixed labels and a count, disabled at the ends, arrow keys | done; checked with example data only |
+| Day picked from a calendar in the window's theme, each day tinted by its event count (`GET /events/activity`) | done; the route is tested, the calendar checked with example data only |
 | Screenshot shown whole, shimmer in its box after 300 ms | done; checked with example data only |
 
 ## 2026-10-20: Desktop window layout

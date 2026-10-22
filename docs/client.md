@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar, in one of four views picked by a switch above it and remembered on the computer: **Activity**, what the user did, newest first, a time and a line per item coloured by its kind, marked by hour and by moment; **Linear**, every device's events on one line, newest first, marked by hour and by moment; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the activity or linear view's rows fetched, also on the arrow keys; an activity item opens the event it began in |
+| Timeline | one day, the day picked from a calendar shaded by activity, in one of four views picked by a switch above it and remembered on the computer: **Activity**, what the user did, newest first, a time and a line per item coloured by its kind, marked by hour and by moment; **Linear**, every device's events on one line, newest first, marked by hour and by moment; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar below it steps to the earlier and later event of the session, or of the activity or linear view's rows fetched, also on the arrow keys; an activity item opens the event it began in |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -30,6 +30,7 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 
 | Shown | From |
 |---|---|
+| A day's tint in the calendar | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
 | A day, linear | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it; the next page is fetched when "Earlier events" scrolls into view |
 | A day, activity | the same pages, every row fetched so far folded again as each page arrives (`src/renderer/activity.mjs`): each device's inputs in time order, pointer moves and releases making no item |
 | Typed text | characters and spaces pressed with no modifier but Shift (the character comes shifted), Backspace taking off the last one; it goes on past scrolls and ends at Enter (marked ⏎), a pause of `GAPS.typing` seconds, a click or any other named key but Backspace |

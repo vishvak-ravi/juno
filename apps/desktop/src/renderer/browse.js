@@ -8,8 +8,9 @@
 import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
-  actions, chips, clock, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourLabel,
-  indexLanes, inputLine, liveSessions, matches, modelName, momentText, offset, railItems, shownInputs,
+  actions, chips, clock, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel, indexLanes,
+  inputLine, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
+  weekStart, weekdays,
 } from "./rows.mjs";
 import { activityRail, describe } from "./activity.mjs";
 
@@ -145,6 +146,70 @@ function saveView(view) {
   }
 }
 
+// The calendar under the day button: one month, each day shaded by how many
+// events it holds (GET /events/activity for the grid's midnights), days after
+// today not pickable. `onPick(date)` is called with the day chosen.
+function calendar(onPick) {
+  const start = weekStart(navigator.language);
+  const title = el("b");
+  const previous = el("button", { className: "step", ariaLabel: "Previous month" }, icon("left", 14));
+  const next = el("button", { className: "step", ariaLabel: "Next month" }, icon("right", 14));
+  const grid = el("div", { className: "grid" });
+  const box = el("div", { className: "calendar", hidden: true },
+    el("header", {}, previous, title, next),
+    el("div", { className: "weekdays" }, ...weekdays(start, navigator.language).map((w) => el("span", { textContent: w }))),
+    grid);
+  let picked = null;  // the day the pane shows
+  let month = null;   // the first of the month drawn
+  const same = (a, b) => a.getTime() === b.getTime();
+  const draw = (first) => {
+    month = first;
+    const today = day(new Date()).start;
+    title.textContent = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    next.disabled = first >= new Date(today.getFullYear(), today.getMonth(), 1);
+    const days = monthGrid(first.getFullYear(), first.getMonth(), start);
+    load(grid, async () => {
+      const { counts } = await api(`/events/activity?edges=${gridEdges(days).join(",")}`);
+      const max = Math.max(0, ...counts);
+      return days.map((date, i) => {
+        const count = counts[i] ?? 0;
+        const cell = el("button", {
+          textContent: date.getDate(), disabled: date > today,
+          className: [date.getMonth() === first.getMonth() ? "" : "other", same(date, today) ? "today" : "", same(date, picked) ? "picked" : ""]
+            .filter(Boolean).join(" "),
+          ariaLabel: `${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}, ${plural(count, "event")}`,
+        });
+        cell.style.setProperty("--shade", shade(count, max));
+        cell.onclick = () => onPick(date);
+        return cell;
+      });
+    }, () => month === first);
+  };
+  previous.onclick = () => draw(new Date(month.getFullYear(), month.getMonth() - 1, 1));
+  next.onclick = () => draw(new Date(month.getFullYear(), month.getMonth() + 1, 1));
+  return {
+    box,
+    open(date) {
+      picked = day(date).start;
+      box.hidden = false;
+      draw(new Date(date.getFullYear(), date.getMonth(), 1));
+    },
+    close() { box.hidden = true; },
+  };
+}
+// An open calendar closes on a click elsewhere or Escape.
+const openCalendar = () => document.querySelector(".calendar:not([hidden])");
+document.addEventListener("pointerdown", (event) => {
+  const open = openCalendar();
+  if (open && !event.target.closest?.(".day")) open.hidden = true;
+});
+document.addEventListener("keydown", (event) => {
+  const open = openCalendar();
+  if (event.key !== "Escape" || !open) return;
+  open.hidden = true;
+  open.closest(".day").querySelector("button").focus();
+});
+
 // The timeline pane: the view switch, the day shown with a button that opens the
 // calendar to pick another, then that day in the view picked. `control()` is the
 // latest GET /control, for which sessions are being recorded and which devices
@@ -154,8 +219,7 @@ export function timelinePane(pane, detail, control) {
   let date = new Date();
   let shown = 0;  // which show() the list is filled by; an older one's result is dropped
   const label = el("span");
-  const input = el("input", { type: "date", ariaLabel: "Day", ariaHidden: "true", tabIndex: -1, max: dayValue(new Date()) });
-  const pick = el("button", { ariaLabel: "Pick a day" }, icon("calendar", 14), label);
+  const pick = el("button", { ariaLabel: "Pick a day", ariaExpanded: "false" }, icon("calendar", 14), label);
   const switches = VIEWS.map(([value, text]) => {
     const button = el("button", { textContent: text });
     button.onclick = () => {
@@ -168,15 +232,19 @@ export function timelinePane(pane, detail, control) {
     return button;
   });
   const list = el("div", { className: "scroll" });
+  const cal = calendar((picked) => {
+    cal.close();
+    date = picked;
+    show();
+  });
   pane.replaceChildren(el("header", {},
     el("span", { className: "views", role: "group", ariaLabel: "Timeline view" }, ...switches),
-    el("span", { className: "day" }, pick, input)), list);
+    el("span", { className: "day" }, pick, cal.box)), list);
   const tone = tones(Object.keys(control()?.devices ?? {}));
   const show = () => {
     const mine = ++shown;
     const { since, until, start } = day(date);
     label.textContent = dayLabel(start);
-    input.value = dayValue(start);
     switches.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
     const views = {
       activity: () => activityView(since, until, detail),
@@ -186,24 +254,8 @@ export function timelinePane(pane, detail, control) {
     };
     load(list, views[view], () => shown === mine);
   };
-  // The calendar is the date input's own, opened from the button; where it cannot
-  // be opened that way, the input itself takes the button's place.
-  pick.onclick = () => {
-    try {
-      input.showPicker();
-    } catch {
-      pick.hidden = true;
-      input.className = "shown";
-      input.ariaHidden = null;
-      input.tabIndex = 0;
-      input.focus();
-    }
-  };
-  input.onchange = () => {
-    if (!input.value) return;
-    date = dayFromValue(input.value);
-    show();
-  };
+  pick.onclick = () => (cal.box.hidden ? cal.open(date) : cal.close());
+  new MutationObserver(() => { pick.ariaExpanded = String(!cal.box.hidden); }).observe(cal.box, { attributeFilter: ["hidden"] });
   show();
 }
 
@@ -446,10 +498,10 @@ function sessionGroup(session, live, detail, tone) {
   return details;
 }
 
-// One event in full: a bar pinned above the page steps through the events of its
-// sequence (a session, or the linear view's rows), oldest first; the page below
-// it shows the event. The bar is kept while the sequence is the same, so its
-// buttons stay where they are under the pointer.
+// One event in full: the page shows the event, and a bar pinned below it steps
+// through the events of its sequence (a session, or the linear view's rows),
+// oldest first. The bar is kept while the sequence is the same, so its buttons
+// stay where they are under the pointer.
 let steps = null;  // the bar of the open event: its nav, sequence, event id and buttons
 function stepBar(sequence, detail) {
   const previous = el("button", { className: "more" }, icon("left", 14), "Earlier");
@@ -475,7 +527,7 @@ function showEvent(sequence, id, detail) {
   }
   if (!steps || steps.sequence !== sequence || steps.nav.parentNode !== detail) {
     steps = stepBar(sequence, detail);
-    detail.replaceChildren(steps.nav, el("div", { className: "scroll" }));
+    detail.replaceChildren(el("div", { className: "scroll" }), steps.nav);
   }
   const events = sequence.events();
   const index = events.findIndex((e) => e.id === id);
@@ -483,7 +535,7 @@ function showEvent(sequence, id, detail) {
   steps.previous.disabled = index === 0;
   steps.next.disabled = index === events.length - 1;
   steps.count.textContent = `${index + 1} of ${events.length}`;
-  const page = detail.lastChild;
+  const page = detail.firstChild;
   page.replaceChildren(eventPage(events[index], sequence.note()));
   page.scrollTop = 0;
 }
