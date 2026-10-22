@@ -12,9 +12,10 @@ export function hourOf(seconds) {
 }
 
 // The linear timeline's rows for `events` (newest first): `{ hour }` wherever
-// the local hour changes, then `{ event, named }` for each event, `named` where
-// its device differs from the event drawn above it or a new hour begins. `above`
-// is the event drawn just before `events`, null at the top.
+// the local hour changes, then `{ moment, event }` for each moment starting at
+// an event, then `{ event, named }` for the event, `named` where its device
+// differs from the event drawn above it or a new hour begins. `above` is the
+// event drawn just before `events`, null at the top.
 export function railItems(events, above = null) {
   const items = [];
   let previous = above;
@@ -22,10 +23,51 @@ export function railItems(events, above = null) {
     const hour = hourOf(event.timestamp);
     const newHour = !previous || hourOf(previous.timestamp) !== hour;
     if (newHour) items.push({ hour });
+    for (const moment of event.moments ?? []) items.push({ moment, event });
     items.push({ event, named: newHour || previous.device_id !== event.device_id });
     previous = event;
   }
   return items;
+}
+
+// What a moment's divider says, by its type and its label (the assistant in focus).
+const ASSISTANTS = { claude_code: "Claude Code", codex: "Codex", chatgpt: "ChatGPT", hermes: "Hermes", juno_chat: "Juno chat" };
+const MOMENTS = {
+  agent_needs_input: (who) => `${who ?? "Assistant"} waiting for your answer`,
+  agent_prompt_submitted: (who) => (who ? `Prompt sent to ${who}` : "Prompt sent"),
+  error_shown: () => "Error on screen",
+  code_landed: () => "Code committed or merged",
+  message_sent: () => "Message sent",
+  web_search_submitted: () => "Web search",
+};
+export function momentText(moment) {
+  const text = MOMENTS[moment.type];
+  const who = ASSISTANTS[moment.label] ?? null;
+  return text ? text(who) : moment.type.replaceAll("_", " ");
+}
+
+// GET /indices laid out on the day from `since` to `until`: per index name, the
+// runs of consecutive buckets with a value, each point `{ x, y, start, value }`
+// with x the bucket's middle as a fraction of the day and y the value (0..1). A
+// missing bucket, or one with no value, ends a run, so gaps show as gaps.
+export function indexLanes(indices, since, until) {
+  const span = until - since;
+  const step = indices.bucket_seconds;
+  return indices.names.map((name) => {
+    const runs = [];
+    let run = null;
+    let last = null;
+    for (const bucket of indices.buckets) {
+      const value = bucket.values[name];
+      if (value == null || (last != null && bucket.start - last > step)) run = null;
+      if (value != null) {
+        if (!run) runs.push(run = []);
+        run.push({ x: (bucket.start + step / 2 - since) / span, y: value, start: bucket.start, value });
+      }
+      last = bucket.start;
+    }
+    return { name, runs };
+  });
 }
 
 // Inputs that say what the user did, by type, and how each is counted; the rest

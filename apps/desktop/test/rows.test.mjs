@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   actions, chips, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourOf, inputLine,
-  liveSessions, matches, modelName, offset, overallState, railItems, runTime, shownInputs,
+  indexLanes, liveSessions, matches, modelName, momentText, offset, overallState, railItems, runTime, shownInputs,
 } from "../src/renderer/rows.mjs";
 
 const event = (session, row, timestamp, fields = {}) => ({
@@ -28,6 +28,35 @@ test("the linear timeline marks each new hour and names the device where it chan
   const older = [event("laptop-session_20261021_152109", 6, at(15, 50))];
   assert.deepEqual(shape(railItems(older, rows.at(-1))), [`${at(15, 50)}`]);
   assert.equal(hourOf(at(15, 55)), at(15, 0));
+});
+
+test("a moment is drawn as a divider above the event it starts at, below the hour mark", () => {
+  const at = (hour, minute) => new Date(2026, 9, 21, hour, minute).getTime() / 1000;
+  const error = { type: "error_shown", probability: 0.9, detector: "jev", label: null };
+  const rows = [
+    event("laptop-session_20261021_152109", 2, at(16, 10), { moments: [error] }),
+    event("laptop-session_20261021_152109", 1, at(16, 5)),
+  ];
+  const shape = (items) => items.map((i) => (i.hour != null ? "hour" : i.moment ? `moment ${i.event.timestamp}` : `${i.event.timestamp}`));
+  assert.deepEqual(shape(railItems(rows)), ["hour", `moment ${at(16, 10)}`, `${at(16, 10)}`, `${at(16, 5)}`]);
+});
+
+test("a moment's divider names the assistant when one is known", () => {
+  const moment = (type, label = null) => ({ type, probability: 0.9, detector: "jev", label });
+  assert.equal(momentText(moment("agent_prompt_submitted", "codex")), "Prompt sent to Codex");
+  assert.equal(momentText(moment("agent_prompt_submitted", "other")), "Prompt sent");
+  assert.equal(momentText(moment("agent_needs_input")), "Assistant waiting for your answer");
+  assert.equal(momentText(moment("tab_switched")), "tab switched");
+});
+
+test("an index's line breaks where a bucket is missing or has no value", () => {
+  const bucket = (start, value) => ({ start, rows: 1, detected: value == null ? 0 : 1, values: { agent: value } });
+  const indices = { names: ["agent"], bucket_seconds: 100,
+                    buckets: [bucket(0, 0.2), bucket(100, 0.4), bucket(300, 0.6), bucket(400, null), bucket(500, 0.1)] };
+  const [lane] = indexLanes(indices, 0, 1000);
+  assert.equal(lane.name, "agent");
+  assert.deepEqual(lane.runs.map((run) => run.map((p) => p.value)), [[0.2, 0.4], [0.6], [0.1]]);
+  assert.deepEqual(lane.runs[0].map((p) => p.x), [0.05, 0.15]);
 });
 
 test("chips count what the user did and leave out releases and pointer moves", () => {

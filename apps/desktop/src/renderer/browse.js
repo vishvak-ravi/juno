@@ -8,7 +8,7 @@ import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
   actions, chips, clock, day, dayFromValue, dayLabel, dayValue, duration, foldedNote, groupRuns, hourLabel,
-  inputLine, liveSessions, matches, modelName, offset, railItems, shownInputs,
+  indexLanes, inputLine, liveSessions, matches, modelName, momentText, offset, railItems, shownInputs,
 } from "./rows.mjs";
 
 // The routes' largest page.
@@ -125,11 +125,12 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 // Timeline
 
 // The views of the timeline pane, the one shown remembered on this computer.
-const VIEWS = [["linear", "Linear"], ["sessions", "Sessions"]];
+const VIEWS = [["linear", "Linear"], ["sessions", "Sessions"], ["indices", "Indices"]];
 const VIEW_KEY = "juno.timeline.view";
 function savedView() {
   try {
-    return localStorage.getItem(VIEW_KEY) === "sessions" ? "sessions" : "linear";
+    const saved = localStorage.getItem(VIEW_KEY);
+    return VIEWS.some(([value]) => value === saved) ? saved : "linear";
   } catch {
     return "linear";
   }
@@ -175,9 +176,12 @@ export function timelinePane(pane, detail, control) {
     label.textContent = dayLabel(start);
     input.value = dayValue(start);
     switches.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
-    load(list, () => (view === "linear" ? linearView(since, until, detail, tone)
-                                        : sessionsView(since, until, detail, liveSessions(control()), tone)),
-         () => shown === mine);
+    const views = {
+      linear: () => linearView(since, until, detail, tone),
+      sessions: () => sessionsView(since, until, detail, liveSessions(control()), tone),
+      indices: () => indicesView(since, until),
+    };
+    load(list, views[view], () => shown === mine);
   };
   // The calendar is the date input's own, opened from the button; where it cannot
   // be opened that way, the input itself takes the button's place.
@@ -242,7 +246,8 @@ async function linearView(since, until, detail, tone) {
   const rail = el("ol", { className: "rail" });
   const { more, next } = pager(path, (page) => {
     rail.append(...railItems(page.data, rows.at(-1)).map((item) =>
-      (item.hour != null ? hourMark(item.hour) : railRow(item, sequence, detail, tone))));
+      (item.hour != null ? hourMark(item.hour)
+        : item.moment ? momentMark(item) : railRow(item, sequence, detail, tone))));
     rows.push(...page.data);
     reselect(rail);
   }, "Earlier events");
@@ -254,6 +259,10 @@ async function linearView(since, until, detail, tone) {
 
 const hourMark = (hour) => el("li", { className: "hour" },
   el("span", { className: "when", textContent: hourLabel(hour) }), el("span", { className: "node" }));
+
+// A divider where a moment starts, above the event it starts at.
+const momentMark = ({ moment }) => el("li", { className: "moment" },
+  el("span"), el("span", { className: "node" }), el("span", { className: "what", textContent: momentText(moment) }));
 
 function railRow({ event, named }, sequence, detail, tone) {
   const button = el("button", { className: "row tick" },
@@ -272,6 +281,73 @@ function railRow({ event, named }, sequence, detail, tone) {
 const eventLines = (event) => [
   el("span", { className: event.caption == null ? "caption none" : "caption", textContent: event.caption ?? "No caption yet" }),
   el("span", { className: "chips" }, ...chips(event).map((chip) => el("span", { className: "chip", textContent: chip })))];
+
+// The indices view: each index of the day (GET /indices) in its own lane from 0
+// to 1, a line through the bucket means with a gap where nothing was answered;
+// the pointer over the lanes reads every index at that time.
+const INDEX_NAMES = { sensitivity: "Sensitivity", agent: "Assistant in focus", error: "Error on screen" };
+const indexName = (name) => INDEX_NAMES[name] ?? name.replaceAll("_", " ");
+const SVG = "http://www.w3.org/2000/svg";
+const svg = (tag, attributes = {}) => {
+  const node = document.createElementNS(SVG, tag);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+  return node;
+};
+// Lanes are drawn in a WIDTH × HEIGHT box stretched to the pane.
+const WIDTH = 1000;
+const HEIGHT = 48;
+
+async function indicesView(since, until) {
+  const indices = await api(`/indices?since=${since}&until=${until}`);
+  if (!indices.buckets.some((bucket) => bucket.detected)) return [status("No indices for this day yet.")];
+  const lanes = indexLanes(indices, since, until);
+  // A grid line every 3 hours, a label every 6.
+  const hours = Array.from({ length: 7 }, (_, n) => since + (n + 1) * 3 * 3600);
+  const drawn = lanes.map(({ name, runs }) => {
+    const readout = el("span", { className: "num" });
+    const plot = svg("svg", { viewBox: `0 0 ${WIDTH} ${HEIGHT}`, preserveAspectRatio: "none",
+                              role: "img", "aria-label": `${indexName(name)} through the day` });
+    for (const hour of hours) {
+      const x = ((hour - since) / (until - since)) * WIDTH;
+      plot.append(svg("line", { class: "grid", x1: x, x2: x, y1: 0, y2: HEIGHT }));
+    }
+    plot.append(svg("line", { class: "grid", x1: 0, x2: WIDTH, y1: HEIGHT, y2: HEIGHT }));
+    for (const run of runs) {
+      const points = run.map((p) => `${p.x * WIDTH},${(1 - p.y) * HEIGHT}`).join(" ");
+      plot.append(run.length > 1 ? svg("polyline", { class: "series", points })
+        : svg("circle", { class: "dot", cx: run[0].x * WIDTH, cy: (1 - run[0].y) * HEIGHT, r: 2 }));
+    }
+    const cross = svg("line", { class: "cross", y1: 0, y2: HEIGHT, visibility: "hidden" });
+    plot.append(cross);
+    const points = runs.flat();
+    const lane = el("div", { className: "lane" },
+      el("div", { className: "lane-head" }, el("b", { textContent: indexName(name) }), readout), plot);
+    const read = (fraction) => {
+      if (fraction == null) {
+        cross.setAttribute("visibility", "hidden");
+        readout.textContent = "";
+        return;
+      }
+      cross.setAttribute("x1", fraction * WIDTH);
+      cross.setAttribute("x2", fraction * WIDTH);
+      cross.setAttribute("visibility", "visible");
+      const step = indices.bucket_seconds / (until - since);
+      const near = points.find((p) => Math.abs(p.x - fraction) <= step / 2);
+      readout.textContent = near ? `${clock(near.start)} · ${score(near.value)}` : `${clock(since + fraction * (until - since))} · –`;
+    };
+    return { lane, read };
+  });
+  const box = el("div", { className: "lanes" }, ...drawn.map((d) => d.lane),
+    el("div", { className: "axis" }, ...hours.filter((_, n) => n % 2).map((hour) =>
+      el("span", { textContent: hourLabel(hour), style: `left: ${((hour - since) / (until - since)) * 100}%` }))));
+  box.onpointermove = (event) => {
+    const plot = box.querySelector("svg").getBoundingClientRect();
+    const fraction = (event.clientX - plot.left) / plot.width;
+    drawn.forEach((d) => d.read(fraction >= 0 && fraction <= 1 ? fraction : null));
+  };
+  box.onpointerleave = () => drawn.forEach((d) => d.read(null));
+  return [box];
+}
 
 // The sessions view: the day's sessions (GET /sessions), newest first; a session's
 // events (GET /sessions/{id}) are fetched the first time it is opened.

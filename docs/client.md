@@ -15,7 +15,7 @@ startup the chats list is shown with the most recently changed chat open.
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar, in one of two views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour; **Sessions**, the day's sessions, newest first, a session fetching its events when opened | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
+| Timeline | one day, the day picked from a calendar, in one of three views picked by a switch above it and remembered on the computer: **Linear**, every device's events on one line, newest first, marked by hour and by moment; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, screenshot, inputs; a bar above it steps to the earlier and later event of the session, or of the linear view's rows fetched, also on the arrow keys |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -32,6 +32,8 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 |---|---|
 | A day, linear | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it; the next page is fetched when "Earlier events" scrolls into view |
 | An hour mark | wherever the local hour of an event differs from the one above it |
+| A moment | a divider above the event of each of its `moments`, under that event's hour mark; its text from the moment's `type` and the assistant in its `label` |
+| A day, indices | `GET /indices?since=&until=`, the day's buckets of `keypoints.bucket_seconds`; a lane per name in `names`, the line broken where a bucket is missing or has no value; nothing drawn when no bucket was answered |
 | A device's colour | its place among the devices of `GET /control` in id order, then devices not there as they are drawn; one of six |
 | A day, sessions | `GET /sessions?since=&until=&limit=100`: each session with an event that day, its start, end, event count and captioned count |
 | A session's events | `GET /sessions/{id}`, the first time the session is opened |

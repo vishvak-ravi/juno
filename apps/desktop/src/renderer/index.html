@@ -127,6 +127,25 @@
             background: linear-gradient(var(--side) 75%, transparent); }
   li.hour .when { text-align: right; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
   li.hour .node { margin-top: 0; background: var(--side); border: 1.5px solid var(--faint); }
+  /* A moment: a divider across the line above the event it starts at. */
+  li.moment { display: grid; grid-template-columns: 64px 9px minmax(0, 1fr); gap: 0 10px; padding: 8px 12px 2px; align-items: center; }
+  li.moment .node { width: 9px; height: 9px; margin-top: 0; border-radius: 2px; transform: rotate(45deg); background: var(--side); border: 1.5px solid var(--dim); box-shadow: none; }
+  li.moment .what { font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--dim); border-top: 1px solid var(--line); padding-top: 4px; }
+
+  /* The indices: one lane per index, the same hours across them. */
+  .lanes { position: relative; padding: 12px 12px 28px; }
+  .lane { margin-bottom: 14px; }
+  .lane-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 4px; }
+  .lane-head b { font-weight: 500; }
+  .lane-head .num { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .lane svg { display: block; width: 100%; height: 48px; overflow: visible; }
+  .lane .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .lane .series { fill: none; stroke: var(--bar); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .lane .dot { fill: var(--bar); }
+  .lane .cross { stroke: var(--dim); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .axis { position: absolute; left: 12px; right: 12px; bottom: 8px; height: 14px; }
+  .axis span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--dim); white-space: nowrap; }
+
   /* A session's summary carries its device's tone on its left edge. */
   .group.session > summary { box-shadow: inset 3px 0 0 var(--tone, transparent); }
 
@@ -354,13 +373,15 @@
     "/events": { object: "list", data: [
       { id: "laptop-session_20261003_091500-000000", device_id: "laptop", timestamp: 1791100100.2, screenshot_url: null,
         inputs: [{ type: "key_press", timestamp: 1791100100.3, key: "a" }, { type: "key_release", timestamp: 1791100100.4, key: "a" }],
-        caption: null },
+        caption: null, indices: {}, moments: [] },
       { id: "laptop-session_20261003_091500-000001", device_id: "laptop", timestamp: 1791100200.5,
         screenshot_url: "/events/laptop-session_20261003_091500-000001/screenshot",
         inputs: [{ type: "mouse_move", timestamp: 1791100200.55, x: 600, y: 380 },
                  { type: "mouse_down", timestamp: 1791100200.6, button: "Button.left", x: 640, y: 400 },
                  { type: "mouse_up", timestamp: 1791100200.7, button: "Button.left", x: 640, y: 400 }],
-        caption: "Clicks into the terminal." }],
+        caption: "Clicks into the terminal.",
+        indices: { sensitivity: 0.05, agent: 0.92, error: 0.08 },
+        moments: [{ type: "agent_prompt_submitted", probability: 0.88, detector: "jev", label: "claude_code" }] }],
       first_id: "laptop-session_20261003_091500-000000", last_id: "laptop-session_20261003_091500-000001", has_more: false },
     "/predictions": { object: "list", data: [
       { id: "laptop-session_20261003_091500-20261004_100000-0000", device_id: "laptop", session_id: "laptop-session_20261003_091500",
@@ -372,6 +393,10 @@
         error: null, reward: 0.66, accuracy: 0.55, formatting: 0.78, validation_errors: [], unparsed_replies: [] }],
       first_id: "laptop-session_20261003_091500-20261004_100000-0000", last_id: "laptop-session_20261003_091500-20261004_100000-0000", has_more: false },
   };
+  EXAMPLE["/indices"] = { names: ["sensitivity", "agent", "error"], bucket_seconds: 300,
+    buckets: Array.from({ length: 60 }, (_, n) => new Date().setHours(9, 0, 0, 0) / 1000 + n * 300).filter((start, n) => n < 24 || n > 30).map((start, n) => ({
+      start, rows: 30, detected: 30,
+      values: { sensitivity: 0.1 + 0.08 * Math.sin(n / 5), agent: 0.5 + 0.4 * Math.sin(n / 7), error: n % 11 === 0 ? 0.7 : 0.05 } })) };
   EXAMPLE["/sessions"] = { object: "list", data: [
     { id: "laptop-session_20261003_091500", device_id: "laptop", start: 1791100100.2, end: 1791100200.5, event_count: 2, captioned: 1 }],
     first_id: "laptop-session_20261003_091500", last_id: "laptop-session_20261003_091500", has_more: false };
