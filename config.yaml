@@ -161,6 +161,8 @@ control:
   poll_seconds: 5
   # Seconds without a report after which a device shows as offline.
   offline_seconds: 30
+  # Seconds between a client's checks of what changed in the timeline (GET /changes).
+  live_seconds: 2
 
 draw:
   # The device id the server records the /draw page's sessions under; its

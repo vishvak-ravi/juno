@@ -8,7 +8,7 @@
 // event is opened; a prediction's prompts and the predictor's screenshots only
 // when it is opened and their section expanded.
 import { api } from "../../../web/src/api.js";
-import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
+import { el, load, messageOf, pres, predictorInput, problemsOf, reconcile, score, status, time, url } from "../../../web/src/views.js";
 import {
   MOMENT_TYPES, actions, clock, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve,
   inputLine, liveSessions, matches, modelName, momentAt, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade,
@@ -193,21 +193,33 @@ document.addEventListener("keydown", (event) => {
 });
 
 // The timeline pane and what it opens in the detail pane. `control()` is the
-// latest GET /control, for which sessions are being recorded.
+// latest GET /control, for which sessions are being recorded and how often to
+// ask what changed. Every `live_seconds` while the pane is shown, GET /changes
+// brings what changed since the last ask: sessions listed anew, the changed
+// events of the ones opened, the calendar drawn again; what was drawn stays,
+// so a row or session landing above pushes the rest down. Returns `show`, for
+// when the pane is shown again: the detail pane gets back what it had.
 export function timelinePane(pane, detail, control) {
   const sessions = new Map();  // every session fetched for the list, by id
   const details = new Map();   // a session's events, by id, once fetched
   const groups = new Map();    // a session's group in the list, by id, kept across redraws
+  const sequences = new Map(); // by session id: its sequence groups, by sequence index
+  const dates = new Map();     // a day's heading in the list, by the day's start
   const hidden = new Set();    // moment types not shown
   let since = weekOf(new Date(), weekStart(navigator.language)).getTime() / 1000;  // the list runs from here to now
   let index = null;            // the index drawn in the calendar's blocks
+  let shownDetail = [];        // what the detail pane shows for this pane
+  let cursor = null;           // where GET /changes left off
+  let railKey = "";            // the rail's lines, so hovering one survives a redraw that keeps them
 
   // The list of sessions, newest first, a heading where the day changes.
   const list = el("div", { className: "scroll" });
   const groupList = el("div", { className: "groups" });
+  const empty = status("Nothing recorded this week.");
   const earlier = el("button", { className: "more", textContent: "Earlier" });
   const rail = momentRail(list, (line) => openMoment(line), () => momentHere());
-  const nowButton = el("button", { className: "new", ariaLabel: "Now" }, icon("up", 14), "Now");
+  const unseen = el("small", { className: "num", hidden: true });
+  const nowButton = el("button", { className: "new", ariaLabel: "Now" }, icon("up", 14), "Now", unseen);
   pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }), nowButton),
                        el("div", { className: "body" }, rail.strip, list));
 
@@ -262,26 +274,52 @@ export function timelinePane(pane, detail, control) {
     }
   }
   const live = () => liveSessions(control());
+  const showDetail = (nodes) => {
+    shownDetail = nodes;
+    detail.replaceChildren(...nodes);
+  };
   const detailOf = async (id) => {
     if (!details.has(id)) details.set(id, await api(`/sessions/${encodeURIComponent(id)}`));
     return details.get(id);
   };
   const ordered = () => [...sessions.values()].sort((a, b) => b.start - a.start);
+  // Sessions arriving above the view while it is scrolled down count on the Now button.
+  list.addEventListener("scroll", () => { if (list.scrollTop < 4) unseen.hidden = true; });
   const drawList = () => {
     const nodes = [];
     let lastDay = null;
     for (const session of ordered()) {
       const { since: dayStart, start } = day(new Date(session.start * 1000));
-      if (dayStart !== lastDay) nodes.push(el("p", { className: "date", textContent: dayLabel(start) }));
+      if (dayStart !== lastDay) {
+        if (!dates.has(dayStart)) dates.set(dayStart, el("p", { className: "date", textContent: dayLabel(start) }));
+        nodes.push(dates.get(dayStart));
+      }
       lastDay = dayStart;
       if (!groups.has(session.id)) groups.set(session.id, sessionGroup(session));
       nodes.push(groups.get(session.id));
     }
-    groupList.replaceChildren(...(nodes.length ? nodes : [status("Nothing recorded this week.")]));
-    rail.set(railLines(ordered()), hidden);
+    const added = reconcile(groupList, nodes.length ? nodes : [empty]);
+    const top = list.getBoundingClientRect().top;
+    const above = added.filter((node) => node.classList.contains("session") && node.getBoundingClientRect().bottom < top).length;
+    if (above && list.scrollTop >= 4) {
+      unseen.textContent = String(Number(unseen.hidden ? 0 : unseen.textContent) + above);
+      unseen.hidden = false;
+    }
+    const lines = railLines(ordered());
+    const key = lines.map((line) => (line.divider ? "|" : `${line.session.id}:${line.moment.event_id}:${line.moment.type}`)).join(" ");
+    if (key !== railKey) {
+      railKey = key;
+      rail.set(lines, hidden);
+    } else {
+      rail.layout();
+    }
   };
   const add = (rows) => {
-    for (const session of rows) sessions.set(session.id, session);
+    for (const session of rows) {
+      sessions.set(session.id, session);
+      const node = groups.get(session.id);
+      if (node) updateSession(node, session);
+    }
     drawList();
   };
   // Another week of sessions before the earliest loaded.
@@ -299,8 +337,11 @@ export function timelinePane(pane, detail, control) {
     }
     earlier.disabled = false;
   };
+  // The first list is the first ask for changes: everything in range, and where to go on from.
   load(list, async () => {
-    add(await allPages(sessionPath(since)));
+    const changes = await api(`/changes?since=${since}`);
+    cursor = changes.cursor;
+    add(changes.sessions);
     return [groupList, earlier];
   });
 
@@ -310,47 +351,93 @@ export function timelinePane(pane, detail, control) {
     const body = el("div", { className: "session-body" });
     const node = group(session.id, summary, body);
     node.classList.add("session");
+    node.when = when;
+    node.body = body;
     node.ontoggle = () => {
-      when.textContent = `${clock(session.start)} – ${live().has(session.id) ? "now" : clock(session.end)}`;
+      updateSession(node, sessions.get(session.id) ?? session);
       if (!node.open || body.dataset.filled) return;
       body.dataset.filled = "true";
       load(body, async () => {
-        const whole = await detailOf(session.id);
-        return sequencesOf(whole.events).toReversed().map((sequence) => sequenceGroup(sequence, whole));
+        await detailOf(session.id);
+        drawSequences(session.id);
+        return [...body.children];
       }).then(() => { reselect(body); applyHidden(); rail.layout(); });
     };
     node.ontoggle();
     return node;
   }
+  // The session's span, "now" while it is being recorded.
+  function updateSession(node, session) {
+    node.when.textContent = `${clock(session.start)} – ${live().has(session.id) ? "now" : clock(session.end)}`;
+  }
+  // The session's sequences, newest first, drawn from its events: a sequence
+  // already drawn is kept and its rows brought up to date.
+  function drawSequences(sessionId) {
+    const whole = details.get(sessionId);
+    const node = groups.get(sessionId);
+    if (!whole || !node || !node.body.dataset.filled) return;
+    if (!sequences.has(sessionId)) sequences.set(sessionId, new Map());
+    const drawn = sequences.get(sessionId);
+    const nodes = sequencesOf(whole.events).toReversed().map((sequence) => {
+      if (!drawn.has(sequence.index)) drawn.set(sequence.index, sequenceGroup(sequence, sessionId));
+      const seq = drawn.get(sequence.index);
+      updateSequence(seq, sequence, sessionId);
+      return seq;
+    });
+    reconcile(node.body, nodes);
+  }
 
   // One sequence: its caption, opening to its actions newest first, a moment's
   // divider above the action it starts at.
-  function sequenceGroup(sequence, whole) {
+  function sequenceGroup(sequence, sessionId) {
     const first = sequence.events[0];
-    const summary = [el("span", { className: "when", textContent: clock(first.timestamp) }),
-                     el("span", { className: "label" }, el("b", { className: sequence.caption == null ? "none" : "",
-                                                                 textContent: sequence.caption ?? "No caption yet" }))];
-    const rows = sequence.events.toReversed().flatMap((event) => [
-      ...(event.moments ?? []).map((moment) => momentMark(moment, event)),
-      el("li", {}, actionRow(event, whole))]);
-    const node = group(`${whole.id}:${sequence.index}`, summary, el("ul", { className: "rows" }, ...rows));
+    const caption = el("b");
+    const summary = [el("span", { className: "when", textContent: clock(first.timestamp) }), el("span", { className: "label" }, caption)];
+    const rows = el("ul", { className: "rows" });
+    const node = group(`${sessionId}:${sequence.index}`, summary, rows);
     node.classList.add("seq");
+    node.caption = caption;
+    node.rows = rows;
+    node.items = new Map();  // an action's row or a moment's divider, by key
     return node;
+  }
+  function updateSequence(node, sequence, sessionId) {
+    node.caption.className = sequence.caption == null ? "none" : "";
+    node.caption.textContent = sequence.caption ?? "No caption yet";
+    const items = sequence.events.toReversed().flatMap((event) => [
+      ...(event.moments ?? []).map((moment) => {
+        const key = `m:${event.id}:${moment.type}`;
+        if (!node.items.has(key)) node.items.set(key, momentMark(moment, event));
+        return node.items.get(key);
+      }),
+      (() => {
+        if (!node.items.has(event.id)) node.items.set(event.id, el("li", {}, actionRow(event, sessionId)));
+        const row = node.items.get(event.id);
+        updateAction(row.firstChild, event);
+        return row;
+      })()]);
+    reconcile(node.rows, items);
   }
   function momentMark(moment, event) {
     const mark = el("li", { className: "moment" }, el("span"), el("span", { className: "what", textContent: momentText(moment) }));
     mark.style.setProperty("--c", momentTone(moment.type));
     mark.dataset.type = moment.type;
     mark.dataset.event = event.id;
+    mark.hidden = hidden.has(moment.type);
     return mark;
   }
-  function actionRow(event, whole) {
+  function actionRow(event, sessionId) {
     const button = el("button", { className: "row event" },
       el("span", { className: "when", textContent: clock(event.timestamp, true) }),
-      el("span", { className: event.caption == null ? "caption none" : "caption", textContent: event.caption ?? "No caption yet" }));
+      el("span", { className: "caption" }));
     button.dataset.key = event.id;
-    button.onclick = () => openEvent(whole, event.id);
+    button.onclick = () => openEvent(sessionId, event.id);
     return button;
+  }
+  function updateAction(button, event) {
+    const caption = button.lastChild;
+    caption.className = event.caption == null ? "caption none" : "caption";
+    caption.textContent = event.caption ?? "No caption yet";
   }
   // Moments of a hidden type leave the list, the rail and the calendar, whose pins are drawn again.
   const applyHidden = () => {
@@ -374,8 +461,8 @@ export function timelinePane(pane, detail, control) {
     return detailOf(session.id);
   }
   async function openMoment({ moment, session }) {
-    const whole = await showSession(session);
-    openEvent(whole, moment.event_id);
+    await showSession(session);
+    openEvent(session.id, moment.event_id);
     requestAnimationFrame(() => {
       const mark = groupList.querySelector(`.moment[data-event="${CSS.escape(moment.event_id)}"]`);
       if (!mark) return;
@@ -384,6 +471,44 @@ export function timelinePane(pane, detail, control) {
       mark.classList.add("lit");
       setTimeout(() => mark.classList.remove("lit"), LIT_MS);
     });
+  }
+
+  // What changed since the last ask, applied to the list, the opened sessions,
+  // the open action and the calendar. The sessions' events the pane holds are
+  // merged by id, so only the events that changed travel.
+  let ticking = false;
+  async function tick() {
+    if (pane.hidden || ticking) return;
+    ticking = true;
+    try {
+      const from = Math.min(since, drawn ? day(drawn.days[0]).since : since);
+      const held = [...details.keys()].map(encodeURIComponent).join(",");
+      const query = `cursor=${encodeURIComponent(cursor ?? "")}&since=${from}${held ? `&events=${held}` : ""}`;
+      const changes = await api(`/changes?${query}`);
+      cursor = changes.cursor;
+      if (changes.sessions.length) apply(changes.sessions);
+      for (const [id, node] of groups) updateSession(node, sessions.get(id));
+    } catch {
+      // The next tick asks again.
+    }
+    ticking = false;
+  }
+  function apply(changed) {
+    for (const change of changed) {
+      const { events, removed, whole, ...session } = change;
+      if (events && details.has(session.id)) {
+        const held = details.get(session.id);
+        const byId = new Map(whole ? [] : held.events.map((event) => [event.id, event]));
+        for (const event of events) byId.set(event.id, event);
+        for (const id of removed) byId.delete(id);
+        held.events = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp || (a.id < b.id ? -1 : 1));
+        Object.assign(held, session);
+        drawSequences(session.id);
+      }
+    }
+    add(changed.filter((session) => session.start >= since).map(({ events, removed, whole, ...session }) => session));
+    refreshOpen();
+    refreshCalendar(changed);
   }
 
   // The calendar: a week, a day or a month of sessions, in the detail pane.
@@ -439,7 +564,7 @@ export function timelinePane(pane, detail, control) {
     for (const node of [previous, next, today, modes]) node.hidden = false;
     picker.hidden = !picker.options.length;
     for (const button of modes.children) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
-    detail.replaceChildren(...calendarNodes);
+    showDetail(calendarNodes);
     const days = mode === "month" ? monthGrid(anchor.getFullYear(), anchor.getMonth(), ws)
       : daysFrom(mode === "week" ? weekOf(anchor, ws) : day(anchor).start, mode === "week" ? 7 : 1);
     const range = { month: { month: "long", year: "numeric" }, week: { month: "short", day: "numeric" }, day: { weekday: "long", month: "long", day: "numeric" } }[mode];
@@ -527,7 +652,7 @@ export function timelinePane(pane, detail, control) {
         const node = el("button", { className: pin.moments.length > 1 ? "pin many" : "pin", title: words, ariaLabel: words,
                                     style: `top: ${pct((pin.timestamp - day(days[n]).since) / 86400)}` });
         node.style.setProperty("--c", momentTone(pin.type));
-        node.onclick = async () => openEvent(await showSession(session), pin.moments[0].event_id);
+        node.onclick = async () => { await showSession(session); openEvent(session.id, pin.moments[0].event_id); };
         columns[n].append(node);
       }
     }
@@ -552,14 +677,20 @@ export function timelinePane(pane, detail, control) {
   // the top (pressed to go back), the action, its parent sequence's caption,
   // the screenshot with the inputs replayed over it, and the frames of its
   // sequence and the ones around it.
-  function openEvent(whole, id) {
-    const events = whole.events;
+  let opened = null;  // { sessionId, id, page } while an action is shown
+  function openEvent(sessionId, id) {
+    const whole = details.get(sessionId);
+    const events = whole?.events ?? [];
     const at = events.findIndex((e) => e.id === id);
     const event = events[at];
     if (!event) return;
     const sequences = sequencesOf(events);
     const n = sequences.findIndex((s) => s.index === event.sequence);
-    keys = { escape: showCalendar, step: (by) => events[at + by] && openEvent(whole, events[at + by].id) };
+    keys = { escape: showCalendar, step: (by) => {
+      const again = details.get(sessionId).events;
+      const here = again.findIndex((e) => e.id === id);
+      if (again[here + by]) openEvent(sessionId, again[here + by].id);
+    } };
     back.hidden = false;
     for (const node of [previous, next, today, modes, picker]) node.hidden = true;
     const dayOf = day(new Date(event.timestamp * 1000));
@@ -572,10 +703,11 @@ export function timelinePane(pane, detail, control) {
       ...conversationLinks(event),
       event.screenshot_url ? screenshot(event, steps) : status("No screenshot with this event."),
       ...(steps.length ? [replayBar(steps)] : []),
-      framesStrip(sequences.slice(Math.max(0, n - SEQUENCES_AROUND), n + SEQUENCES_AROUND + 1), whole, id),
+      framesStrip(sequences.slice(Math.max(0, n - SEQUENCES_AROUND), n + SEQUENCES_AROUND + 1), sessionId, id),
       inputsFold(event));
     const scroller = el("div", { className: "scroll" }, ribbon(dayOf, event), page);
-    detail.replaceChildren(crumbs, scroller);
+    opened = { sessionId, id, page };
+    showDetail([crumbs, scroller]);
     prefetch(events, at);
     const row = groupList.querySelector(`[data-key="${CSS.escape(id)}"]`);
     if (row) {
@@ -604,7 +736,8 @@ export function timelinePane(pane, detail, control) {
         node.style.setProperty("--c", momentTone(pin.type));
         node.onclick = async (click) => {
           click.stopPropagation();
-          openEvent(await showSession(session), pin.moments[0].event_id);
+          await showSession(session);
+          openEvent(session.id, pin.moments[0].event_id);
         };
         track.append(node);
       }
@@ -619,7 +752,7 @@ export function timelinePane(pane, detail, control) {
     return strip;
   }
   // The frames: each sequence's actions in a row, a divider between sequences, the open one lit.
-  function framesStrip(sequences, whole, id) {
+  function framesStrip(sequences, sessionId, id) {
     const strip = el("ul", { className: "frames" }, ...sequences.flatMap((sequence, n) => [
       ...(n ? [el("li", { className: "sep" })] : []),
       ...sequence.events.map((event) => {
@@ -631,7 +764,7 @@ export function timelinePane(pane, detail, control) {
           mark.style.setProperty("--c", momentTone(event.moments[0].type));
           frame.append(mark);
         }
-        frame.onclick = () => openEvent(whole, event.id);
+        frame.onclick = () => openEvent(sessionId, event.id);
         return el("li", {}, frame);
       })]));
     requestAnimationFrame(() => strip.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" }));
@@ -647,7 +780,54 @@ export function timelinePane(pane, detail, control) {
       ...(folded ? [el("p", { className: "meta", textContent: folded }), inputGrid(event.inputs.filter((input) => !shown.includes(input)), event)] : []));
   }
 
+  // The open action's captions, once the tick brings new ones.
+  function refreshOpen() {
+    if (!opened || !opened.page.isConnected) return;
+    const event = details.get(opened.sessionId)?.events.find((e) => e.id === opened.id);
+    if (!event) return;
+    const heading = opened.page.querySelector("h1");
+    heading.className = event.caption == null ? "none" : "";
+    heading.textContent = event.caption ?? "No caption yet";
+    const parent = opened.page.querySelector(".parent span");
+    parent.className = event.sequence_caption == null ? "none" : "";
+    parent.textContent = event.sequence_caption ?? "No caption yet";
+  }
+  // The calendar, once a tick brings sessions on its days: the month's counts
+  // read again; the columns' blocks and pins drawn again with the sessions
+  // changed and the indices read again, the scroll kept.
+  async function refreshCalendar(changed) {
+    if (calBody.hidden || !calBody.isConnected) return;
+    if (mode === "month") {
+      showCalendar();
+      return;
+    }
+    if (!drawn) return;
+    const from = day(drawn.days[0]).since;
+    const to = day(drawn.days.at(-1)).until;
+    const inRange = changed.filter((session) => session.end >= from && session.start <= to);
+    if (!inRange.length) return;
+    const rows = new Map(drawn.rows.map((session) => [session.id, session]));
+    for (const { events, removed, whole, ...session } of inRange) rows.set(session.id, session);
+    const mine = shown;
+    const indices = await api(`/indices?since=${from}&until=${to}`);
+    if (shown !== mine || !calBody.isConnected) return;
+    drawn = { days: drawn.days, rows: [...rows.values()], indices };
+    const top = calBody.scrollTop;
+    calBody.replaceChildren(...columns(drawn));
+    calBody.scrollTop = top;
+  }
+
   showCalendar();
+  (async function live() {
+    await tick();
+    setTimeout(live, (control()?.live_seconds ?? 2) * 1000);
+  })();
+  return {
+    show() {
+      detail.replaceChildren(...shownDetail);
+      tick();
+    },
+  };
 }
 
 // The moment rail: one line per moment of the sessions listed, in the list's

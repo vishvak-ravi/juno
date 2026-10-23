@@ -13,7 +13,9 @@ pinned below it; the detail pane on the right shows what is open in it. The
 divider between them drags to set the left pane's width, remembered on the
 computer (`juno.aside`). What takes long enough to notice to arrive shows as
 shimmering lines in its place. On
-startup the chats list is shown with the most recently changed chat open.
+startup the chats list is shown with the most recently changed chat open. The
+timeline pane is made once and kept: shown again, it shows what it had, then
+asks what changed.
 
 | Button | Left pane | Detail pane |
 |---|---|---|
@@ -34,7 +36,8 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | Shown | From |
 |---|---|
 | A day's tint in the month | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
-| The sessions list | `GET /sessions?since=&until=&order=desc&limit=100`, every page, from the local start of this week with no `until`; "Earlier" fetches the week before the earliest loaded |
+| The sessions list | `GET /changes?since=` from the local start of this week, every session in range and the cursor to go on from; "Earlier" fetches the week before the earliest loaded, `GET /sessions?since=&until=&order=desc&limit=100`, every page |
+| What changed | every `live_seconds` of `GET /control` while the pane is shown, `GET /changes?cursor=&since=&events=`, `events` the ids of the sessions whose events the pane holds: each session listed is put in the list anew, its changed events merged by id into the ones held (`removed` taken out; `whole` replacing them), its open sequences drawn again, the open action's captions set again, and the calendar's blocks and pins drawn again with `GET /indices` read again when a changed session is on its days. What was drawn stays where it is: a session or action landing above slides the rest down, unless motion is reduced; scrolled down, the list keeps its place and the Now button counts the sessions that landed above the view |
 | A session's sequences | `GET /sessions/{id}`, the first time the session is opened (or a block, a pin or a rail line opens it); its events grouped by their `sequence`, each sequence's caption its events' `sequence_caption` |
 | A moment's divider | above the action it starts at, under its sequence; its text from the moment's `type` and the assistant in its `label`, its diamond in the type's colour; hidden with its type |
 | The moment rail | one line per moment of the sessions listed, from the sessions' `moments`, in the list's order, coloured by `type`, with a divider where the day changes; a line's reading (its text, day and time) shows beside it on hover. Lines are `juno.timeline.pitch` px apart, 2 to 14, remembered on the computer; the wheel over the rail changes it, the line under the pointer keeping its place (the rail alone shifts for that; the list stays put); when the lines outrun the rail it scrolls with the list. The line nearest the pointer, within half a pitch, is the one read and pressed. The line of the moment the list is at is ringed: the open action's moment (the session's latest moment starting at or before it) while its row is on screen, else the first action's on screen. Pressing a line opens its session, scrolls the list to its divider, lit for 1.5s, and opens its action |

@@ -26,6 +26,7 @@ overview of when things were recorded.
 import bisect
 import json
 import logging
+from dataclasses import dataclass
 from typing import Annotated, Literal, Optional, Union
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, UploadFile
@@ -135,9 +136,15 @@ def model_captions(state: State, session_id: str,
     return captions, sequences
 
 
-def session_events(state: State, session_id: str,
-                   include_deleted: bool = False) -> dict[int, Event]:
-    """The events of one session, by row; none if it has no rows.
+@dataclass
+class SessionBuild:
+    """Every event of a session, by row, and the rows the user deleted."""
+    events: dict[int, Event]
+    deleted: set[int]
+
+
+def build_session(state: State, session_id: str) -> SessionBuild:
+    """The events of one session, deleted ones included; none if it has no rows.
 
     Moments are found over every answered row, deleted ones included, so
     deleting an event does not start a new moment at the next one. The prompts
@@ -145,7 +152,7 @@ def session_events(state: State, session_id: str,
     """
     aggregations = state.events.rows(session_id)
     if not aggregations:
-        return {}
+        return SessionBuild({}, set())
     device_id = session_id.split("-", 1)[0]
     edits = state.events.edits(session_id).rows
     captions, sequences = model_captions(state, session_id, aggregations)
@@ -156,10 +163,11 @@ def session_events(state: State, session_id: str,
                         state.keypoints.moment_off),
         prompt_moments(aggregations, read_prompts(state.devices_dir / device_id)))
     events = {}
+    deleted = set()
     for row, aggregation in enumerate(aggregations):
         edit = edits.get(row, EventEdit())
-        if edit.deleted and not include_deleted:
-            continue
+        if edit.deleted:
+            deleted.add(row)
         event_id = event_id_of(session_id, row)
         events[row] = Event(
             id=event_id, device_id=device_id, timestamp=aggregation.timestamp,
@@ -171,7 +179,28 @@ def session_events(state: State, session_id: str,
             sequence=row // chunk_size, sequence_caption=sequences.get(row // chunk_size),
             indices=row_indices(answers.get(row, {}), state.questions),
             moments=moments.get(row, []))
-    return events
+    return SessionBuild(events, deleted)
+
+
+def diff_builds(before: SessionBuild, after: SessionBuild) -> tuple[set[int], set[int]]:
+    """The rows listed by ``after`` whose event differs from ``before``'s, and the rows it no longer lists."""
+    changed = {row for row, event in after.events.items()
+               if row not in after.deleted and (row in before.deleted or before.events.get(row) != event)}
+    removed = ({row for row in after.deleted if row not in before.deleted}
+               | {row for row in before.events if row not in after.events})
+    return changed, removed
+
+
+def session_events(state: State, session_id: str,
+                   include_deleted: bool = False) -> dict[int, Event]:
+    """The events of one session, by row, built once per change of the session (``server.versions``).
+
+    Callers share the dict and its events and must not change them.
+    """
+    build = state.versions.built(session_id, lambda: build_session(state, session_id), diff_builds)
+    if include_deleted:
+        return build.events
+    return {row: event for row, event in build.events.items() if row not in build.deleted}
 
 
 def overlaps(aggregations: list[Aggregation], since: Optional[float],

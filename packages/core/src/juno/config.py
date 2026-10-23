@@ -216,6 +216,8 @@ class ControlConfig(Section):
     poll_seconds: float = 5.0
     # Seconds without a report after which a device shows as offline.
     offline_seconds: float = 30.0
+    # Seconds between a client's checks of what changed in the timeline (GET /changes).
+    live_seconds: float = 2.0
 
 
 class ClaudeHookConfig(Section):

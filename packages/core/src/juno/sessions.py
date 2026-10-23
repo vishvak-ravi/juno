@@ -57,6 +57,26 @@ def stored_path(directory: Path, path: Optional[str]) -> Optional[str]:
         return path
 
 
+def file_stamp(path: Path) -> Optional[tuple[int, int]]:
+    """The size and modification time (ns) of a file, which change with its contents; None if it is not there."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
+
+
+def dir_stamps(directory: Path) -> tuple[tuple[str, int, int], ...]:
+    """Each file of a directory with its size and modification time, by name; empty if there is no directory."""
+    try:
+        with os.scandir(directory) as entries:
+            stamps = [(entry.name, entry.stat().st_size, entry.stat().st_mtime_ns)
+                      for entry in entries if entry.is_file()]
+    except FileNotFoundError:
+        return ()
+    return tuple(sorted(stamps))
+
+
 def replace_file(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` in one step, so a reader never sees half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)

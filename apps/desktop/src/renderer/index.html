@@ -60,6 +60,8 @@
   .pane .scroll { padding: 4px 12px 12px; }
   button.new { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--field);
                border-radius: 8px; background: var(--bg); font-size: 13px; font-weight: 500; }
+  button.new .num { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px;
+                    font-weight: 600; line-height: 18px; text-align: center; }
   button.more { display: inline-flex; align-items: center; gap: 6px; height: 32px; margin: 8px 12px; padding: 0 12px; border: 1px solid var(--field);
                 border-radius: 8px; background: var(--bg); font-size: 13px; }
   /* The timeline's view switch: two buttons in one outline, the shown one filled. */
@@ -741,11 +743,15 @@
   const panes = { chats: document.getElementById("chats-pane"), timeline: document.getElementById("timeline-pane"),
                   predictions: document.getElementById("predictions-pane") };
   let view = "chats";
+  let timeline = null;  // the timeline pane, made once and kept: it stays caught up and shows again what it had
   function showView(next) {
     view = next === view ? "chats" : next;
     for (const tab of document.querySelectorAll("[data-view]")) tab.setAttribute("aria-pressed", String(tab.dataset.view === view));
     for (const [name, pane] of Object.entries(panes)) pane.hidden = name !== view;
-    if (view === "timeline") timelinePane(panes.timeline, detail, () => control);
+    if (view === "timeline") {
+      timeline ??= timelinePane(panes.timeline, detail, () => control);
+      timeline.show();
+    }
     if (view === "predictions") predictionsPane(panes.predictions, detail);
   }
   for (const tab of document.querySelectorAll("[data-view]")) tab.onclick = () => showView(tab.dataset.view);
