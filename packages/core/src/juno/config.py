@@ -13,7 +13,8 @@ Settings have one of three owners:
 
 Each file holds only the values that differ from the defaults below
 (``juno.settings``). A field's ``description`` is what the client shows; a field
-marked ``ADVANCED`` is shown folded.
+marked ``ADVANCED`` is shown folded; one marked ``LOCAL`` is changed only on the
+machine that holds the file.
 """
 
 from __future__ import annotations
@@ -36,6 +37,10 @@ DEFAULT_SERVER_PORT = 8765
 
 # json_schema_extra of a field the client shows folded: tuning that rarely needs changing.
 ADVANCED = {"advanced": True}
+# json_schema_extra of a field changed only on the server's machine (``python -m
+# juno.settings server``), never through ``PATCH /settings``, which has no
+# authentication: it widens what anyone who can reach the server can have run there.
+LOCAL = {"local": True}
 
 
 class ConfigError(Exception):
@@ -104,11 +109,12 @@ class BashConfig(Section):
 
     enabled: bool = Field(True, description=(
         "Whether the chat model may run bash commands. Anyone who can reach this server "
-        "can have them run, through /chats or /mcp."))
+        "can have them run, through /chats or /mcp."), json_schema_extra=LOCAL)
     sandbox: bool = Field(True, description=(
         "Run each command under bubblewrap: system directories read-only, no home "
         "directory, only <data_dir>/workspace writable; the network stays open. Off: the "
-        "command runs as the server's user, with everything that user can read and write."))
+        "command runs as the server's user, with everything that user can read and write."),
+        json_schema_extra=LOCAL)
     timeout_seconds: float = Field(60.0, description=(
         "Seconds a command may run before it and everything it started are killed."),
         json_schema_extra=ADVANCED)
@@ -128,20 +134,21 @@ class ClaudeConfig(Section):
     enabled: bool = Field(True, description=(
         "Whether the chat model may forward prompts to Claude Code. Claude runs as the "
         "server's user, outside the bash sandbox, and is billed to the account `claude` "
-        "is logged in to."))
+        "is logged in to."), json_schema_extra=LOCAL)
     model: Optional[str] = Field(None, description=(
         "Model of a new conversation when the call names none: an alias such as sonnet or "
         "opus, or a full model id. Empty: Claude Code's own default."))
     permission_mode: Optional[Literal["default", "acceptEdits", "auto", "plan", "dontAsk",
                                       "bypassPermissions"]] = Field(None, description=(
-        "--permission-mode of new conversations. Empty: whatever Claude Code's settings say."))
+        "--permission-mode of new conversations. Empty: whatever Claude Code's settings say."),
+        json_schema_extra=LOCAL)
     timeout_seconds: float = Field(600.0, description=(
         "Seconds to wait for Claude to finish one turn."), json_schema_extra=ADVANCED)
     command: str = Field("claude", description="The Claude Code executable.",
-                         json_schema_extra=ADVANCED)
+                         json_schema_extra={**ADVANCED, **LOCAL})
     cwd: Optional[Path] = Field(None, description=(
         "The directory a new conversation starts in. Empty: <data_dir>/workspace."),
-        json_schema_extra=ADVANCED)
+        json_schema_extra={**ADVANCED, **LOCAL})
     tmux_session: str = Field("juno", description=(
         "Name of the session created when no tmux server is running. With one running, "
         "new windows go to the session tmux considers current."), json_schema_extra=ADVANCED)

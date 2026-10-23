@@ -2,25 +2,19 @@
 // <data_dir>/device.json), read and changed through the checkout's Python
 // (`python -m juno.settings device`), so the recorder's own models validate them.
 // A saved change restarts the recorder.
-const { execFile } = require("node:child_process");
-const path = require("node:path");
 const { ipcMain } = require("electron");
+
+const { runPython } = require("./python");
 
 // Runs `python -m juno.settings device ...args` with `input` on stdin; resolves to
 // its JSON output: the description, or {errors} by dotted path.
-function runSettings(repoDir, env, args, input = "") {
-  const python = path.join(repoDir, ".venv/bin/python");
-  return new Promise((resolve, reject) => {
-    const child = execFile(python, ["-m", "juno.settings", "device", ...args], { cwd: repoDir, env },
-      (error, stdout, stderr) => {
-        try {
-          resolve(JSON.parse(stdout));
-        } catch {
-          reject(new Error(stderr.trim() || error?.message || "The recorder's settings could not be read"));
-        }
-      });
-    child.stdin.end(input);
-  });
+async function runSettings(repoDir, env, args, input = "") {
+  const { stdout, stderr, error } = await runPython(repoDir, ["-m", "juno.settings", "device", ...args], { env, input });
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(stderr.trim() || error?.message || "The recorder's settings could not be read");
+  }
 }
 
 // Registers the device settings IPC. `env()` is the recorder's environment, so the

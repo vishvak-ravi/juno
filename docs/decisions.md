@@ -26,6 +26,12 @@ Each setting now has one owner, and the client changes all of them:
   `JUNO_SERVER_URL`, `JUNO_DEVICE_ID`), the API keys, and the client's timing
   log. Keys are shown in the client as set or not and are never sent; they are
   not written from the client because the API has no authentication.
+- For the same reason, a setting that widens what a caller of the API can have
+  run on the server's machine (`tools.bash.enabled`, `tools.bash.sandbox`,
+  `tools.claude.enabled`, `tools.claude.command`, `tools.claude.permission_mode`,
+  `tools.claude.cwd`; marked `LOCAL` in `juno.config`) is refused by
+  `PATCH /settings` and changed only with `python -m juno.settings server` on
+  that machine. The client shows it as it is.
 
 Defaults live only in code, each with the description the client shows; a
 settings file holds only what differs from them, so a default changed in code
@@ -34,7 +40,11 @@ settings (none become literals) but are marked advanced and shown folded.
 `annotate.live` is `capture.upload`, `server.port` is `JUNO_SERVER_PORT`,
 `capture.data_dir` is `JUNO_DATA_DIR`, `client.prefetch` and
 `JUNO_PASSIVE_AGENT` are app settings, and `control.poll_seconds` reaches each
-recorder in the server's answer to its report.
+recorder in the server's answer to its report. An answer that is not an
+`Instruction`, like an unreachable server, leaves the recorder as it was; the
+report waits its own `REPORT_TIMEOUT_SECONDS` (`capture.__main__`), not the
+poll interval. The scripts that read the store load the checkout's `.env`
+first, so `JUNO_DATA_DIR` set there names it for them too.
 
 ## 2026-10-22: The server's store behind repositories
 

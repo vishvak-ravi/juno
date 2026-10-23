@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from juno.config import (DATA_DIR_ENV, SERVER_HOST_ENV, SERVER_PORT_ENV, control_file,
@@ -256,6 +257,7 @@ def main() -> int:
     bench.add_argument("--timeout", type=float, default=300.0,
                        help="seconds to wait for the started server to answer")
     args = parser.parse_args()
+    load_dotenv(ROOT_DIR / ".env")
     if args.command == "snapshot":
         snapshot(args.out)
     else:

@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from juno.config import ServerSettings
+from juno.settings import server_settings
 from server.app import create_app
 
 
@@ -55,6 +56,29 @@ def test_a_refused_change_names_each_setting_and_saves_nothing(tmp_path):
     response = client.patch("/settings", json={"set": {"keypoints.moment_on": 8}})
     assert response.status_code == 422 and "keypoints.moment_on" in response.json()["detail"]
     assert client.get("/settings").json()["restart"] == []
+
+
+def test_a_setting_that_widens_what_a_caller_can_run_is_changed_only_on_the_server(tmp_path):
+    client = client_for(tmp_path)
+    assert fields(client.get("/settings").json())["tools.bash.sandbox"]["local"]
+    assert not fields(client.get("/settings").json())["annotate.model"]["local"]
+    response = client.patch("/settings", json={"set": {"tools.bash.sandbox": False, "annotate.model": "openai/local"}})
+    assert response.status_code == 422 and list(response.json()["detail"]) == ["tools.bash.sandbox"]
+    response = client.patch("/settings", json={"reset": ["tools.claude.command"]})
+    assert response.status_code == 422 and list(response.json()["detail"]) == ["tools.claude.command"]
+    assert client.get("/settings").json()["restart"] == []
+
+    server_settings(tmp_path).update({"tools.bash.sandbox": False})
+    assert fields(client.get("/settings").json())["tools.bash.sandbox"]["value"] is False
+
+
+def test_an_unreadable_settings_file_is_named(tmp_path):
+    client = client_for(tmp_path)
+    (tmp_path / "settings.json").write_text("{not json")
+    response = client.get("/settings")
+    assert response.status_code == 500 and "settings.json" in response.json()["detail"]
+    response = client.patch("/settings", json={"set": {"annotate.model": "openai/local"}})
+    assert response.status_code == 500 and "settings.json" in response.json()["detail"]
 
 
 def test_an_api_key_is_shown_as_set_never_read_back(tmp_path, monkeypatch):

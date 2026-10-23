@@ -9,8 +9,9 @@ every field with its value and default for a client to show.
 ``python -m juno.settings server|device`` prints that description as JSON;
 ``set PATH=VALUE...`` and ``reset PATH...`` change the file; ``patch`` reads
 ``{"set": {...}, "reset": [...]}`` from stdin. Values are YAML (``null``,
-``8``, ``[640, 360]``). The server changes its own file through
-``PATCH /settings`` instead, so it never races this command.
+``8``, ``[640, 360]``). The server reads its file when it starts and writes it
+through ``PATCH /settings``; a ``set`` run on its machine while it is up and a
+``PATCH`` at the same time each replace the file whole, so the later one wins.
 """
 
 from __future__ import annotations
@@ -59,6 +60,8 @@ class FieldView(BaseModel):
     options: Optional[list[str]] = None
     description: Optional[str] = None
     advanced: bool
+    # Whether it is changed only on the machine that holds the file, never over the API.
+    local: bool
     default: Any
     value: Any
 
@@ -126,6 +129,12 @@ def leaf_paths(model: type[BaseModel], prefix: str = "") -> dict[str, Any]:
     return paths
 
 
+def local_paths(model: type[BaseModel]) -> set[str]:
+    """The dotted paths of ``model`` marked ``LOCAL``: changed only where the file is."""
+    return {path for path, info in leaf_paths(model).items()
+            if isinstance(info.json_schema_extra, dict) and info.json_schema_extra.get("local")}
+
+
 def get_path(tree: dict[str, Any], path: str) -> Any:
     for key in path.split("."):
         tree = tree[key]
@@ -175,7 +184,7 @@ def describe(model: type[M], settings: M) -> list[SectionView]:
             extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
             fields.append(FieldView(path=path, kind=kind, nullable=nullable, options=options,
                                 description=info.description,
-                                advanced=bool(extra.get("advanced")),
+                                advanced=bool(extra.get("advanced")), local=bool(extra.get("local")),
                                 default=get_path(defaults, path), value=get_path(values, path)))
         if fields:
             doc = inspect.cleandoc(section.__doc__) if section.__doc__ else None

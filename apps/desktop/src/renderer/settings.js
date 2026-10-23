@@ -3,7 +3,8 @@
 // environment, and the open one's form in the detail pane. All three are read
 // together, so the list arrives at once; a source that cannot be read says why
 // in its place. A save answers with the source's new description, which is
-// drawn in place, with when the change applies.
+// drawn in place, with when the change applies. The pane is made once and kept:
+// shown again, it has what it had, and reads the sources again only on a save.
 import { api, patch } from "../../../web/src/api.js";
 import { bridgedSave, environmentList, sectionForm } from "../../../web/src/settings.js";
 import { el, load, messageOf, status } from "../../../web/src/views.js";
@@ -62,6 +63,7 @@ export function settingsPane(pane, detail) {
   // What each source last answered: {description} or {error}.
   const read = {};
   let openKey = null;
+  let shownDetail = [];  // what the detail pane shows for this pane
 
   function page(source, item, note) {
     const description = read[source.key].description;
@@ -86,7 +88,8 @@ export function settingsPane(pane, detail) {
     if (button) select(button);
     const body = el("div", { className: "settings-page" });
     body.replaceChildren(...page(source, item, note));
-    detail.replaceChildren(el("div", { className: "scroll" }, body));
+    shownDetail = [el("div", { className: "scroll" }, body)];
+    detail.replaceChildren(...shownDetail);
   }
 
   function items(source) {
@@ -127,4 +130,9 @@ export function settingsPane(pane, detail) {
     const source = sources.find((s) => read[s.key]?.description);
     if (source && !openKey) open(source, items(source)[0]);
   });
+  return {
+    show() {
+      detail.replaceChildren(...shownDetail);
+    },
+  };
 }

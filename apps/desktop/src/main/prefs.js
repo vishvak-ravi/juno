@@ -73,7 +73,7 @@ function describe(values, defaults) {
       description: "This app's own settings, kept on this computer.",
       fields: FIELDS.map((field) => ({
         path: pathOf(field.key), kind: field.kind, nullable: false, options: null,
-        description: field.description, advanced: false,
+        description: field.description, advanced: false, local: false,
         default: defaults[field.key], value: values[field.key],
       })),
     }],

@@ -110,7 +110,11 @@ fields, each with its kind, value, default and description), and one form
 (`apps/web/src/settings.js`) draws a section: a field per setting, the
 advanced ones folded, "Use default" where a value differs from its default,
 and Save sending only what changed as `{set, reset}` by dotted path. A refused
-change says why under each field and saves nothing.
+change says why under each field and saves nothing. A field marked local
+(`juno.config.LOCAL`: the bash and Claude tools' switches, sandbox, command,
+permission mode and directory) is shown as it is, with the command that changes
+it on the server's machine. The pane is made once and kept, like the timeline's;
+it reads a source again when a change to it is saved.
 
 | Source | Kept in | A save |
 |---|---|---|

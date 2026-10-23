@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from dotenv import find_dotenv, load_dotenv
 from PIL import Image
 
 from juno.config import data_dir
@@ -177,6 +178,8 @@ def main(argv=None) -> int:
 
     session_dir = args.session_dir
     if session_dir is None:
+        # This computer's data directory may live in a .env file.
+        load_dotenv(find_dotenv(usecwd=True))
         base_dir = args.data_dir or data_dir()
         session_dir = latest_session(base_dir)
         if session_dir is None:

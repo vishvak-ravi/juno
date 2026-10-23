@@ -301,11 +301,13 @@
   .setting label code { font: 11px ui-monospace, monospace; color: var(--faint); }
   #detail form.settings input:not([type="checkbox"]), form.settings select {
     height: 34px; padding: 0 10px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; max-width: 420px; width: 100%; }
+  #detail form.settings :disabled { opacity: .6; }
   #detail form.settings input.sw { flex: none; width: 30px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: var(--field); }
   #detail form.settings input.sw:checked { background: var(--green); }
   .setting small { font-size: 12px; }
   .setting small.help { max-width: 66ch; }
   .setting small.error { color: var(--amber); }
+  .setting small.local { color: var(--dim); }
   #detail button.link { height: auto; border: 0; border-radius: 0; padding: 0; background: none; color: var(--ink); text-decoration: underline;
                         font-size: 12px; font-weight: 400; }
   details.advanced { margin-top: 12px; border-top: 1px solid var(--line); }
@@ -739,6 +741,7 @@
                   predictions: document.getElementById("predictions-pane"), settings: document.getElementById("settings-pane") };
   let view = "chats";
   let timeline = null;  // the timeline pane, made once and kept: it stays caught up and shows again what it had
+  let settings = null;  // the settings pane, made once and kept: it shows again what it had
   function showView(next) {
     view = next === view ? "chats" : next;
     for (const tab of document.querySelectorAll("[data-view]")) tab.setAttribute("aria-pressed", String(tab.dataset.view === view));
@@ -748,7 +751,10 @@
       timeline.show();
     }
     if (view === "predictions") predictionsPane(panes.predictions, detail);
-    if (view === "settings") settingsPane(panes.settings, detail);
+    if (view === "settings") {
+      settings ??= settingsPane(panes.settings, detail);
+      settings.show();
+    }
   }
   for (const tab of document.querySelectorAll("[data-view]")) tab.onclick = () => showView(tab.dataset.view);
   for (const tab of document.querySelectorAll("[data-panel]")) tab.onclick = () => showPanel(open === tab.dataset.panel ? null : tab.dataset.panel);

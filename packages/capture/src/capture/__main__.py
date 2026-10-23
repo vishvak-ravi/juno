@@ -20,6 +20,7 @@ from typing import Optional
 
 import httpx
 from dotenv import find_dotenv, load_dotenv
+from pydantic import ValidationError
 
 from capture.sources import BackendUnavailable, load_backend
 from capture.upload import AggregationUploader
@@ -37,19 +38,24 @@ from juno.settings import device_settings
 
 logger = logging.getLogger(__name__)
 
+# Seconds to wait for the server's answer to a report; longer counts as unreachable.
+REPORT_TIMEOUT_SECONDS = 5.0
+
 
 def report(report_url: str, session_id: Optional[str],
-           timeout_seconds: float) -> Optional[Instruction]:
+           timeout_seconds: float = REPORT_TIMEOUT_SECONDS) -> Optional[Instruction]:
     """Tell the server whether a session is being recorded; returns its answer.
 
-    None if the server cannot be reached or refuses the report.
+    None if the server cannot be reached, refuses the report or answers with
+    something other than an ``Instruction``.
     """
     body = Report(capture="running" if session_id else "paused", session_id=session_id)
     try:
         response = httpx.put(report_url, json=body.model_dump(), timeout=timeout_seconds)
         response.raise_for_status()
         return Instruction.model_validate(response.json())
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValidationError, ValueError) as exc:
+        # ValueError: the body is not JSON.
         logger.warning("could not report to %s: %s", report_url, exc)
         return None
 
@@ -133,7 +139,7 @@ def main(config: CaptureConfig, base_dir: Path, server_url: Optional[str] = None
                 wanted = True
             else:
                 answer = report(f"{server_url}/control/devices/{device_id}/report",
-                                uploader.session_id if uploader else None, poll_seconds)
+                                uploader.session_id if uploader else None)
                 wanted = recording if answer is None else answer.capture
                 if answer is not None:
                     poll_seconds = answer.poll_seconds

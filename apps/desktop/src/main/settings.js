@@ -11,7 +11,12 @@ const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
 
 function readSettings() {
   try {
-    return JSON.parse(fs.readFileSync(settingsFile(), "utf8"));
+    const saved = JSON.parse(fs.readFileSync(settingsFile(), "utf8"));
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+      console.error(`${settingsFile()} does not hold an object and is ignored`);
+      return {};
+    }
+    return saved;
   } catch (error) {
     if (error.code === "ENOENT") return {};
     if (error instanceof SyntaxError) {

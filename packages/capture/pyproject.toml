@@ -23,6 +23,8 @@ dependencies = [
     "pillow",
     # Uploads and the control report (`capture.upload`, `capture.__main__`).
     "httpx",
+    # The report's answer (`capture.__main__`).
+    "pydantic",
     # The device's .env (`capture.__main__`).
     "python-dotenv",
 ]

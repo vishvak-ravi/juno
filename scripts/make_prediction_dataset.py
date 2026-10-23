@@ -22,7 +22,7 @@ Screenshots are referenced by ``file://`` URL instead of embedded; the benchmark
 script reads them when it sends the request. The dataset is written next to the
 session's events, in ``<session dir>/datasets/`` (see ``predict.benchmarks``).
 Settings come from the ``predict`` section of the server's settings
-(``juno.settings``), the store from JUNO_DATA_DIR.
+(``juno.settings``), the store from JUNO_DATA_DIR (the checkout's ``.env`` is read).
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ import json
 import sys
 import time
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from juno.sessions import session_dir
 from annotate.store import FileActivityCaptions
@@ -79,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                              "Default: <session dir>/datasets/<time>.jsonl")
     args = parser.parse_args(argv)
 
+    load_dotenv(ROOT_DIR / ".env")
     try:
         config = server_settings().read()
     except ConfigError as exc:

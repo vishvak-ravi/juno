@@ -7,9 +7,10 @@
 // granted to the app this one was launched from; the window's devices panel
 // shows the status and the last lines it logged.
 const { spawn } = require("node:child_process");
-const path = require("node:path");
 const readline = require("node:readline");
 const { app, ipcMain } = require("electron");
+
+const { checkoutPython } = require("./python");
 
 const RECORDER_LOG_LINES = 20;
 
@@ -17,7 +18,7 @@ const RECORDER_LOG_LINES = 20;
 // serverUrl(). Returns {restart}, which stops it (letting it save its session)
 // and starts it again.
 function startCapture(repoDir, serverUrl) {
-  const python = path.join(repoDir, ".venv/bin/python");
+  const python = checkoutPython(repoDir);
   const recorder = { running: false, exitCode: null, log: [] };
   let child = null;
 

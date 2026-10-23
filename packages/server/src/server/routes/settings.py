@@ -7,7 +7,10 @@ variables the server reads, an API key shown only as set or not; and
 runs with. ``PATCH /settings`` with ``{"set": {"annotate.model": "..."},
 "reset": ["annotate.api_base"]}`` saves the changes to ``<data_dir>/settings.json``
 and answers as ``GET`` does; they apply when the server restarts. A refused change
-answers 422 with ``detail`` mapping each dotted path to why, and saves nothing.
+answers 422 with ``detail`` mapping each dotted path to why, and saves nothing; a
+setting marked ``local`` (``juno.config.LOCAL``) is refused always, since the API
+has no authentication and such a setting widens what a caller can have run. A
+settings file that cannot be read answers 500 with its path in ``detail``.
 """
 
 from typing import Any
@@ -15,9 +18,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from juno.config import ServerSettings
+from juno.config import ConfigError, ServerSettings
 from juno.settings import (EnvView, SectionView, SettingsError, describe, environment,
-                           get_path, keys_needed, leaf_paths)
+                           get_path, keys_needed, leaf_paths, local_paths)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -46,17 +49,30 @@ def view(saved: ServerSettings, running: ServerSettings) -> SettingsView:
                         restart=restart)
 
 
+LOCAL_ONLY = "changed only on the server's machine: python -m juno.settings server set"
+
+
 @router.get("")
 def get_settings(request: Request) -> SettingsView:
     state = request.app.state
-    return view(state.settings_file.read(), state.settings)
+    try:
+        saved = state.settings_file.read()
+    except ConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return view(saved, state.settings)
 
 
 @router.patch("")
 def patch_settings(body: SettingsPatch, request: Request) -> SettingsView:
     state = request.app.state
+    local = local_paths(ServerSettings)
+    refused = {path: LOCAL_ONLY for path in [*body.set, *body.reset] if path in local}
+    if refused:
+        raise HTTPException(status_code=422, detail=refused)
     try:
         saved = state.settings_file.update(changes=body.set, resets=body.reset)
     except SettingsError as exc:
         raise HTTPException(status_code=422, detail=exc.errors)
+    except ConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     return view(saved, state.settings)

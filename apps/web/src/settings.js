@@ -1,6 +1,7 @@
 // Settings forms. A description, as juno.settings and GET /settings give it, is
 // {sections, environment}: each section a dotted path, what it is and its
-// fields; each field its kind, value, default and what it does. `sectionForm`
+// fields; each field its kind, value, default, what it does and whether it is
+// local (changed only where its file is, shown here as it is). `sectionForm`
 // draws one section as a form whose Save sends {set, reset} by dotted path;
 // `environmentList` shows what is read from the environment, an API key only as
 // set or not. The pages choose which sections to show and where a change goes.
@@ -54,10 +55,12 @@ const leaf = (path) => path.slice(path.lastIndexOf(".") + 1);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // One field: its name, what it does, its control, its default when it differs,
-// and a line for why a save refused it. `changed()` is called on every edit.
+// and a line for why a save refused it. `changed()` is called on every edit. A
+// field marked local is shown as it is, with where it is changed.
 function fieldRow(field, changed) {
   const id = `setting-${field.path.replaceAll(".", "-")}`;
   const control = controlOf(field, id);
+  control.disabled = Boolean(field.local);
   const error = el("small", { className: "error", hidden: true });
   const defaultLine = el("small", { className: "default" });
   let reset = false;
@@ -73,13 +76,13 @@ function fieldRow(field, changed) {
     const atDefault = !read.problem && same(read.value, field.default);
     defaultLine.replaceChildren(...(atDefault ? [] : [
       `Default: ${field.default == null ? "not set" : shown(field, field.default) || "empty"} `,
-      el("button", { type: "button", className: "link", textContent: "Use default", onclick: () => {
+      ...(field.local ? [] : [el("button", { type: "button", className: "link", textContent: "Use default", onclick: () => {
         if (field.kind === "bool") control.checked = Boolean(field.default);
         else control.value = shown(field, field.default);
         reset = true;
         drawDefault();
         changed();
-      } })]));
+      } })])]));
   };
   control.addEventListener(field.kind === "bool" || field.kind === "enum" ? "change" : "input", () => {
     reset = false;
@@ -92,6 +95,7 @@ function fieldRow(field, changed) {
     el("label", { htmlFor: id }, el("b", { textContent: leaf(field.path) }), el("code", { textContent: field.path })),
     control,
     ...(field.description ? [el("small", { className: "help", textContent: field.description })] : []),
+    ...(field.local ? [el("small", { className: "local", textContent: `Changed only on the machine that holds the file: python -m juno.settings … set ${field.path}=VALUE` })] : []),
     defaultLine, error);
   return {
     row,
