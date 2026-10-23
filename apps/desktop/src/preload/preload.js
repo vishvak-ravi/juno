@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("juno", {
   patch: (route, body) => ipcRenderer.invoke("api:patch", route, body),
   // This computer's recorder: {running, exitCode, log}, log being its last lines.
   captureStatus: () => ipcRenderer.invoke("capture:status"),
+  // The checkout's config.yaml as JSON (juno.config.Config); null if it cannot be read.
+  config: () => ipcRenderer.invoke("config:get"),
   // This computer's device id, the one its recorder uploads under; null if unknown.
   deviceId: () => ipcRenderer.invoke("device:id"),
   // Reopen the conversation of a moment (its `conversation`) recorded on eventDeviceId;

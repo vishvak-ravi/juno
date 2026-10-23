@@ -229,6 +229,13 @@ class DrawConfig(Section):
     device_id: str = Field(default="tablet", pattern=r"^[a-z0-9]+$")
 
 
+class ClientConfig(Section):
+    # The desktop client (``apps/desktop``), which reads this file through the
+    # checkout's Python when it starts. Actions either side of the open one
+    # whose screenshots are fetched ahead, so stepping to them shows each at once.
+    prefetch: int = 3
+
+
 class Config(Section):
     server: ServerConfig = Field(default_factory=ServerConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
@@ -241,6 +248,7 @@ class Config(Section):
     control: ControlConfig = Field(default_factory=ControlConfig)
     draw: DrawConfig = Field(default_factory=DrawConfig)
     claude_hook: ClaudeHookConfig = Field(default_factory=ClaudeHookConfig)
+    client: ClientConfig = Field(default_factory=ClientConfig)
 
 
 def default_data_dir() -> Path:
