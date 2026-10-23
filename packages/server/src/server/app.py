@@ -14,16 +14,20 @@ from annotate.request import AnnotationRequest
 from juno.config import (Config, claude_results_dir, control_file, devices_dir,
                          draw_sessions_dir, load_config, resolve_data_dir, server_host,
                          workspace_dir)
-from keypoints.detect import Ask, DetectionWorker, JevAsk
+from annotate.store import FileActivityCaptions
+from keypoints.ask import Ask, JevAsk, QuestionWorker
 from keypoints.questions import load_questions
+from keypoints.store import FileQuestionAnswers
 from predict.predictor import Predictor
-from server.control import read_state
+from server.control import FileControl
+from server.events import FileEvents
 from server.integrity import StoreReport, check_store
 from server.agent.mcp import MCP_PATH, create_mcp
 from server.routes.chats import router as chats_router
 from server.routes.control import router as control_router
 from server.routes.draw import router as draw_router
 from server.routes.events import router as events_router
+from server.routes.hooks import router as hooks_router
 from server.routes.indices import router as indices_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
@@ -79,7 +83,7 @@ def create_app(config: Optional[Config] = None,
             uploaded sessions under ``screen/devices/``.
         annotate_request: the model call for one sanitized annotation request;
             by default ``annotate.label.annotate`` with the configured model.
-        ask: the Jev call for one row; by default ``keypoints.detect.JevAsk``
+        ask: the Jev call for one row; by default ``keypoints.ask.JevAsk``
             with ``keypoints.model``, which needs TYPESAFE_API_KEY.
     """
     if config is None:
@@ -93,13 +97,11 @@ def create_app(config: Optional[Config] = None,
     data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"
     predictor = Predictor(config.predict)
+    events = FileEvents(devices_dir(data_dir))
+    captions = FileActivityCaptions(devices_dir(data_dir))
+    answers = FileQuestionAnswers(devices_dir(data_dir))
+    control = FileControl(control_file(data_dir))
     questions = load_questions()
-    chat_tools = create_chat_tools(devices_dir(data_dir), chats_dir,
-                                   config.llm.tool_result_chars, config.tools,
-                                   workspace_dir(data_dir), claude_results_dir(data_dir),
-                                   config.annotate.chunk_size, config.keypoints, questions)
-    mcp = create_mcp(session_tools(devices_dir(data_dir), config.llm.tool_result_chars,
-                                   config.annotate.chunk_size, config.keypoints, questions))
 
     if ask is None and config.keypoints.enabled:
         if os.environ.get(TYPESAFE_KEY_ENV):
@@ -111,44 +113,52 @@ def create_app(config: Optional[Config] = None,
     async def lifespan(app: FastAPI):
         log_store_report(check_store(app.state.devices_dir, config.annotate.chunk_size))
         app.state.worker.start()
-        if app.state.detector is not None:
-            app.state.detector.start()
+        if app.state.question_worker is not None:
+            app.state.question_worker.start()
         try:
             async with mcp.session_manager.run():
                 yield
         finally:
             app.state.worker.stop()
-            if app.state.detector is not None:
-                app.state.detector.stop()
+            if app.state.question_worker is not None:
+                app.state.question_worker.stop()
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
-    app.state.chat_tools = chat_tools
     app.state.annotate = config.annotate
     app.state.predictor = predictor
-    app.state.control = config.control
-    app.state.control_file = control_file(data_dir)
+    app.state.events = events
+    app.state.captions = captions
+    app.state.answers = answers
+    app.state.control = control
+    app.state.control_config = config.control
     app.state.capture = config.capture
     app.state.draw = config.draw
     app.state.draw_sessions_dir = draw_sessions_dir(data_dir)
-    annotating = read_state(app.state.control_file).server.annotate
-    app.state.worker = AnnotationWorker(
-        app.state.devices_dir, config.annotate, annotate_request, annotating=annotating)
+    annotating = control.read().server.annotate
+    app.state.worker = AnnotationWorker(events, captions, config.annotate, annotate_request,
+                                        annotating=annotating)
     app.state.keypoints = config.keypoints
     app.state.questions = questions
     # None when keypoints are off or no key is set.
-    app.state.detector = (DetectionWorker(app.state.devices_dir, config.annotate,
-                                          config.keypoints, app.state.questions, ask,
-                                          detecting=annotating)
-                          if config.keypoints.enabled and ask is not None else None)
+    app.state.question_worker = (QuestionWorker(events, captions, answers, config.annotate,
+                                                config.keypoints, app.state.questions, ask,
+                                                asking=annotating)
+                                 if config.keypoints.enabled and ask is not None else None)
+    # The tools read events as the routes do, through the state above.
+    app.state.chat_tools = create_chat_tools(app.state, chats_dir, config.llm.tool_result_chars,
+                                             config.tools, workspace_dir(data_dir),
+                                             claude_results_dir(data_dir))
+    mcp = create_mcp(session_tools(app.state, config.llm.tool_result_chars))
     app.include_router(router)
     app.include_router(web_router)
     app.include_router(chats_router)
     app.include_router(control_router)
     app.include_router(draw_router)
     app.include_router(events_router)
+    app.include_router(hooks_router)
     app.include_router(indices_router)
     app.include_router(predictions_router)
     app.include_router(sessions_router)

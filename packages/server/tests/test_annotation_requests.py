@@ -8,7 +8,7 @@ from PIL import Image
 
 from annotate.label import Action, Annotation
 from juno.sessions import session_dir
-from annotate.store import list_records, new_record, read_record, write_record
+from annotate.store import FileActivityCaptions, new_caption, write_caption_file
 from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
 
@@ -33,7 +33,7 @@ def write_session(tmp_path, rows: int):
             "screenshot_timestamp": shot, "end_screenshot_timestamp": shot + 1.0,
             "num_events": 1, "events": [event], "cursor_position": [1, 1],
             "monitor": MONITOR, "burst_id": 1, "scale_factor": 1.0}))
-    (session / "raw_aggregations.jsonl").write_text("\n".join(lines) + "\n")
+    (session / "event_rows.jsonl").write_text("\n".join(lines) + "\n")
 
 
 def client_for(tmp_path, annotate_request) -> TestClient:
@@ -46,7 +46,7 @@ def wait_until_settled(tmp_path, chunk):
     """The chunk's stored annotation once it is no longer pending."""
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        record = read_record(session_dir(devices_dir(tmp_path), SESSION), chunk)
+        record = FileActivityCaptions(devices_dir(tmp_path)).get(SESSION, chunk)
         if record is not None and record.status != "pending":
             return record
         time.sleep(0.02)
@@ -82,8 +82,8 @@ def test_a_request_annotates_the_chunk_once_and_the_result_is_stored(tmp_path):
     worker.request(SESSION, 0)
     wait_until_settled(tmp_path, 0)
     stored = devices_dir(tmp_path)
-    assert [r.chunk for r in list_records(stored)] == [0, 1]
-    assert [r.chunk for r in list_records(stored, since=1002.5)] == [1]
+    assert [r.chunk for r in FileActivityCaptions(stored).all()] == [0, 1]
+    assert [r.chunk for r in FileActivityCaptions(stored).all(since=1002.5)] == [1]
 
 
 def test_a_failed_model_call_is_recorded_and_a_new_request_retries_it(tmp_path):
@@ -108,8 +108,8 @@ def test_a_failed_model_call_is_recorded_and_a_new_request_retries_it(tmp_path):
 
 def test_an_annotation_left_pending_by_a_stopped_server_is_finished_by_the_next(tmp_path):
     write_session(tmp_path, rows=2)
-    write_record(session_dir(devices_dir(tmp_path), SESSION),
-                 new_record(SESSION, 0, "gemini/any"))  # queued, then the server stopped
+    write_caption_file(session_dir(devices_dir(tmp_path), SESSION),
+                 new_caption(SESSION, 0, "gemini/any"))  # queued, then the server stopped
 
     def annotate_request(request):
         return Annotation(actions=[], dense_caption="", sanitization=request.sanitization)

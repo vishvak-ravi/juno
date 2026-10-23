@@ -2,8 +2,7 @@
 
 import time
 
-from juno.sessions import session_dir
-from annotate.store import read_record
+from annotate.store import FileActivityCaptions
 from juno.config import devices_dir
 from test_events import LAPTOP, client_for, put, wait_for_annotation
 
@@ -70,7 +69,7 @@ def test_with_annotation_off_chunks_wait_until_it_is_on_again(tmp_path):
     put(client, LAPTOP, 1, 1001.0)
 
     time.sleep(0.3)
-    record = read_record(session_dir(devices_dir(tmp_path), LAPTOP), 0)
+    record = FileActivityCaptions(devices_dir(tmp_path)).get(LAPTOP, 0)
     assert record.status == "pending"
     assert client.get("/control").json()["server"]["queue"]["queued"]["live"] == 1
 

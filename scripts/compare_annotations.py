@@ -3,7 +3,7 @@
     uv run python scripts/compare_annotations.py A B [--host HOST] [--port PORT]
 
 A and B are annotation stores of the same session (a directory holding
-``annotations/NNNN.json``): a session in the server's store, or a run of
+``activity_captions/NNNN.json``): a session in the server's store, or a run of
 ``scripts/annotate_session_activity.py`` under ``data/annotations/``. ``/`` lists
 the chunks; ``/chunk/N`` shows chunk N's frames and event text, then each
 store's actions and dense caption. Records are read on every request, so a run
@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 
-from annotate.store import ANNOTATIONS_DIR, AnnotationRecord, read_record
+from annotate.store import CAPTIONS_DIR, ActivityCaption, read_caption_file
 
 STYLE = """
 body { font: 13px/1.4 system-ui, sans-serif; margin: 12px; }
@@ -37,7 +37,7 @@ pre { white-space: pre-wrap; margin: 2px 0; font-size: 12px; }
 
 
 def stored_chunks(store: Path) -> set[int]:
-    return {int(path.stem) for path in (store / ANNOTATIONS_DIR).glob("*.json")
+    return {int(path.stem) for path in (store / CAPTIONS_DIR).glob("*.json")
             if path.stem.isdigit()}
 
 
@@ -46,7 +46,7 @@ def page(title: str, body: str) -> bytes:
             f"<style>{STYLE}</style>{body}").encode()
 
 
-def summary_cell(record: Optional[AnnotationRecord]) -> str:
+def summary_cell(record: Optional[ActivityCaption]) -> str:
     if record is None:
         return "<td>-</td>"
     if record.status != "done":
@@ -56,7 +56,7 @@ def summary_cell(record: Optional[AnnotationRecord]) -> str:
 
 def index_page(stores: list[Path]) -> bytes:
     chunks = sorted(set().union(*(stored_chunks(store) for store in stores)))
-    records = {chunk: [read_record(store, chunk) for store in stores] for chunk in chunks}
+    records = {chunk: [read_caption_file(store, chunk) for store in stores] for chunk in chunks}
     models = [next((r.model for row in records.values() for r in [row[i]] if r), str(store))
               for i, store in enumerate(stores)]
     rows = "".join(
@@ -67,7 +67,7 @@ def index_page(stores: list[Path]) -> bytes:
     return page("chunks", f"<table><tr><th>chunk</th>{head}</tr>{rows}</table>")
 
 
-def output_column(record: Optional[AnnotationRecord]) -> str:
+def output_column(record: Optional[ActivityCaption]) -> str:
     if record is None:
         return "<div><i>not annotated</i></div>"
     title = f"<h3>{html.escape(record.model)}</h3>"
@@ -81,7 +81,7 @@ def output_column(record: Optional[AnnotationRecord]) -> str:
 
 
 def chunk_page(stores: list[Path], chunk: int) -> bytes:
-    records = [read_record(store, chunk) for store in stores]
+    records = [read_caption_file(store, chunk) for store in stores]
     frames_from = next((r for r in records if r is not None and r.frames), None)
     frames = "".join(
         f"<div class=frame><b>{html.escape(frame.label)}</b>"
@@ -97,7 +97,7 @@ def chunk_page(stores: list[Path], chunk: int) -> bytes:
 def screenshot(stores: list[Path], chunk: int, number: int) -> Optional[Path]:
     """The screenshot of frame ``number`` of ``chunk``, as a stored record names it."""
     for store in stores:
-        record = read_record(store, chunk)
+        record = read_caption_file(store, chunk)
         if record is not None and 0 <= number < len(record.frames):
             return Path(record.frames[number].screenshot_path)
     return None
@@ -133,13 +133,13 @@ def handler_for(stores: list[Path]) -> type[BaseHTTPRequestHandler]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("stores", type=Path, nargs=2, metavar="STORE",
-                        help="an annotation store: a directory holding annotations/")
+                        help="an annotation store: a directory holding activity_captions/")
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     parser.add_argument("--port", type=int, default=8780)
     args = parser.parse_args(argv)
     for store in args.stores:
-        if not (store / ANNOTATIONS_DIR).is_dir():
-            print(f"error: {store} has no {ANNOTATIONS_DIR}/ directory", file=sys.stderr)
+        if not (store / CAPTIONS_DIR).is_dir():
+            print(f"error: {store} has no {CAPTIONS_DIR}/ directory", file=sys.stderr)
             return 2
     server = ThreadingHTTPServer((args.host, args.port), handler_for(args.stores))
     print(f"http://{args.host}:{args.port}/", file=sys.stderr)

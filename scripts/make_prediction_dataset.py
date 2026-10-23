@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 
 from juno.sessions import session_dir
-from annotate.store import list_records
+from annotate.store import FileActivityCaptions
 from juno.config import ConfigError, devices_dir, load_config, resolve_data_dir
 from predict.benchmarks import RUN_FORMAT, datasets_dir
 from predict.predictor import Predictor, build_actions_block, prediction_events
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = resolve_data_dir(config.capture)
 
     records = [record.model_copy(update={"updated_at": record.end_time})
-               for record in list_records(devices_dir(data_dir), session_id=args.session_id)
+               for record in FileActivityCaptions(devices_dir(data_dir)).all(session_id=args.session_id)
                if record.status == "done" and record.end_time is not None]
     events = prediction_events(records)
     needed = config.predict.past_len + config.predict.future_len

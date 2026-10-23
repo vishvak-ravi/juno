@@ -218,6 +218,12 @@ class ControlConfig(Section):
     offline_seconds: float = 30.0
 
 
+class ClaudeHookConfig(Section):
+    # Seconds Claude Code waits for the server before sending a prompt on
+    # anyway; written into the hook by ``python -m capture.claude_hook install``.
+    timeout_seconds: int = 3
+
+
 class DrawConfig(Section):
     # The device id the server records the /draw page's sessions under.
     device_id: str = Field(default="tablet", pattern=r"^[a-z0-9]+$")
@@ -234,6 +240,7 @@ class Config(Section):
     grade: GradeConfig = Field(default_factory=GradeConfig)
     control: ControlConfig = Field(default_factory=ControlConfig)
     draw: DrawConfig = Field(default_factory=DrawConfig)
+    claude_hook: ClaudeHookConfig = Field(default_factory=ClaudeHookConfig)
 
 
 def default_data_dir() -> Path:

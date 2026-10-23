@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld("juno", {
   patch: (route, body) => ipcRenderer.invoke("api:patch", route, body),
   // This computer's recorder: {running, exitCode, log}, log being its last lines.
   captureStatus: () => ipcRenderer.invoke("capture:status"),
+  // This computer's device id, the one its recorder uploads under; null if unknown.
+  deviceId: () => ipcRenderer.invoke("device:id"),
+  // Reopen the conversation of a moment (its `conversation`) recorded on eventDeviceId;
+  // resolves to {} once a terminal has opened, or {error}.
+  resume: (eventDeviceId, conversation) => ipcRenderer.invoke("conversation:resume", eventDeviceId, conversation),
   // Open (true) or close (false) a dictation segment; onDictation receives
   // {text, final} for it, text being the whole segment so far.
   dictate: (on) => ipcRenderer.send("dictation:set", on),

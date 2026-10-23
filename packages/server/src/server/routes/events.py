@@ -15,8 +15,8 @@ each chunk the moment its last row arrives, unless the request says
 ``?annotate=false``.
 
 ``PATCH`` sets a caption of the user's own over the model's; ``DELETE`` hides
-the event. Both are kept in the session's ``event_edits.json``: the row, its
-screenshot and its annotation stay on disk.
+the event. Both are kept as the session's edits (``server.events``): the row,
+its screenshot and its activity caption stay stored.
 
 ``GET /events/activity?edges=t0,t1,...`` counts the events in each span between
 consecutive edges (unix seconds, ascending), for a calendar or any other
@@ -26,34 +26,20 @@ overview of when things were recorded.
 import bisect
 import json
 import logging
-import os
-import re
-import threading
-from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
+from starlette.datastructures import State
 
-from juno.config import KeypointsConfig
 from juno.events import EVENT_ID, event_id_of
-from juno.sessions import (
-    AGGREGATIONS_FILE,
-    SESSION_ID_PATTERN,
-    Aggregation,
-    count_rows,
-    read_aggregations,
-    session_dir,
-    session_dirs,
-    session_id_of,
-)
+from juno.sessions import Aggregation
 from annotate.request import framed_rows
-from annotate.store import read_record
 from keypoints.derive import Moment, row_indices, session_moments
-from keypoints.questions import QuestionSet
-from keypoints.store import session_answers
+from server.events import EventEdit
+from server.hooks import merge_moments, prompt_moments, read_prompts
 from server.routes.paging import DeviceFilter, Page
 from server.worker import Priority
 
@@ -62,15 +48,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/events", tags=["events"])
 
 EventId = Annotated[str, PathParam(pattern=EVENT_ID.pattern, max_length=128)]
-
-SCREENSHOTS_DIR = "screenshots"
-EDITS_FILE = "event_edits.json"
-
-# An upload counts the session's rows, then appends one; two at once must not
-# interleave, so uploads run one at a time. Edits read, change and replace a
-# session's edits file, so they too run one at a time.
-upload_lock = threading.Lock()
-edits_lock = threading.Lock()
 
 
 class KeyInput(BaseModel):
@@ -124,74 +101,50 @@ class Event(BaseModel):
     moments: list[Moment] = []
 
 
-class EventEdit(BaseModel):
-    """What the user changed on one event."""
-    caption: Optional[str] = None
-    deleted: bool = False
-
-
-class SessionEdits(BaseModel):
-    # By row.
-    rows: dict[int, EventEdit] = {}
-
-
 class EventPatch(BaseModel):
     # null removes the user's caption, showing the model's again.
     caption: Optional[str]
 
 
-def read_edits(directory: Path) -> SessionEdits:
-    try:
-        return SessionEdits.model_validate_json((directory / EDITS_FILE).read_text())
-    except FileNotFoundError:
-        return SessionEdits()
-
-
-def write_edits(directory: Path, edits: SessionEdits) -> None:
-    """Replace the file in one step, so a reader never sees half of it."""
-    path = directory / EDITS_FILE
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(edits.model_dump_json(indent=2))
-    os.replace(temporary, path)
-
-
-def model_captions(directory: Path, aggregations: list[Aggregation],
-                   chunk_size: int) -> dict[int, str]:
-    """The model's caption of each row its annotations cover, by row (frames as in ``framed_rows``)."""
+def model_captions(state: State, session_id: str, aggregations: list[Aggregation]) -> dict[int, str]:
+    """The model's caption of each row its activity captions cover, by row (frames as in ``framed_rows``)."""
+    chunk_size = state.annotate.chunk_size
     captions = {}
     for chunk in range(-(-len(aggregations) // chunk_size)):
         try:
-            record = read_record(directory, chunk)
+            caption = state.captions.get(session_id, chunk)
         except ValidationError as exc:
-            logger.warning("skipping the annotation of %s chunk %d: %s",
-                           session_id_of(directory), chunk, exc)
+            logger.warning("skipping the activity caption of %s chunk %d: %s",
+                           session_id, chunk, exc)
             continue
-        if record is None or record.annotation is None:
+        if caption is None or caption.annotation is None:
             continue
         framed = framed_rows(aggregations, chunk, chunk_size)
-        for action in record.annotation.actions:
+        for action in caption.annotation.actions:
             for row in framed[action.start - 1:action.end]:
                 captions[row] = action.caption
     return captions
 
 
-def session_events(directory: Path, chunk_size: int, keypoints: KeypointsConfig,
-                   questions: QuestionSet, include_deleted: bool = False) -> dict[int, Event]:
+def session_events(state: State, session_id: str,
+                   include_deleted: bool = False) -> dict[int, Event]:
     """The events of one session, by row; none if it has no rows.
 
     Moments are found over every answered row, deleted ones included, so
-    deleting an event does not start a new moment at the next one.
+    deleting an event does not start a new moment at the next one. The prompts
+    Claude Code reported on this device are added where they fall (``server.hooks``).
     """
-    try:
-        aggregations = read_aggregations(directory)
-    except FileNotFoundError:
+    aggregations = state.events.rows(session_id)
+    if not aggregations:
         return {}
-    session_id = session_id_of(directory)
     device_id = session_id.split("-", 1)[0]
-    edits = read_edits(directory).rows
-    captions = model_captions(directory, aggregations, chunk_size)
-    answers = session_answers(directory)
-    moments = session_moments(answers, questions, keypoints.moment_on, keypoints.moment_off)
+    edits = state.events.edits(session_id).rows
+    captions = model_captions(state, session_id, aggregations)
+    answers = state.answers.by_row(session_id)
+    moments = merge_moments(
+        session_moments(answers, state.questions, state.keypoints.moment_on,
+                        state.keypoints.moment_off),
+        prompt_moments(aggregations, read_prompts(state.devices_dir / device_id)))
     events = {}
     for row, aggregation in enumerate(aggregations):
         edit = edits.get(row, EventEdit())
@@ -205,22 +158,26 @@ def session_events(directory: Path, chunk_size: int, keypoints: KeypointsConfig,
             inputs=[{"type": e.event_type, "timestamp": e.timestamp, **e.details}
                     for e in aggregation.events],
             caption=edit.caption if edit.caption is not None else captions.get(row),
-            indices=row_indices(answers.get(row, {}), questions),
+            indices=row_indices(answers.get(row, {}), state.questions),
             moments=moments.get(row, []))
     return events
 
 
-def locate(devices_dir: Path, event_id: str) -> tuple[Path, int]:
-    """The session directory and row of ``event_id``."""
+def stored_events(state: State, device: Optional[str] = None) -> list[Event]:
+    """Every event the user has not deleted, of one device or of all, in no particular order."""
+    return [event for session_id in state.events.sessions(device)
+            for event in session_events(state, session_id).values()]
+
+
+def locate(event_id: str) -> tuple[str, int]:
+    """The session id and row of ``event_id``."""
     match = EVENT_ID.match(event_id)
-    return session_dir(devices_dir, match.group("session_id")), int(match.group("row"))
+    return match.group("session_id"), int(match.group("row"))
 
 
 def find(request: Request, event_id: str, include_deleted: bool = False) -> Event:
-    state = request.app.state
-    directory, row = locate(state.devices_dir, event_id)
-    event = session_events(directory, state.annotate.chunk_size, state.keypoints,
-                           state.questions, include_deleted).get(row)
+    session_id, row = locate(event_id)
+    event = session_events(request.app.state, session_id, include_deleted).get(row)
     if event is None:
         raise HTTPException(status_code=404, detail=f"no event with id {event_id}")
     return event
@@ -241,10 +198,7 @@ def list_events(
     after: Optional[str] = None,
 ) -> Page[Event]:
     """Events of every device, newest first by default, optionally of one device or time range."""
-    state = request.app.state
-    events = [event for directory in session_dirs(state.devices_dir, device)
-              for event in session_events(directory, state.annotate.chunk_size,
-                                          state.keypoints, state.questions).values()
+    events = [event for event in stored_events(request.app.state, device)
               if (since is None or event.timestamp >= since)
               and (until is None or event.timestamp <= until)]
     events.sort(key=sort_key, reverse=order == "desc")
@@ -301,11 +255,8 @@ def activity(
     device: DeviceFilter = None,
 ) -> Activity:
     """How many events fall in each span between consecutive edges, every device's or one device's."""
-    state = request.app.state
     bounds = parse_edges(edges)
-    timestamps = sorted(event.timestamp for directory in session_dirs(state.devices_dir, device)
-                        for event in session_events(directory, state.annotate.chunk_size,
-                                                    state.keypoints, state.questions).values())
+    timestamps = sorted(event.timestamp for event in stored_events(request.app.state, device))
     return Activity(edges=bounds, counts=count_between(timestamps, bounds))
 
 
@@ -316,25 +267,17 @@ def get_event(event_id: EventId, request: Request) -> Event:
 
 @router.patch("/{event_id}")
 def update_event(event_id: EventId, body: EventPatch, request: Request) -> Event:
-    """Set the event's caption; the model's stays on disk and returns if this is null."""
+    """Set the event's caption; the model's stays stored and returns if this is null."""
     find(request, event_id)
-    directory, row = locate(request.app.state.devices_dir, event_id)
-    with edits_lock:
-        edits = read_edits(directory)
-        edits.rows.setdefault(row, EventEdit()).caption = body.caption
-        write_edits(directory, edits)
+    request.app.state.events.set_caption(*locate(event_id), body.caption)
     return find(request, event_id)
 
 
 @router.delete("/{event_id}", status_code=204)
 def delete_event(event_id: EventId, request: Request) -> None:
-    """Hide the event from ``/events``; its row and screenshot stay on disk."""
+    """Hide the event from ``/events``; its row and screenshot stay stored."""
     find(request, event_id)
-    directory, row = locate(request.app.state.devices_dir, event_id)
-    with edits_lock:
-        edits = read_edits(directory)
-        edits.rows.setdefault(row, EventEdit()).deleted = True
-        write_edits(directory, edits)
+    request.app.state.events.hide(*locate(event_id))
 
 
 @router.put("/{event_id}")
@@ -350,36 +293,21 @@ def upload_event(event_id: EventId, request: Request, response: Response,
     stored; with ``annotate.backfill`` the server annotates its chunk later.
     """
     state = request.app.state
-    directory, row = locate(state.devices_dir, event_id)
-    session_id = session_id_of(directory)
+    session_id, row = locate(event_id)
     try:
         record = json.loads(aggregation)
         Aggregation.model_validate(record)
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=f"not an aggregation row: {exc}")
 
-    with upload_lock:
-        stored = count_rows(directory)
-        if row < stored:
-            return find(request, event_id, include_deleted=True)
-        if row > stored:
-            raise HTTPException(status_code=409, detail={
-                "message": f"session {session_id} has {stored} rows; send row {stored} next",
-                "expected_row": stored})
-
-        # The row arrives pointing at the recorder's file; it is stored pointing
-        # at this server's copy, or at nothing if no screenshot came with it.
-        path = None
-        if screenshot is not None and record["screenshot_path"]:
-            # PurePath.name of either platform's path: no directory part survives.
-            name = re.split(r"[\\/]", record["screenshot_path"])[-1]
-            path = directory / SCREENSHOTS_DIR / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(screenshot.file.read())
-        record["screenshot_path"] = str(path) if path else None
-        directory.mkdir(parents=True, exist_ok=True)
-        with open(directory / AGGREGATIONS_FILE, "a") as rows:
-            rows.write(json.dumps(record) + "\n")
+    appended = state.events.append(session_id, row, record,
+                                   screenshot.file.read() if screenshot is not None else None)
+    if appended.outcome == "gap":
+        raise HTTPException(status_code=409, detail={
+            "message": f"session {session_id} has {appended.rows} rows; send row {appended.rows} next",
+            "expected_row": appended.rows})
+    if appended.outcome == "duplicate":
+        return find(request, event_id, include_deleted=True)
 
     chunk_size = state.annotate.chunk_size
     if annotate and (row + 1) % chunk_size == 0:
@@ -388,22 +316,10 @@ def upload_event(event_id: EventId, request: Request, response: Response,
     return find(request, event_id, include_deleted=True)
 
 
-def screenshot_file(directory: Path, aggregation: Aggregation) -> Optional[Path]:
-    """The screenshot of a row of the session in ``directory``; None if it has none.
-
-    Only a file stored inside that session counts.
-    """
-    path = Path(aggregation.screenshot_path).resolve() if aggregation.screenshot_path else None
-    if path is None or not path.is_file() or directory.resolve() not in path.parents:
-        return None
-    return path
-
-
 @router.get("/{event_id}/screenshot")
 def get_screenshot(event_id: EventId, request: Request) -> FileResponse:
     find(request, event_id)
-    directory, row = locate(request.app.state.devices_dir, event_id)
-    path = screenshot_file(directory, read_aggregations(directory)[row])
+    path = request.app.state.events.screenshot(*locate(event_id))
     if path is None:
         raise HTTPException(status_code=404, detail=f"{event_id} has no screenshot")
     return FileResponse(path, media_type="image/png")

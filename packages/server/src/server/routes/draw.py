@@ -70,8 +70,8 @@ async def draw_socket(websocket: WebSocket) -> None:
     backend = pushed.create(canvas.width, canvas.height)
     # The address this socket reached the server at, which its uploads can reach too.
     host, port = websocket.scope["server"][:2]
-    recorder = DrawRecorder(backend, state.capture, state.control.poll_seconds,
-                            state.control_file, state.draw_sessions_dir,
+    recorder = DrawRecorder(backend, state.capture, state.control_config.poll_seconds,
+                            state.control, state.draw_sessions_dir,
                             f"http://{host}:{port}/events", state.draw.device_id)
     recorder.start()
     try:

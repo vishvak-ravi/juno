@@ -1,16 +1,20 @@
-"""The stored atoms: one ``Aggregation`` per row of a session's ``raw_aggregations.jsonl``.
+"""The stored atoms: one ``Aggregation`` per row of a session.
 
-This is everything the recorder kept. What a model is shown is derived from
-it in ``annotate.request``.
+The recorder writes the rows to ``raw_aggregations.jsonl``; the server stores
+its copy as ``event_rows.jsonl`` (``server.events``). A row is everything the
+recorder kept. What a model is shown is derived from it in ``annotate.request``.
 
 The server keeps the sessions of every device under one directory, as
 ``<devices dir>/<device id>/sessions/<session name>/``. A session's id there is
 ``<device id>-<session name>``; the device id is lowercase letters and digits,
-so the first hyphen ends it.
+so the first hyphen ends it. A screenshot path the server stores is relative to
+the session directory (``stored_path``) and is handed out absolute (``resolved``).
 """
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -38,13 +42,28 @@ def session_dirs(devices_dir: Path, device_id: Optional[str] = None) -> list[Pat
     return sorted((p for p in found if p.is_dir()), key=session_id_of)
 
 
-def count_rows(directory: Path) -> int:
-    """How many aggregations the session in ``directory`` holds so far."""
+def resolved(directory: Path, path: Optional[str]) -> Optional[str]:
+    """A stored screenshot path made absolute against its session directory."""
+    return None if path is None else str(directory / path)
+
+
+def stored_path(directory: Path, path: Optional[str]) -> Optional[str]:
+    """A screenshot path as stored: relative if it is inside ``directory``, else as given."""
+    if path is None:
+        return None
     try:
-        with open(directory / AGGREGATIONS_FILE, "rb") as rows:
-            return sum(1 for line in rows if line.strip())
-    except FileNotFoundError:
-        return 0
+        return str(Path(path).relative_to(directory))
+    except ValueError:
+        return path
+
+
+def replace_file(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` in one step, so a reader never sees half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Its own name per writer: two threads may write the same file at once.
+    temporary = path.with_suffix(f".{threading.get_ident()}.tmp")
+    temporary.write_text(text)
+    os.replace(temporary, path)
 
 
 class InputEvent(BaseModel):

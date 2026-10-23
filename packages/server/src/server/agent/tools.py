@@ -32,20 +32,17 @@ from anyio import to_thread
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.types import Image
 from pydantic import BaseModel, ValidationError, create_model
+from starlette.datastructures import State
 
 from annotate.request import framed_rows
-from annotate.store import read_record
-from juno.config import KeypointsConfig, ToolsConfig
+from juno.config import ToolsConfig
 from juno.events import EVENT_ID
-from juno.sessions import (SESSION_ID_PATTERN, read_aggregations, session_dir, session_dirs,
-                           session_id_of)
 from keypoints.derive import Moment
-from keypoints.questions import QuestionSet
 from server import chats
 from server.agent.claude import ClaudeError, TmuxDest, forward_to_claude
 from server.agent.search import SearchError, search_web
 from server.agent.shell import BashError, run_bash
-from server.routes.events import Event, screenshot_file, session_events, sort_key
+from server.routes.events import Event, session_events, sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -167,14 +164,14 @@ def context_summary(span: list[Event]) -> dict:
             "caption": span[0].caption}
 
 
-def screen_texts(directory: Path, chunks: set[int]) -> dict[int, str]:
-    """The text on screen the annotation of each of ``chunks`` read, by chunk; chunks
-    without a finished annotation are left out."""
+def screen_texts(state: State, session_id: str, chunks: set[int]) -> dict[int, str]:
+    """The text on screen the activity caption of each of ``chunks`` read, by chunk; chunks
+    without a finished caption are left out."""
     texts = {}
     for chunk in chunks:
-        record = read_record(directory, chunk)
-        if record is not None and record.annotation is not None:
-            texts[chunk] = record.annotation.dense_caption
+        caption = state.captions.get(session_id, chunk)
+        if caption is not None and caption.annotation is not None:
+            texts[chunk] = caption.annotation.dense_caption
     return texts
 
 
@@ -194,9 +191,8 @@ def cut_to_fit(result: dict, key: str, result_chars: int) -> bool:
     return cut
 
 
-def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
-                  keypoints: KeypointsConfig, questions: QuestionSet) -> list[Callable[..., Any]]:
-    """The tools over the sessions of every device stored in ``devices_dir``.
+def session_tools(state: State, result_chars: int) -> list[Callable[..., Any]]:
+    """The tools over the stored sessions of every device.
 
     A device's sessions are its recorder runs; a session's events are its rows, each a
     screenshot and the input after it, with the caption, indices and moments
@@ -205,14 +201,15 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
     Args:
         result_chars: the most characters a tool's text may take; a listing returns
             fewer items than asked for rather than exceed it.
-        chunk_size, keypoints, questions: how the events are read, as for ``/events``.
+        state: the app's state, which the events are read through as for ``/events``.
     """
-    index_names = list(questions.indices)
-    moment_types = questions.moments.state + questions.moments.action
+    chunk_size = state.annotate.chunk_size
+    index_names = list(state.questions.indices)
+    moment_types = state.questions.moments.state + state.questions.moments.action
 
     def known_devices(device: Optional[str]) -> list[str]:
         """Every device there is activity from; a ``ToolError`` if ``device`` is not one."""
-        devices = sorted(path.name for path in devices_dir.glob("*") if path.is_dir())
+        devices = state.events.devices()
         if device is not None and device not in devices:
             raise ToolError(f"no device {device}; the devices are: {', '.join(devices) or 'none'}")
         return devices
@@ -228,9 +225,9 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
             start = time.time() - last_minutes * 60
         return start, end
 
-    def events_in(directory: Path, start: Optional[float], end: Optional[float]) -> list[Event]:
+    def events_in(session_id: str, start: Optional[float], end: Optional[float]) -> list[Event]:
         """The events of one session between ``start`` and ``end``, oldest first."""
-        events = session_events(directory, chunk_size, keypoints, questions)
+        events = session_events(state, session_id)
         return [events[row] for row in sorted(events)
                 if (start is None or events[row].timestamp >= start)
                 and (end is None or events[row].timestamp <= end)]
@@ -257,8 +254,8 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
         devices = known_devices(device)
         start, end = time_range(last_minutes, since, until)
         sessions = []
-        for directory in session_dirs(devices_dir, device):
-            events = events_in(directory, None, None)
+        for session_id in state.events.sessions(device):
+            events = events_in(session_id, None, None)
             if not events or (start is not None and events[-1].timestamp < start) \
                     or (end is not None and events[0].timestamp > end):
                 continue
@@ -271,7 +268,7 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
                 if found:
                     indices[name] = round(sum(found) / len(found), 2)
             sessions.append((events[-1].timestamp, {
-                "id": session_id_of(directory), "device": events[0].device_id,
+                "id": session_id, "device": events[0].device_id,
                 "start": local_time(events[0].timestamp), "end": local_time(events[-1].timestamp),
                 "events": len(events), "moments": moments, "indices": indices}))
         sessions.sort(key=lambda item: item[0], reverse=True)
@@ -312,22 +309,20 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
         if moment is not None and moment not in moment_types:
             raise ToolError(f"no moment type {moment}; the types are: {', '.join(moment_types)}")
         if session_id is not None:
-            directory = session_dir(devices_dir, session_id) \
-                if re.fullmatch(SESSION_ID_PATTERN, session_id) else None
-            if directory is None or not directory.is_dir():
+            if session_id not in state.events.sessions():
                 raise ToolError(f"no session {session_id}; use an id from list_sessions")
-            directories = [directory]
+            session_ids = [session_id]
         else:
-            directories = session_dirs(devices_dir, device)
+            session_ids = state.events.sessions(device)
         start, end = time_range(last_minutes, since, until)
         found = []
-        for directory in directories:
-            spans = spans_of(events_in(directory, start, end))
+        for searched in session_ids:
+            spans = spans_of(events_in(searched, start, end))
             if moment is not None:
                 spans = [span for span in spans
                          if any(m.type == moment for event in span for m in event.moments)]
-            texts = screen_texts(directory, {row_of(event) // chunk_size
-                                             for span in spans for event in span}) if query else {}
+            texts = screen_texts(state, searched, {row_of(event) // chunk_size
+                                                   for span in spans for event in span}) if query else {}
             # A chunk's text on screen is shared by every run in it: a run found only by
             # text a newer run of the session already showed is left out.
             shown: set[int] = set()
@@ -352,17 +347,17 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
             result["more_available"] = True
         return result
 
-    def newest_event(device: Optional[str]) -> tuple[Path, Event]:
-        """The newest event of ``device``, or of any device: each device's newest session
-        is the last of its sessions by id."""
-        newest: dict[str, tuple[Path, Event]] = {}
-        for directory in reversed(session_dirs(devices_dir, device)):
-            device_id = session_id_of(directory).split("-", 1)[0]
+    def newest_event(device: Optional[str]) -> tuple[str, Event]:
+        """The newest event of ``device``, or of any device, with its session id: each
+        device's newest session is the last of its sessions by id."""
+        newest: dict[str, tuple[str, Event]] = {}
+        for session_id in reversed(state.events.sessions(device)):
+            device_id = session_id.split("-", 1)[0]
             if device_id in newest:
                 continue
-            events = events_in(directory, None, None)
+            events = events_in(session_id, None, None)
             if events:
-                newest[device_id] = (directory, max(events, key=sort_key))
+                newest[device_id] = (session_id, max(events, key=sort_key))
         if not newest:
             raise ToolError("nothing has been recorded" + (f" on {device}" if device else ""))
         return max(newest.values(), key=lambda found: sort_key(found[1]))
@@ -384,31 +379,31 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
         """
         known_devices(device)
         if event_id is None:
-            directory, event = newest_event(device)
+            session_id, event = newest_event(device)
         else:
             match = EVENT_ID.match(event_id)
-            directory = session_dir(devices_dir, match.group("session_id")) if match else None
-            event = session_events(directory, chunk_size, keypoints, questions).get(
-                int(match.group("row"))) if directory is not None else None
+            session_id = match.group("session_id") if match else None
+            event = session_events(state, session_id).get(
+                int(match.group("row"))) if session_id is not None else None
             if event is None:
                 raise ToolError(f"no event {event_id}; use a first_event from find_events")
         row = row_of(event)
-        aggregations = read_aggregations(directory)
+        aggregations = state.events.rows(session_id)
         chunk = row // chunk_size
-        record = read_record(directory, chunk)
-        annotation = record.annotation if record is not None else None
+        caption = state.captions.get(session_id, chunk)
+        annotation = caption.annotation if caption is not None else None
         # Frame f of the annotation is row framed[f]; its input text is as the annotator read it.
         framed = framed_rows(aggregations, chunk, chunk_size)
         frame = framed.index(row) if annotation is not None and row in framed else None
-        spans = spans_of(events_in(directory, None, None))
+        spans = spans_of(events_in(session_id, None, None))
         at = next(i for i, span in enumerate(spans) if any(e.id == event.id for e in span))
         context = max(0, context)
-        result = {"id": event.id, "session_id": session_id_of(directory),
+        result = {"id": event.id, "session_id": session_id,
                   "device": event.device_id, "time": local_time(event.timestamp),
                   "caption": event.caption,
                   "text_on_screen": annotation.dense_caption if annotation is not None else None,
-                  "input": (record.frames[frame].events
-                            if frame is not None and frame < len(record.frames) else None),
+                  "input": (caption.frames[frame].events
+                            if frame is not None and frame < len(caption.frames) else None),
                   "moments": [moment_name(m) for m in event.moments],
                   "indices": {name: round(value, 2) for name, value in event.indices.items()},
                   "before": [context_summary(span) for span in spans[max(0, at - context):at]],
@@ -426,16 +421,14 @@ def session_tools(devices_dir: Path, result_chars: int, chunk_size: int,
             # Escapes in the JSON text make it longer than the content, so cut twice the excess.
             result["text_on_screen"] = screen[:max(0, len(screen) - 2 * over)] + " [cut]"
         text = result_text(result)
-        screenshot = screenshot_file(directory, aggregations[row])
+        screenshot = state.events.screenshot(session_id, row)
         return [text, Image(path=screenshot)] if screenshot is not None else [text]
 
     return [list_sessions, find_events, get_event]
 
 
-def create_chat_tools(devices_dir: Path, chats_dir: Path, result_chars: int,
-                      tools: ToolsConfig, workspace: Path, claude_results: Path,
-                      chunk_size: int, keypoints: KeypointsConfig,
-                      questions: QuestionSet) -> dict[str, Tool]:
+def create_chat_tools(state: State, chats_dir: Path, result_chars: int,
+                      tools: ToolsConfig, workspace: Path, claude_results: Path) -> dict[str, Tool]:
     """Every tool of Juno's chat model, by name: ``session_tools`` and the chats stored in
     ``chats_dir``, and those of ``tools`` that are enabled.
 
@@ -447,9 +440,9 @@ def create_chat_tools(devices_dir: Path, chats_dir: Path, result_chars: int,
         workspace: the directory bash commands start in, and Claude Code too
             unless ``tools.claude.cwd`` names another.
         claude_results: where Claude Code reports the end of each turn.
-        chunk_size, keypoints, questions: as for ``session_tools``.
+        state: as for ``session_tools``.
     """
-    functions = session_tools(devices_dir, result_chars, chunk_size, keypoints, questions)
+    functions = session_tools(state, result_chars)
 
     def search_chats(query: str, limit: int = 10) -> dict:
         """Search the user's past chats with Juno for messages about something, best match

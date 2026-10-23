@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from juno.control import Instruction, Report
 from juno.sessions import DEVICE_ID_PATTERN
-from server.control import ControlState, DeviceState, change_state, read_state, record_report
+from server.control import ControlState, DeviceState, UnknownDevice
 from server.worker import QueueStatus
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -55,41 +55,39 @@ def view(request: Request, state: ControlState) -> ControlView:
 
     def device_view(device: DeviceState) -> DeviceView:
         online = (device.reported_at is not None
-                  and now - device.reported_at < app.control.offline_seconds)
+                  and now - device.reported_at < app.control_config.offline_seconds)
         return DeviceView(**device.model_dump(), online=online)
 
     return ControlView(
         server=ServerView(annotate=state.server.annotate, queue=app.worker.status()),
         devices={id: device_view(device) for id, device in sorted(state.devices.items())},
-        poll_seconds=app.control.poll_seconds)
+        poll_seconds=app.control_config.poll_seconds)
 
 
 @router.get("")
 def get_control(request: Request) -> ControlView:
-    return view(request, read_state(request.app.state.control_file))
+    return view(request, request.app.state.control.read())
 
 
 @router.patch("/server")
 def patch_server(body: ServerPatch, request: Request) -> ControlView:
-    def change(state: ControlState) -> None:
-        state.server.annotate = body.annotate
-    state = change_state(request.app.state.control_file, change)
+    state = request.app.state.control.set_annotating(body.annotate)
     request.app.state.worker.set_annotating(state.server.annotate)
-    if request.app.state.detector is not None:
-        request.app.state.detector.set_detecting(state.server.annotate)
+    if request.app.state.question_worker is not None:
+        request.app.state.question_worker.set_asking(state.server.annotate)
     return view(request, state)
 
 
 @router.patch("/devices/{device_id}")
 def patch_device(device_id: DeviceId, body: DevicePatch, request: Request) -> ControlView:
-    def change(state: ControlState) -> None:
-        if device_id not in state.devices:
-            raise HTTPException(status_code=404, detail=f"no device {device_id} has reported")
-        state.devices[device_id].capture = body.capture
-    return view(request, change_state(request.app.state.control_file, change))
+    try:
+        state = request.app.state.control.set_recording(device_id, body.capture)
+    except UnknownDevice:
+        raise HTTPException(status_code=404, detail=f"no device {device_id} has reported")
+    return view(request, state)
 
 
 @router.put("/devices/{device_id}/report")
 def report(device_id: DeviceId, body: Report, request: Request) -> Instruction:
     """Store the recorder's report; the answer says whether it should record."""
-    return Instruction(capture=record_report(request.app.state.control_file, device_id, body))
+    return Instruction(capture=request.app.state.control.record_report(device_id, body))

@@ -1,5 +1,23 @@
 # Status
 
+## 2026-10-22: Store behind repositories
+
+| Piece | State |
+|---|---|
+| `Events`, `ActivityCaptions`, `QuestionAnswers`, `Control` with file implementations; routes, workers, chat tools and scripts go through them | done; tested |
+| `scripts/migrate_store.py` | done; tested, and run on copies of two real sessions (7,392 rows, 740 captions: no integrity issues). The live store is not migrated yet |
+| Database implementations | not started |
+| Claude Code prompts (`server.hooks`, `<device dir>/hooks/`) and chats (`server.chats`) | still read as files by their callers |
+
+## 2026-10-22: Claude Code prompts as moments
+
+| Piece | State |
+|---|---|
+| `POST /hooks/claude-code`, the origin gate, prompts placed on the device's row | done; tested, and run with an interactive `claude` in tmux (kept) and `claude -p` (left out) against a server on this checkout |
+| `python -m capture.claude_hook install` / `uninstall`, offered by the client install | done; tested against a scratch `CLAUDE_CONFIG_DIR` |
+| "Resume in Claude Code" on the event: a new Ghostty window running `claude --resume` in the conversation's directory | done on Linux, pressed in the client against rows uploaded by hand (the recorder writes rows only on real input); macOS (`open -na Ghostty`) not yet run |
+| Cloud sessions, the Claude desktop app, IDE extensions, claude.ai chats | left out at the route |
+
 ## 2026-10-22: MCP over the record
 
 | Piece | State |
@@ -8,6 +26,7 @@
 | `get_event` returns the screenshot as an MCP image | done over MCP; Juno's chat model is told an image exists but not shown it |
 | Each call reads every stored session (about 3 s over 3,000 events) | not optimized |
 | Tablet captions: new prompt and chunking | not started |
+
 ## 2026-10-21: Activity view
 
 | Piece | State |

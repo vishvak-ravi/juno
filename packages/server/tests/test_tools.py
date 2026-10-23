@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server.agent.tools
-from annotate.store import read_record, write_record
+from annotate.store import read_caption_file, write_caption_file
 from juno.config import (AnnotateConfig, BashConfig, CaptureConfig, ClaudeConfig, Config,
                          KeypointsConfig, LlmConfig, ToolsConfig, WebSearchConfig)
 from server.app import create_app
@@ -20,7 +20,7 @@ from server.agent.search import SearchError
 from server.agent.shell import run_bash
 from server.agent.tools import call_chat_tool
 from test_chats import model_server, store_chat  # noqa: F401  (model_server is a fixture)
-from test_keypoints import SESSION, FakeJev, wait_for_detection, write_session
+from test_keypoints import SESSION, FakeJev, wait_for_answers, write_session
 
 needs_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
 UNSANDBOXED = BashConfig(sandbox=False)
@@ -138,15 +138,15 @@ def tool_text(client: TestClient, name: str, arguments: dict):
 def test_an_agent_finds_what_the_user_saw_and_opens_it_with_its_screenshot(tmp_path):
     # Three rows, a second apart, all captioned "Typed."; Jev sees an error and every action.
     directory = write_session(tmp_path, [["key_press"], [], ["mouse_down"]])
-    record = read_record(directory, 1)
-    write_record(directory, record.model_copy(update={"annotation": record.annotation.model_copy(
+    caption = read_caption_file(directory, 1)
+    write_caption_file(directory, caption.model_copy(update={"annotation": caption.annotation.model_copy(
         update={"dense_caption": "~/work $ python -m server"})}))
     config = Config(capture=CaptureConfig(data_dir=tmp_path),
                     annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
                     keypoints=KeypointsConfig(moment_on=0.7, moment_off=0.4))
     app = create_app(config, annotate_request=lambda request: None, ask=FakeJev())
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        wait_for_detection(directory, 2)
+        wait_for_answers(tmp_path, 2)
         sessions = tool_text(client, "list_sessions", {})
         found = tool_text(client, "find_events", {"query": "Python server"})
         nothing = tool_text(client, "find_events", {"query": "submarine"})

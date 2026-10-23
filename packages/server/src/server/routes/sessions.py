@@ -8,7 +8,6 @@ first and last event's time and how many events it has, without the events.
 ``/events`` returns them. Deleted events are left out of both.
 """
 
-from pathlib import Path
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -16,7 +15,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel
 from starlette.datastructures import State
 
-from juno.sessions import SESSION_ID_PATTERN, session_dir, session_dirs, session_id_of
+from juno.sessions import SESSION_ID_PATTERN
 from server.routes.events import Event, session_events
 from server.routes.paging import DeviceFilter, Page, page_of
 
@@ -41,14 +40,13 @@ class SessionDetail(Session):
     events: list[Event]
 
 
-def session_of(directory: Path, state: State) -> Optional[SessionDetail]:
-    """The session stored in ``directory`` with its events; None if it has none."""
-    events = sorted(session_events(directory, state.annotate.chunk_size, state.keypoints,
-                                   state.questions).values(),
+def session_of(session_id: str, state: State) -> Optional[SessionDetail]:
+    """The session with its events; None if it has none."""
+    events = sorted(session_events(state, session_id).values(),
                     key=lambda e: (e.timestamp, e.id))
     if not events:
         return None
-    return SessionDetail(id=session_id_of(directory), device_id=events[0].device_id,
+    return SessionDetail(id=session_id, device_id=events[0].device_id,
                          start=events[0].timestamp, end=events[-1].timestamp,
                          event_count=len(events),
                          captioned=sum(1 for e in events if e.caption is not None),
@@ -67,8 +65,7 @@ def list_sessions(
 ) -> Page[Session]:
     """Sessions with an event in the time range, newest first by default, without their events."""
     state = request.app.state
-    found = [session_of(directory, state)
-             for directory in session_dirs(state.devices_dir, device)]
+    found = [session_of(session_id, state) for session_id in state.events.sessions(device)]
     sessions = sorted((Session.model_validate(s.model_dump(exclude={"events"})) for s in found
                        if s is not None
                        and (since is None or s.end >= since)
@@ -79,8 +76,7 @@ def list_sessions(
 
 @router.get("/{session_id}")
 def get_session(session_id: SessionId, request: Request) -> SessionDetail:
-    state = request.app.state
-    session = session_of(session_dir(state.devices_dir, session_id), state)
+    session = session_of(session_id, request.app.state)
     if session is None:
         raise HTTPException(status_code=404, detail=f"no session with id {session_id}")
     return session
