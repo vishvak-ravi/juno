@@ -24,6 +24,14 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 SessionId = Annotated[str, PathParam(pattern=f"^{SESSION_ID_PATTERN}$", max_length=128)]
 
 
+class SessionMoment(BaseModel):
+    # As ``Event.moments`` has them, with the event the moment starts at.
+    type: str
+    label: Optional[str]
+    timestamp: float
+    event_id: str
+
+
 class Session(BaseModel):
     id: str
     device_id: str
@@ -33,6 +41,9 @@ class Session(BaseModel):
     event_count: int
     # Events with a caption, the user's or the model's.
     captioned: int
+    # Every moment starting in the session, oldest first, so an overview can
+    # mark them without the events.
+    moments: list[SessionMoment]
 
 
 class SessionDetail(Session):
@@ -50,6 +61,8 @@ def session_of(session_id: str, state: State) -> Optional[SessionDetail]:
                          start=events[0].timestamp, end=events[-1].timestamp,
                          event_count=len(events),
                          captioned=sum(1 for e in events if e.caption is not None),
+                         moments=[SessionMoment(type=m.type, label=m.label, timestamp=e.timestamp, event_id=e.id)
+                                  for e in events for m in e.moments],
                          events=events)
 
 

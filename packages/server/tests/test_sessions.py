@@ -12,7 +12,7 @@ def test_sessions_are_listed_newest_first_with_their_span_and_counts_but_not_the
         listed = client.get("/sessions").json()
         assert [s["id"] for s in listed["data"]] == [DESKTOP, LAPTOP]
         assert listed["data"][1] == {"id": LAPTOP, "device_id": "laptop", "start": 1000.0,
-                                     "end": 1500.0, "event_count": 2, "captioned": 0}
+                                     "end": 1500.0, "event_count": 2, "captioned": 0, "moments": []}
 
         only = client.get("/sessions", params={"device": "laptop"}).json()["data"]
         assert [s["id"] for s in only] == [LAPTOP]

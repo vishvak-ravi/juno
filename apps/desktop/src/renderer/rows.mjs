@@ -1,45 +1,22 @@
 // What the desktop browser makes of the routes' rows, without drawing anything:
-// events laid out on the linear timeline and their inputs counted, graded
-// predictions grouped into runs and their <action> lists read, devices reduced
-// to one state. Every value here is computed from rows already fetched; nothing
-// is requested.
-
-// The start of the local hour holding `seconds`, in Unix seconds.
-export function hourOf(seconds) {
-  const date = new Date(seconds * 1000);
-  date.setMinutes(0, 0, 0);
-  return date.getTime() / 1000;
-}
-
-// The linear timeline's rows for `events` (newest first): `{ hour }` wherever
-// the local hour changes, then `{ moment, event }` for each moment starting at
-// an event, then `{ event, named }` for the event, `named` where its device
-// differs from the event drawn above it or a new hour begins. `above` is the
-// event drawn just before `events`, null at the top.
-export function railItems(events, above = null) {
-  const items = [];
-  let previous = above;
-  for (const event of events) {
-    const hour = hourOf(event.timestamp);
-    const newHour = !previous || hourOf(previous.timestamp) !== hour;
-    if (newHour) items.push({ hour });
-    for (const moment of event.moments ?? []) items.push({ moment, event });
-    items.push({ event, named: newHour || previous.device_id !== event.device_id });
-    previous = event;
-  }
-  return items;
-}
+// sessions laid out on the calendar and down the moment rail, a session's events
+// grouped into sequences, an index smoothed into a curve, inputs read as lines,
+// graded predictions grouped into runs and their <action> lists read, devices
+// reduced to one state. Every value here is computed from rows already fetched;
+// nothing is requested.
 
 // What a moment's divider says, by its type and its label (the assistant in focus).
 const ASSISTANTS = { claude_code: "Claude Code", codex: "Codex", chatgpt: "ChatGPT", hermes: "Hermes", juno_chat: "Juno chat" };
 const MOMENTS = {
-  agent_needs_input: (who) => `${who ?? "Assistant"} waiting for your answer`,
   agent_prompt_submitted: (who) => (who ? `Prompt sent to ${who}` : "Prompt sent"),
-  error_shown: () => "Error on screen",
   code_landed: () => "Code committed or merged",
   message_sent: () => "Message sent",
   web_search_submitted: () => "Web search",
+  agent_needs_input: (who) => `${who ?? "Assistant"} waiting for your answer`,
+  error_shown: () => "Error on screen",
 };
+// The moment types the calendar's chips offer, in the order they are shown.
+export const MOMENT_TYPES = Object.keys(MOMENTS);
 export function momentText(moment) {
   const text = MOMENTS[moment.type];
   const who = ASSISTANTS[moment.label] ?? null;
@@ -57,86 +34,120 @@ export function conversationsOf(event) {
   return [...seen.values()];
 }
 
-// The moment rail's lines: `height` px shared out over `count` lines, no closer
-// than LINE_MIN and no further than LINE_MAX apart, LINE_INSET kept clear at
-// each end.
-export const LINE_MIN = 5;
-export const LINE_MAX = 14;
-export const LINE_INSET = 8;
-export function linePitch(count, height) {
-  const room = Math.max(0, height - 2 * LINE_INSET);
-  return Math.max(LINE_MIN, Math.min(LINE_MAX, count ? room / count : LINE_MAX));
+// A session's events (oldest first) grouped into its sequences, the rows the
+// model captioned together: `{ index, caption, events }`, oldest first.
+export function sequencesOf(events) {
+  const sequences = new Map();
+  for (const event of events) {
+    if (!sequences.has(event.sequence)) sequences.set(event.sequence, { index: event.sequence, caption: event.sequence_caption, events: [] });
+    sequences.get(event.sequence).events.push(event);
+  }
+  return [...sequences.values()];
 }
 
-// GET /indices laid out on the day from `since` to `until`: per index name, the
-// runs of consecutive buckets with a value, each point `{ x, y, start, value }`
-// with x the bucket's middle as a fraction of the day and y the value (0..1). A
-// missing bucket, or one with no value, ends a run, so gaps show as gaps.
-export function indexLanes(indices, since, until) {
-  const span = until - since;
-  const step = indices.bucket_seconds;
-  return indices.names.map((name) => {
-    const runs = [];
-    let run = null;
-    let last = null;
-    for (const bucket of indices.buckets) {
-      const value = bucket.values[name];
-      if (value == null || (last != null && bucket.start - last > step)) run = null;
-      if (value != null) {
-        if (!run) runs.push(run = []);
-        run.push({ x: (bucket.start + step / 2 - since) / span, y: value, start: bucket.start, value });
-      }
-      last = bucket.start;
-    }
-    return { name, runs };
+// The moment rail's lines for `sessions` (newest first), in the list's order:
+// each session's moments newest first, and `{ divider: true }` where the local
+// day changes between sessions.
+export function railLines(sessions) {
+  const lines = [];
+  let last = null;
+  for (const session of sessions) {
+    const start = day(new Date(session.start * 1000)).since;
+    if (last != null && start !== last) lines.push({ divider: true });
+    last = start;
+    for (const moment of session.moments.toReversed()) lines.push({ moment, session });
+  }
+  return lines;
+}
+
+// The local day holding `date`, as GET /events' since and until.
+export function day(date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  return { since: start.getTime() / 1000, until: end.getTime() / 1000 - 0.001, start };
+}
+// "Today", "Yesterday", else the weekday and date of the day starting at `start`.
+export function dayLabel(start, now = new Date()) {
+  const back = Math.round((day(now).start - start) / 86400000);
+  return back === 0 ? "Today" : back === 1 ? "Yesterday"
+    : start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+// The `count` days of the calendar from `first` (a local midnight), as local midnights.
+export const daysFrom = (first, count) => Array.from({ length: count }, (_, i) =>
+  new Date(first.getFullYear(), first.getMonth(), first.getDate() + i));
+// The first day of the week holding `date`, `weekStart` 0 Sunday … 6 Saturday.
+export function weekOf(date, weekStart = 0) {
+  const back = (date.getDay() - weekStart + 7) % 7;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - back);
+}
+// A session on the days it touches: per day of `days` (local midnights), the
+// fraction of the day it runs from and to, `{ day, from, to }`.
+export function dayBlocks(session, days) {
+  return days.flatMap((date, index) => {
+    const { since, until } = day(date);
+    const from = Math.max(session.start, since);
+    const to = Math.min(session.end, until);
+    return from <= to ? [{ day: index, from: (from - since) / 86400, to: (to - since) / 86400 }] : [];
   });
 }
+// The six weeks a month's calendar shows, as 42 local midnights from the first
+// `weekStart` (0 Sunday … 6 Saturday) on or before the first of the month.
+export function monthGrid(year, month, weekStart = 0) {
+  const lead = (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
+  return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - lead + i));
+}
+// The grid's days as GET /events/activity edges: each midnight and the one after the last day.
+export const gridEdges = (days) => [...days, new Date(days[days.length - 1].getFullYear(), days[days.length - 1].getMonth(),
+                                                     days[days.length - 1].getDate() + 1)].map((d) => d.getTime() / 1000);
+// How dark a day is drawn, 0 to 1, by its count against the busiest day shown;
+// square-rooted so a quiet day still shows beside a busy one.
+export const shade = (count, max) => (count > 0 && max > 0 ? Math.sqrt(count / max) : 0);
+// The first day of the week in `locale`, 0 Sunday … 6 Saturday; Sunday where unknown.
+export function weekStart(locale) {
+  try {
+    const info = new Intl.Locale(locale);
+    return ((info.getWeekInfo?.() ?? info.weekInfo).firstDay) % 7;
+  } catch {
+    return 0;
+  }
+}
+// The seven weekday initials from `start`, in `locale`.
+export const weekdays = (start, locale) => Array.from({ length: 7 }, (_, i) =>
+  new Date(2024, 0, 7 + ((start + i) % 7)).toLocaleDateString(locale, { weekday: "narrow" }));
 
-// GET /indices as the minimap draws it: the day from `since` to `until` down a
-// strip with `until` at the top; per index name, one cell per bucket with a
-// value, `{ top, height, value, start }`, top and height as fractions of the strip.
-export function indexCells(indices, since, until) {
+// One index of GET /indices between `since` and `until` as a curve: the runs
+// of consecutive buckets with a value, each point `{ x, y, start }` with x the
+// bucket's middle as a fraction of the span and y the value averaged with the
+// `window` buckets around it (0..1). A missing bucket, or one with no value,
+// ends a run, so gaps show as gaps.
+export function indexCurve(indices, name, since, until, window = 3) {
   const span = until - since;
   const step = indices.bucket_seconds;
-  return indices.names.map((name) => ({ name, cells: indices.buckets
-    .filter((bucket) => bucket.values[name] != null)
-    .map((bucket) => ({ top: 1 - (bucket.start + step - since) / span, height: step / span,
-                        value: bucket.values[name], start: bucket.start })) }));
+  const runs = [];
+  let run = null;
+  let last = null;
+  for (const bucket of indices.buckets) {
+    const value = bucket.values[name];
+    if (value == null || (last != null && bucket.start - last > step)) run = null;
+    if (value != null) {
+      if (!run) runs.push(run = []);
+      run.push({ x: (bucket.start + step / 2 - since) / span, y: value, start: bucket.start });
+    }
+    last = bucket.start;
+  }
+  const reach = Math.floor(window / 2);
+  return runs.map((points) => points.map((point, n) => {
+    const around = points.slice(Math.max(0, n - reach), n + reach + 1);
+    return { ...point, y: around.reduce((sum, p) => sum + p.y, 0) / around.length };
+  }));
 }
-// The bucket of GET /indices holding the time `seconds`; null between buckets.
-export const bucketAt = (indices, seconds) => indices.buckets
-  .find((bucket) => seconds >= bucket.start && seconds < bucket.start + indices.bucket_seconds) ?? null;
-// The time at `fraction` down a strip that runs from `until` at the top to `since` at the bottom.
-export const timeDown = (fraction, since, until) => until - fraction * (until - since);
 
-// `rows` (newest first) with the events of `page` merged in, newest first and
-// each event once, in the order GET /events uses: by timestamp, then id.
-export function mergeEvents(rows, page) {
-  const byId = new Map(rows.map((event) => [event.id, event]));
-  for (const event of page) byId.set(event.id, event);
-  return [...byId.values()].sort((a, b) => b.timestamp - a.timestamp || (b.id < a.id ? -1 : b.id > a.id ? 1 : 0));
-}
-// The event of `events` nearest to `seconds`; null when there are none.
-export const nearestEvent = (events, seconds) => events.reduce((best, event) =>
-  (best == null || Math.abs(event.timestamp - seconds) < Math.abs(best.timestamp - seconds) ? event : best), null);
-
-// Inputs that say what the user did, by type, and how each is counted; the rest
-// (releases and pointer moves) are folded away under the ones shown.
-const SHOWN = { key_press: ["key", "keys"], mouse_down: ["click", "clicks"], mouse_scroll: ["scroll", "scrolls"] };
+// Inputs that say what the user did, by type; the rest (releases and pointer
+// moves) are folded away under the ones shown.
+const SHOWN = new Set(["key_press", "mouse_down", "mouse_scroll"]);
 const RELEASES = new Set(["key_release", "mouse_up"]);
 
-export const shownInputs = (inputs) => inputs.filter((i) => i.type in SHOWN);
-
-// "3 keys", "1 click", …, then "screenshot" when the event has one.
-export function chips(event) {
-  const counts = new Map();
-  for (const input of shownInputs(event.inputs)) counts.set(input.type, (counts.get(input.type) ?? 0) + 1);
-  const words = Object.keys(SHOWN).filter((type) => counts.has(type)).map((type) => {
-    const n = counts.get(type);
-    return `${n} ${SHOWN[type][n === 1 ? 0 : 1]}`;
-  });
-  return event.screenshot_url ? [...words, "screenshot"] : words;
-}
+export const shownInputs = (inputs) => inputs.filter((i) => SHOWN.has(i.type));
 
 // "3 releases and 11 pointer moves" for what `shownInputs` leaves out; null if nothing.
 export function foldedNote(inputs) {
@@ -169,54 +180,8 @@ export const offset = (input, event) => {
   return `${s < 0 ? "−" : "+"}${Math.abs(s).toFixed(2)} s`;
 };
 
-// The local day holding `date`, as GET /events' since and until.
-export function day(date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-  return { since: start.getTime() / 1000, until: end.getTime() / 1000 - 0.001, start };
-}
-// "Today", "Yesterday", else the weekday and date of the day starting at `start`.
-export function dayLabel(start, now = new Date()) {
-  const back = Math.round((day(now).start - start) / 86400000);
-  return back === 0 ? "Today" : back === 1 ? "Yesterday"
-    : start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-// The six weeks a month's calendar shows, as 42 local midnights from the first
-// `weekStart` (0 Sunday … 6 Saturday) on or before the first of the month.
-export function monthGrid(year, month, weekStart = 0) {
-  const lead = (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
-  return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - lead + i));
-}
-// The grid's days as GET /events/activity edges: each midnight and the one after the last day.
-export const gridEdges = (days) => [...days, new Date(days[days.length - 1].getFullYear(), days[days.length - 1].getMonth(),
-                                                     days[days.length - 1].getDate() + 1)].map((d) => d.getTime() / 1000);
-// How dark a day is drawn, 0 to 1, by its count against the busiest day shown;
-// square-rooted so a quiet day still shows beside a busy one.
-export const shade = (count, max) => (count > 0 && max > 0 ? Math.sqrt(count / max) : 0);
-// The first day of the week in `locale`, 0 Sunday … 6 Saturday; Sunday where unknown.
-export function weekStart(locale) {
-  try {
-    const info = new Intl.Locale(locale);
-    return ((info.getWeekInfo?.() ?? info.weekInfo).firstDay) % 7;
-  } catch {
-    return 0;
-  }
-}
-// The seven weekday initials from `start`, in `locale`.
-export const weekdays = (start, locale) => Array.from({ length: 7 }, (_, i) =>
-  new Date(2024, 0, 7 + ((start + i) % 7)).toLocaleDateString(locale, { weekday: "narrow" }));
-
-// "4 PM": the hour starting at `seconds`.
-export const hourLabel = (seconds) => new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "numeric" });
-
 export const clock = (seconds, withSeconds = false) => new Date(seconds * 1000).toLocaleTimeString(undefined,
   { hour: "numeric", minute: "2-digit", ...(withSeconds ? { second: "2-digit" } : {}) });
-
-// "41 min", "3 h 46 min".
-export function duration(seconds) {
-  const minutes = Math.round(seconds / 60);
-  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
-}
 
 // The <action> elements of a prediction or a ground truth, in order.
 const ENTITIES = { "&lt;": "<", "&gt;": ">", "&amp;": "&", "&quot;": '"', "&apos;": "'" };
