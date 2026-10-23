@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 import server.agent.tools
 from annotate.store import read_caption_file, write_caption_file
-from juno.config import (AnnotateConfig, BashConfig, CaptureConfig, ClaudeConfig, Config,
-                         KeypointsConfig, LlmConfig, ToolsConfig, WebSearchConfig)
+from juno.config import (AnnotateConfig, BashConfig, ClaudeConfig, KeypointsConfig, LlmConfig,
+                         ServerSettings, ToolsConfig, WebSearchConfig)
 from server.app import create_app
 from server.agent.search import SearchError
 from server.agent.shell import run_bash
@@ -69,10 +69,10 @@ def test_a_sandboxed_command_sees_neither_the_home_directory_nor_the_environment
 
 
 def app_client(tmp_path, tools: ToolsConfig, base_url: str = "http://localhost:1") -> TestClient:
-    config = Config(capture=CaptureConfig(data_dir=tmp_path), tools=tools,
-                    llm=LlmConfig(base_url=base_url))
+    config = ServerSettings(tools=tools,
+                            llm=LlmConfig(base_url=base_url))
     # The MCP endpoint only answers requests addressed to the server's own host.
-    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
+    return TestClient(create_app(config, data_dir=tmp_path), base_url="http://127.0.0.1:8765")
 
 
 def mcp_request(client: TestClient, method: str, params: dict) -> dict:
@@ -141,10 +141,9 @@ def test_an_agent_finds_what_the_user_saw_and_opens_it_with_its_screenshot(tmp_p
     caption = read_caption_file(directory, 1)
     write_caption_file(directory, caption.model_copy(update={"annotation": caption.annotation.model_copy(
         update={"dense_caption": "~/work $ python -m server"})}))
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
-                    keypoints=KeypointsConfig(moment_on=0.7, moment_off=0.4))
-    app = create_app(config, annotate_request=lambda request: None, ask=FakeJev())
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
+                            keypoints=KeypointsConfig(moment_on=0.7, moment_off=0.4))
+    app = create_app(config, data_dir=tmp_path, annotate_request=lambda request: None, ask=FakeJev())
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         wait_for_answers(tmp_path, 2)
         sessions = tool_text(client, "list_sessions", {})
@@ -241,9 +240,8 @@ def test_past_chat_results_stay_within_the_result_limit(tmp_path):
     store_chat(tmp_path, "long", [{"role": "user", "content": long},
                                   {"role": "assistant", "content": long},
                                   {"role": "user", "content": "the lighthouse again"}], 1000)
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    llm=LlmConfig(base_url="http://localhost:1", tool_result_chars=1500))
-    with TestClient(create_app(config), base_url="http://127.0.0.1:8765") as client:
+    config = ServerSettings(llm=LlmConfig(base_url="http://localhost:1", tool_result_chars=1500))
+    with TestClient(create_app(config, data_dir=tmp_path), base_url="http://127.0.0.1:8765") as client:
         found = call(client, "search_chats", {"query": "lighthouse"})
         first = call(client, "get_chat", {"chat_id": "long"})
         last = call(client, "get_chat", {"chat_id": "long", "first_message": 3})

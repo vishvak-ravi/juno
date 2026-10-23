@@ -15,8 +15,8 @@ path is kept as it is, and ``GET /api/integrity`` reports it. Screenshots
 themselves are not moved. Each new file is written whole before the old one is
 removed, so a stopped run can be run again and continues. A session whose new
 file already holds something else (a server on the new layout wrote it) is left
-as it is and reported. Stop the server first. Settings come from the ``capture`` section of ``config.yaml`` (or
-JUNO_CONFIG_PATH).
+as it is and reported. Stop the server first. The store is the one under
+JUNO_DATA_DIR (``juno.config.data_dir``; the checkout's ``.env`` is read).
 """
 
 from __future__ import annotations
@@ -27,13 +27,16 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from annotate.store import CAPTIONS_DIR
-from juno.config import ConfigError, devices_dir, load_config, resolve_data_dir
+from juno.config import ConfigError, data_dir, devices_dir
 from juno.sessions import replace_file, session_dirs, stored_path
 from keypoints.store import ANSWERS_DIR
 from server.events import EVENT_ROWS_FILE, SCREENSHOTS_DIR
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 ROWS_FILE = "raw_aggregations.jsonl"
 CAPTIONS_FROM = "annotations"
@@ -101,8 +104,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="print what would move, change nothing")
     args = parser.parse_args(argv)
+    load_dotenv(ROOT_DIR / ".env")
     try:
-        store = devices_dir(resolve_data_dir(load_config().capture))
+        store = devices_dir(data_dir())
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -11,9 +11,9 @@ store's filesystem), and writes a
 in it. ``bench.json`` in ``DIR`` names the day timed: the local day of the
 newest stored row.
 
-``run`` starts ``python -m server`` on the copy, on a free port of 127.0.0.1,
-with ``DIR/config.yaml``: this checkout's config with ``capture.data_dir``
-set to ``DIR``. It then requests what the timeline requests for that day
+``snapshot`` also copies the server's ``settings.json``, so ``run`` starts
+``python -m server`` with ``DIR`` as its data directory on a free port of
+127.0.0.1 and the same settings. It then requests what the timeline requests for that day
 (``apps/desktop/src/renderer/browse.js``) once right after the server is up
 (pass ``cold``) and ``--repeats`` times more (``warm``). ``open day`` is
 ``/events`` and ``/indices`` requested together, as the linear view does.
@@ -44,11 +44,11 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from juno.config import (CONFIG_PATH_ENV, SERVER_HOST_ENV, config_path, control_file,
-                         devices_dir, load_config, resolve_data_dir)
+from juno.config import (DATA_DIR_ENV, SERVER_HOST_ENV, SERVER_PORT_ENV, control_file,
+                         data_dir, devices_dir, server_settings_file)
 from juno.sessions import session_dirs
 from server.events import EVENT_ROWS_FILE, SCREENSHOTS_DIR
 
@@ -86,15 +86,17 @@ def last_timestamp(rows_file: Path) -> Optional[float]:
 
 
 def snapshot(out: Path) -> None:
-    data_dir = resolve_data_dir(load_config().capture)
+    base_dir = data_dir()
     if out.exists():
         sys.exit(f"error: {out} exists; snapshot into a new directory")
     try:
-        shutil.copytree(devices_dir(data_dir), devices_dir(out), copy_function=copy_or_link)
+        shutil.copytree(devices_dir(base_dir), devices_dir(out), copy_function=copy_or_link)
     except (OSError, shutil.Error) as exc:
         sys.exit(f"error: {exc}; screenshots are hard-linked, so {out} must be on the "
-                 f"filesystem of {data_dir}")
-    control = json.loads(control_file(data_dir).read_text()) if control_file(data_dir).exists() else {}
+                 f"filesystem of {base_dir}")
+    if server_settings_file(base_dir).exists():
+        shutil.copy(server_settings_file(base_dir), server_settings_file(out))
+    control = json.loads(control_file(base_dir).read_text()) if control_file(base_dir).exists() else {}
     control.setdefault("server", {})["annotate"] = False
     control_file(out).write_text(json.dumps(control, indent=2))
     stamps = [t for d in session_dirs(devices_dir(out))
@@ -129,12 +131,8 @@ def free_port() -> int:
 def start_server(snapshot_dir: Path, timeout: float) -> tuple[subprocess.Popen, str]:
     """``python -m server`` on the snapshot; returns once ``/api/status`` answers."""
     port = free_port()
-    raw = yaml.safe_load(config_path().read_text()) or {}
-    raw.setdefault("capture", {})["data_dir"] = str(snapshot_dir.resolve())
-    raw.setdefault("server", {})["port"] = port
-    config = snapshot_dir / "config.yaml"
-    config.write_text(yaml.safe_dump(raw, sort_keys=False))
-    env = {**os.environ, CONFIG_PATH_ENV: str(config), SERVER_HOST_ENV: "127.0.0.1"}
+    env = {**os.environ, DATA_DIR_ENV: str(snapshot_dir.resolve()), SERVER_HOST_ENV: "127.0.0.1",
+           SERVER_PORT_ENV: str(port)}
     log = open(snapshot_dir / SERVER_LOG, "a")
     process = subprocess.Popen([sys.executable, "-m", "server"], cwd=ROOT_DIR, env=env,
                                stdout=log, stderr=subprocess.STDOUT)
@@ -259,6 +257,7 @@ def main() -> int:
     bench.add_argument("--timeout", type=float, default=300.0,
                        help="seconds to wait for the started server to answer")
     args = parser.parse_args()
+    load_dotenv(ROOT_DIR / ".env")
     if args.command == "snapshot":
         snapshot(args.out)
     else:

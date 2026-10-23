@@ -1,5 +1,17 @@
 # Status
 
+## 2026-10-23: Settings in the client
+
+| Piece | State |
+|---|---|
+| `juno.config`: `ServerSettings` and `DeviceSettings`, every default and description in one place; `.env` for the data directory, the server's host, port and URL, the device id and the API keys | done; tested |
+| `juno.settings`: a settings file keeps only what differs from the defaults, changed by dotted path, every refusal named by path; `python -m juno.settings server|device` | done; tested |
+| `GET`/`PATCH /settings`, with the environment (keys as set or not, and what needs them) and the saved changes waiting for a restart | done; tested |
+| The recorder reads `<data_dir>/device.json`, sends to `JUNO_SERVER_URL` and reports as often as the server's answer says | done; tested |
+| The desktop Settings view: this app, this computer's recorder and the server, one form for all three | done; checked in the window against a running server |
+| Hot reload of the server's settings | not built; a saved change applies when the server restarts |
+| The phone page's settings | not built |
+
 ## 2026-10-22: Live timeline
 
 | Piece | State |
@@ -100,7 +112,7 @@ Server time is within 1 ms of the whole request on every route: the bytes take n
 |---|---|
 | Inputs folded into typed text, shortcuts, key runs, clicks and scrolls, in the client (`activity.mjs`) | done; unit tested, and run over a recorded session of 16k inputs (700 items) |
 | Activity view, the timeline's default: newest first, a colour per kind | done; not yet seen drawn, Electron did not start from the agent's shell |
-| Folding behind an API route | not yet; its gaps (`GAPS`) move to `config.yaml` then |
+| Folding behind an API route | not yet; its gaps (`GAPS`) move to the server's settings then |
 
 ## 2026-10-21: Jev keypoints
 

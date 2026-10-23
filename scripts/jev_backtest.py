@@ -48,7 +48,8 @@ from pydantic import TypeAdapter
 
 from annotate.request import frame_image, framed_rows
 from annotate.store import FileActivityCaptions
-from juno.config import ConfigError, devices_dir, load_config, resolve_data_dir
+from juno.config import ConfigError, data_dir, devices_dir
+from juno.settings import server_settings
 from keypoints.derive import probability, session_moments
 from keypoints.ask import fitted, frame_captions
 from keypoints.questions import QuestionSet, active, load_questions
@@ -202,7 +203,7 @@ def read_lines(path: Path) -> list[dict[str, Any]]:
 def run(out: Path, seed: int) -> int:
     load_dotenv(find_dotenv(usecwd=True))
     try:
-        config = load_config()
+        config = server_settings().read()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -210,7 +211,7 @@ def run(out: Path, seed: int) -> int:
         print("error: annotate.api_base names no local server", file=sys.stderr)
         return 2
     model = served_name(config.annotate.model)
-    store = devices_dir(resolve_data_dir(config.capture))
+    store = devices_dir(data_dir())
     questions = load_questions()
     out.mkdir(parents=True, exist_ok=True)
     rows_file = out / "rows.jsonl"
@@ -374,7 +375,7 @@ def sorted_rows(out: Path) -> list[dict[str, Any]]:
 
 def report_page(out: Path, image_url: Callable[[int, dict[str, Any]], str]) -> str:
     """The comparison page; ``image_url`` gives the src of row ``index``'s screenshot."""
-    config = load_config().keypoints
+    config = server_settings().read().keypoints
     questions = load_questions()
     all_questions = {**questions.screen, **questions.action}
     rows = sorted_rows(out)
@@ -508,7 +509,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--port", type=int, default=8781)
     args = parser.parse_args(argv)
     try:
-        model = load_config().annotate.model
+        model = server_settings().read().annotate.model
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

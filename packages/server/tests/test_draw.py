@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from websockets.sync.client import connect
 
-from juno.config import AnnotateConfig, CaptureConfig, Config, ControlConfig, DrawConfig
+from juno.config import AnnotateConfig, ControlConfig, DrawConfig, ServerSettings
 from server.app import create_app
 from test_upload import annotate_request, wait_for
 
@@ -25,11 +25,10 @@ def frame(colour) -> bytes:
 
 
 def serve(tmp_path):
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2),
-                    control=ControlConfig(poll_seconds=0.2),
-                    draw=DrawConfig(device_id="tablet"))
-    server = uvicorn.Server(uvicorn.Config(create_app(config, annotate_request=annotate_request),
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2),
+                            control=ControlConfig(poll_seconds=0.2),
+                            draw=DrawConfig(device_id="tablet"))
+    server = uvicorn.Server(uvicorn.Config(create_app(config, data_dir=tmp_path, annotate_request=annotate_request),
                                            host="127.0.0.1", port=0, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -94,7 +93,7 @@ def test_nothing_is_recorded_while_the_tablet_s_switch_is_off(tmp_path):
 
 
 def test_the_server_serves_the_drawing_page(tmp_path):
-    with TestClient(create_app(Config(capture=CaptureConfig(data_dir=tmp_path)))) as client:
+    with TestClient(create_app(ServerSettings(), data_dir=tmp_path)) as client:
         response = client.get("/draw")
         assert response.status_code == 200
         assert "<canvas" in response.text

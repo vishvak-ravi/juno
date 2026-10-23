@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from juno.config import CaptureConfig, ClaudeConfig, Config, ToolsConfig
+from juno.config import ClaudeConfig, ServerSettings, ToolsConfig
 from server.app import create_app
 from server.agent.claude import ClaudeError, TmuxDest, forward_to_claude
 from server.agent.tools import call_chat_tool
@@ -105,7 +105,7 @@ def test_errors_name_what_went_wrong(config, tmp_path):
 
 def test_the_model_forwards_a_prompt_only_when_enabled(config, tmp_path):
     def call(tools: ToolsConfig) -> str:
-        app = create_app(Config(capture=CaptureConfig(data_dir=tmp_path), tools=tools))
+        app = create_app(ServerSettings(tools=tools), data_dir=tmp_path)
         arguments = json.dumps({"prompt": "one", "tmux_dest": {"name": "from-chat"}})
         with TestClient(app) as client:
             return asyncio.run(call_chat_tool(client.app.state.chat_tools, "fwd_to_claude",

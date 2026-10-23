@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from juno.sessions import Aggregation
 from annotate.sanitize import Sanitization
 
-# Aggregations per request; Tada's MIN_CHUNK. The CLI takes it from the config.
+# Aggregations per request; Tada's MIN_CHUNK. The server and the CLI take ``annotate.chunk_size``.
 DEFAULT_CHUNK_SIZE = 10
 # Height of the drawn pointer, as a fraction of the screenshot's height.
 CURSOR_HEIGHT_FRACTION = 1 / 50

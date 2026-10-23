@@ -2,10 +2,12 @@
 // app's bridge (window.juno, whose requests its main process makes) when there is
 // one, else by fetch against the address the page was opened at.
 
+// `detail` is the route's own: a message, or for a refused PATCH /settings the reason by dotted path.
 export class ApiError extends Error {
   constructor(status, detail) {
-    super(`${status} ${detail}`);
+    super(`${status} ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -22,8 +24,7 @@ export const useExamples = (byPath) => { examples = byPath; };
 
 const detailOf = (text) => {
   try {
-    const detail = JSON.parse(text).detail ?? text;
-    return typeof detail === "string" ? detail : JSON.stringify(detail);
+    return JSON.parse(text).detail ?? text;
   } catch {
     return text;
   }
@@ -34,9 +35,10 @@ async function checked(response) {
   return response.json();
 }
 
-// The bridge rejects with "<status> <body>" as one message; give it back its status.
+// The bridge rejects with "<status> <body>" as one message, which Electron prefixes with
+// "Error invoking remote method '<channel>': Error: "; give it back its status.
 const bridged = (promise) => promise.catch((error) => {
-  const m = /^(\d{3}) ([\s\S]*)$/.exec(error.message || "");
+  const m = /^(?:Error invoking remote method '[^']*': Error: )?(\d{3}) ([\s\S]*)$/.exec(error.message || "");
   throw m ? new ApiError(Number(m[1]), detailOf(m[2])) : error;
 });
 

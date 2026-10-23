@@ -8,7 +8,7 @@ from PIL import Image
 from annotate.label import Annotation
 from juno.sessions import session_dir
 from annotate.store import caption_file, new_caption, write_caption_file
-from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
+from juno.config import AnnotateConfig, ServerSettings, devices_dir
 from server.app import create_app
 from server.integrity import check_store
 
@@ -73,8 +73,8 @@ def test_each_broken_thing_on_disk_is_reported_as_an_issue(tmp_path):
 def test_the_report_is_served_and_the_server_starts_on_a_broken_store(tmp_path):
     directory = write_session(tmp_path, SESSION, rows=2)
     (directory / "0.png").unlink()
-    config = Config(capture=CaptureConfig(data_dir=tmp_path), annotate=AnnotateConfig(chunk_size=2))
-    app = create_app(config, annotate_request=lambda request: Annotation(
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2))
+    app = create_app(config, data_dir=tmp_path, annotate_request=lambda request: Annotation(
         actions=[], dense_caption="", sanitization=request.sanitization))
 
     with TestClient(app) as client:

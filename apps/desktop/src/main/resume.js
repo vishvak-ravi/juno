@@ -2,20 +2,17 @@
 // this computer only: the conversation's directory and transcript are on the
 // device that recorded the event. This computer's device id is the recorder's
 // (`juno.config.resolve_device_id`), asked of the checkout's Python once.
-const { execFile, spawn } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
-const path = require("node:path");
 const { ipcMain } = require("electron");
 
+const { runPython } = require("./python");
 const { resumeCommand, terminalEnv } = require("./terminal");
 
 // Resolves to this computer's device id, or null if the recorder's Python cannot say.
 function deviceIdOf(repoDir) {
-  const python = path.join(repoDir, ".venv/bin/python");
   const script = "from juno.config import resolve_device_id; print(resolve_device_id())";
-  return new Promise((resolve) => {
-    execFile(python, ["-c", script], { cwd: repoDir }, (error, stdout) => resolve(error ? null : stdout.trim()));
-  });
+  return runPython(repoDir, ["-c", script]).then(({ stdout, error }) => (error ? null : stdout.trim()));
 }
 
 // Starts `command` on its own, past this app's exit; resolves once it has started.

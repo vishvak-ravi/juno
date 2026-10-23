@@ -11,10 +11,12 @@ from capture.claude_hook import main
 def claude_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     monkeypatch.setenv("JUNO_SERVER_HOST", "10.0.0.2")
+    monkeypatch.setenv("JUNO_SERVER_PORT", "9000")
+    monkeypatch.delenv("JUNO_SERVER_URL", raising=False)
     monkeypatch.setenv("JUNO_DEVICE_ID", "laptop")
-    config = tmp_path / "config.yaml"
-    config.write_text("server:\n  port: 9000\nclaude_hook:\n  timeout_seconds: 4\n")
-    monkeypatch.setenv("JUNO_CONFIG_PATH", str(config))
+    monkeypatch.setenv("JUNO_DATA_DIR", str(tmp_path / "data"))
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "device.json").write_text('{"claude_hook": {"timeout_seconds": 4}}')
     monkeypatch.chdir(tmp_path)
     return tmp_path / "claude"
 

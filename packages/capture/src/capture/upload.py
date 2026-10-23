@@ -12,7 +12,7 @@ the rows after it, the next time an aggregation is written.
 
 ``python -m capture.upload`` copies every session already on this computer to
 the server, without asking for annotations; run it again to continue a copy
-that stopped. Settings come from the YAML config (see ``juno.config``).
+that stopped. It reads from JUNO_DATA_DIR and sends to JUNO_SERVER_URL (see ``juno.config``).
 """
 
 from __future__ import annotations
@@ -26,14 +26,7 @@ from pathlib import Path
 import httpx
 from dotenv import find_dotenv, load_dotenv
 
-from juno.config import (
-    ConfigError,
-    load_config,
-    resolve_data_dir,
-    resolve_device_id,
-    server_host,
-    sessions_dir,
-)
+from juno.config import ConfigError, data_dir, resolve_device_id, server_url, sessions_dir
 from juno.events import event_id_of
 from juno.sessions import AGGREGATIONS_FILE
 
@@ -157,16 +150,15 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         stream=sys.stderr)
-    # This device's settings may live in a .env file.
+    # This device's environment (data directory, server, device id) may live in a .env file.
     load_dotenv(find_dotenv(usecwd=True))
     try:
-        config = load_config()
         device_id = resolve_device_id()
+        url = f"{server_url()}/events"
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    url = f"http://{server_host()}:{config.server.port}/events"
-    recorded_dir = sessions_dir(resolve_data_dir(config.capture))
+    recorded_dir = sessions_dir(data_dir())
     if not copy_sessions(recorded_dir, url, device_id):
         print("error: not everything was copied; run again to continue", file=sys.stderr)
         return 1

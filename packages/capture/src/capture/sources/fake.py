@@ -1,7 +1,7 @@
 """Synthetic backend: generated frames and scripted input.
 
 Lets the whole recorder run with no display access, for tests and for
-``backend: fake`` in the config.
+``capture.backend`` set to ``fake`` (``python -m juno.settings device set capture.backend=fake``).
 """
 
 from __future__ import annotations

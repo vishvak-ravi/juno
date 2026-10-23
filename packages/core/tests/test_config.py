@@ -1,79 +1,113 @@
-from pathlib import Path
+import json
 
 import pytest
 
-from juno.config import (
-    Config,
-    ConfigError,
-    default_data_dir,
-    load_config,
-    resolve_data_dir,
-)
-
-# packages/core/tests/test_config.py, three levels below the checkout.
-SHIPPED_CONFIG = Path(__file__).resolve().parents[3] / "config.yaml"
+from juno.config import (ConfigError, DeviceSettings, ServerSettings, data_dir,
+                         resolve_device_id, server_url)
+from juno.settings import SettingsError, device_settings, main, server_settings
 
 
-def test_default_data_dir_follows_xdg(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert default_data_dir() == tmp_path / "juno"
+def test_the_data_dir_comes_from_the_environment_then_xdg(monkeypatch, tmp_path):
+    monkeypatch.delenv("JUNO_DATA_DIR", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert data_dir() == tmp_path / "xdg" / "juno"
     monkeypatch.delenv("XDG_DATA_HOME")
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert default_data_dir() == tmp_path / ".local" / "share" / "juno"
+    assert data_dir() == tmp_path / ".local" / "share" / "juno"
+    monkeypatch.setenv("JUNO_DATA_DIR", "~/recordings")
+    assert data_dir() == tmp_path / "recordings"
 
 
-def test_shipped_config_matches_the_defaults():
-    assert load_config(SHIPPED_CONFIG) == Config()
+def test_the_server_url_is_built_from_the_host_and_port_unless_given(monkeypatch):
+    for name in ("JUNO_SERVER_URL", "JUNO_SERVER_HOST", "JUNO_SERVER_PORT"):
+        monkeypatch.delenv(name, raising=False)
+    assert server_url() == "http://127.0.0.1:8765"
+    monkeypatch.setenv("JUNO_SERVER_HOST", "10.0.0.2")
+    monkeypatch.setenv("JUNO_SERVER_PORT", "9000")
+    assert server_url() == "http://10.0.0.2:9000"
+    monkeypatch.setenv("JUNO_SERVER_URL", "https://juno.example/")
+    assert server_url() == "https://juno.example"
+    monkeypatch.delenv("JUNO_SERVER_URL")
+    monkeypatch.setenv("JUNO_SERVER_PORT", "eighty")
+    with pytest.raises(ConfigError, match="JUNO_SERVER_PORT"):
+        server_url()
 
 
-def test_keys_left_out_take_the_defaults(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text("capture:\n  fps: 9\n  max_res: [640, 360]\n")
-    config = load_config(path)
-    assert config.capture.fps == 9
-    assert config.capture.max_res == (640, 360)
-    assert config.capture.buffer_seconds == Config().capture.buffer_seconds
-    assert config.server == Config().server
-
-    path.write_text("")
-    assert load_config(path) == Config()
+def test_a_device_id_must_be_lowercase_letters_and_digits(monkeypatch):
+    monkeypatch.setenv("JUNO_DEVICE_ID", "laptop2")
+    assert resolve_device_id() == "laptop2"
+    monkeypatch.setenv("JUNO_DEVICE_ID", "Laptop-2")
+    with pytest.raises(ConfigError, match="JUNO_DEVICE_ID"):
+        resolve_device_id()
 
 
-def test_config_path_comes_from_the_environment(monkeypatch, tmp_path):
-    path = tmp_path / "elsewhere.yaml"
-    path.write_text("server:\n  port: 9123\n")
-    monkeypatch.setenv("JUNO_CONFIG_PATH", str(path))
-    assert load_config().server.port == 9123
-
-    monkeypatch.delenv("JUNO_CONFIG_PATH")
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yaml").write_text("server:\n  port: 9124\n")
-    assert load_config().server.port == 9124
+def test_without_a_file_every_setting_is_its_default(tmp_path):
+    assert server_settings(tmp_path).read() == ServerSettings()
+    assert device_settings(tmp_path).read() == DeviceSettings()
 
 
-def test_data_dir_defaults_and_expands_the_home_directory(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
-    monkeypatch.setenv("HOME", str(tmp_path))
-    assert resolve_data_dir(Config().capture) == tmp_path / "xdg" / "juno"
+def test_the_file_keeps_only_what_differs_from_the_defaults(tmp_path):
+    store = server_settings(tmp_path)
+    settings = store.update({"annotate.model": "openai/local", "annotate.api_base": "http://h/v1",
+                             "keypoints.moment_on": 0.7})
+    assert settings.annotate.model == "openai/local"
+    assert json.loads((tmp_path / "settings.json").read_text()) == {
+        "annotate": {"model": "openai/local", "api_base": "http://h/v1"}}
 
-    path = tmp_path / "config.yaml"
-    path.write_text("capture:\n  data_dir: ~/recordings\n")
-    assert resolve_data_dir(load_config(path).capture) == tmp_path / "recordings"
+    store.update(resets=["annotate.api_base"])
+    assert store.read().annotate.api_base is None
+    assert json.loads((tmp_path / "settings.json").read_text()) == {"annotate": {"model": "openai/local"}}
 
 
-@pytest.mark.parametrize("text", [
-    "capture:\n  fsp: 5\n",       # misspelled key
-    "server:\n  port: none\n",    # wrong type
-    "- not\n- a mapping\n",
-    "capture: [unclosed\n",       # not YAML
+def test_a_default_changed_in_code_reaches_an_install_that_never_set_it(tmp_path):
+    server_settings(tmp_path).update({"annotate.model": "openai/local"})
+    assert server_settings(tmp_path).read().annotate.max_tokens == ServerSettings().annotate.max_tokens
+
+
+@pytest.mark.parametrize("change, path", [
+    ({"capture.fsp": 5}, "capture.fsp"),          # misspelled
+    ({"capture": {"fps": 5}}, "capture"),         # a section, not a setting
+    ({"capture.fps": "fast"}, "capture.fps"),     # wrong type
+    ({"capture.backend": "windows"}, "capture.backend"),
+    ({"capture.scale": 2}, "capture.scale"),      # out of its range
 ])
-def test_invalid_config_is_rejected(tmp_path, text):
-    path = tmp_path / "config.yaml"
-    path.write_text(text)
-    with pytest.raises(ConfigError, match="config.yaml"):
-        load_config(path)
+def test_a_refused_change_names_the_setting_and_saves_nothing(tmp_path, change, path):
+    store = device_settings(tmp_path)
+    store.update({"capture.fps": 3})
+    with pytest.raises(SettingsError) as refused:
+        store.update(change)
+    assert path in refused.value.errors
+    assert store.read().capture.fps == 3
 
 
-def test_missing_config_is_rejected(tmp_path):
-    with pytest.raises(ConfigError, match="could not read"):
-        load_config(tmp_path / "config.yaml")
+def test_an_invalid_file_is_reported_with_its_path(tmp_path):
+    (tmp_path / "device.json").write_text('{"capture": {"fps": "fast"}}')
+    with pytest.raises(ConfigError, match="device.json"):
+        device_settings(tmp_path).read()
+    (tmp_path / "settings.json").write_text("{not json")
+    with pytest.raises(ConfigError, match="settings.json"):
+        server_settings(tmp_path).read()
+
+
+def test_the_command_line_sets_prints_and_refuses(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("JUNO_DATA_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    assert main(["device", "set", "capture.scale=0.5", "capture.max_res=[640, 360]"]) == 0
+    fields = {f["path"]: f for s in json.loads(capsys.readouterr().out)["sections"] for f in s["fields"]}
+    assert fields["capture.scale"]["value"] == 0.5 and fields["capture.max_res"]["value"] == [640, 360]
+    assert fields["capture.backend"] == {**fields["capture.backend"], "kind": "enum", "default": "auto"}
+
+    assert main(["server", "set", "keypoints.moment_on=high"]) == 1
+    assert "keypoints.moment_on" in json.loads(capsys.readouterr().out)["errors"]
+
+
+def test_a_key_shows_as_set_or_not_and_names_the_settings_that_need_it(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("JUNO_DATA_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GEMINI_API_KEY", "secret")
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    assert main(["server"]) == 0
+    env = {v["name"]: v for v in json.loads(capsys.readouterr().out)["environment"]}
+    assert env["GEMINI_API_KEY"]["set"] and env["GEMINI_API_KEY"]["value"] is None
+    assert "annotate.model" in env["GEMINI_API_KEY"]["needed_by"]
+    assert not env["TYPESAFE_API_KEY"]["set"] and env["TYPESAFE_API_KEY"]["needed_by"] == ["keypoints.enabled"]

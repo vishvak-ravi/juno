@@ -176,10 +176,8 @@ function savedPitch() {
 }
 const savePitch = (pitch) => { try { localStorage.setItem(PITCH_KEY, String(pitch)); } catch { /* the zoom starts over next time */ } };
 
-// The checkout's config.yaml (`client`), read through the desktop app
-// (window.juno); null in a browser, where nothing is fetched ahead.
-let settings = null;
-window.juno?.config().then((read) => { settings = read; });
+// This app's settings (window.juno.prefs); none in a browser, where nothing is fetched ahead.
+const prefs = window.juno?.prefs ?? null;
 
 // The keys of the open view: Escape back to the calendar, the arrows stepping
 // through the open session's events, while nothing is being typed.
@@ -260,12 +258,12 @@ export function timelinePane(pane, detail, control) {
     return event ? momentAt(shownMoments(sessions.get(id)), event.timestamp) : null;
   }
 
-  // The screenshots of the actions either side of the open one (client.prefetch
-  // each way), fetched ahead so stepping to them shows each at once; an image
+  // The screenshots of the actions either side of the open one (the app's prefetch
+  // setting each way), fetched ahead so stepping to them shows each at once; an image
   // is kept while its action stays within reach.
   const warm = new Map();
   function prefetch(events, at) {
-    const reach = settings?.client.prefetch ?? 0;
+    const reach = prefs?.prefetch ?? 0;
     const near = events.slice(Math.max(0, at - reach), at + reach + 1);
     for (const id of warm.keys()) if (!near.some((e) => e.id === id)) warm.delete(id);
     for (const event of near) {

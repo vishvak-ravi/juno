@@ -2,6 +2,50 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-23: Settings live with their owner and are changed in the client
+
+`config.yaml` is gone. It was one checked-in file holding every default and
+every choice of this install, so choosing a local annotator meant editing a
+tracked file, and a test that the file matched the defaults failed on main.
+Each setting now has one owner, and the client changes all of them:
+
+- The server's settings (`juno.config.ServerSettings`) are kept by the server in
+  `<data_dir>/settings.json` and changed through `GET`/`PATCH /settings`, like
+  the switches in `control.json` (2026-10-12). A change applies when the server
+  restarts; the server does not rebuild its workers and routes in place.
+- A computer's recorder settings (`DeviceSettings`: `capture.*`,
+  `claude_hook.*`) are kept on that computer in `<data_dir>/device.json` and
+  changed by its desktop client, which restarts the recorder. They stay local
+  so a recorder starts, and records with `capture.upload` off, without the
+  server; other computers' recorders are not changed from here.
+- The desktop app's own settings (server address, prefetch, the passive agent
+  module) stay in Electron's `settings.json`. The recorder is passed the same
+  server address, so the window and the recorder cannot disagree.
+- `.env` keeps only what is needed before a settings file can be read or the
+  server reached (`JUNO_DATA_DIR`, `JUNO_SERVER_HOST`, `JUNO_SERVER_PORT`,
+  `JUNO_SERVER_URL`, `JUNO_DEVICE_ID`), the API keys, and the client's timing
+  log. Keys are shown in the client as set or not and are never sent; they are
+  not written from the client because the API has no authentication.
+- For the same reason, a setting that widens what a caller of the API can have
+  run on the server's machine (`tools.bash.enabled`, `tools.bash.sandbox`,
+  `tools.claude.enabled`, `tools.claude.command`, `tools.claude.permission_mode`,
+  `tools.claude.cwd`; marked `LOCAL` in `juno.config`) is refused by
+  `PATCH /settings` and changed only with `python -m juno.settings server` on
+  that machine. The client shows it as it is.
+
+Defaults live only in code, each with the description the client shows; a
+settings file holds only what differs from them, so a default changed in code
+reaches every install that did not choose otherwise. Tuning knobs stay
+settings (none become literals) but are marked advanced and shown folded.
+`annotate.live` is `capture.upload`, `server.port` is `JUNO_SERVER_PORT`,
+`capture.data_dir` is `JUNO_DATA_DIR`, `client.prefetch` and
+`JUNO_PASSIVE_AGENT` are app settings, and `control.poll_seconds` reaches each
+recorder in the server's answer to its report. An answer that is not an
+`Instruction`, like an unreachable server, leaves the recorder as it was; the
+report waits its own `REPORT_TIMEOUT_SECONDS` (`capture.__main__`), not the
+poll interval. The scripts that read the store load the checkout's `.env`
+first, so `JUNO_DATA_DIR` set there names it for them too.
+
 ## 2026-10-22: The server's store behind repositories
 
 Routes and workers read and write the store only through `Events`,

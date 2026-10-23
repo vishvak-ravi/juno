@@ -59,7 +59,6 @@ cd "$JUNO_DIR/apps/desktop"
 npm ci
 
 # The passive agent module (docs/client.md): the gesture model and the dictation helper.
-passive_agent=0
 if [ "$platform" = Darwin ]; then
   cat <<MESSAGE
 
@@ -74,7 +73,7 @@ MESSAGE
     else
       echo "swiftc not found: gestures will work; for dictation, install the Xcode command line tools and run npm run native here."
     fi
-    passive_agent=1
+    echo "Turn it on in the client's Settings view, under This app."
   fi
 fi
 
@@ -129,7 +128,6 @@ set_env JUNO_SERVER_HOST "$host"
 default_id=$(uv run python -c 'from juno.config import resolve_device_id; print(resolve_device_id())')
 device_id=$(ask "Name for this computer on the server (lowercase letters and digits) [$default_id]: ")
 set_env JUNO_DEVICE_ID "${device_id:-$default_id}"
-set_env JUNO_PASSIVE_AGENT "$passive_agent"
 
 # The Claude Code prompt hook (python -m capture.claude_hook, docs/decisions.md).
 if command -v claude >/dev/null; then

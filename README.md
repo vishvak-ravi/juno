@@ -17,6 +17,7 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 | Move a store to the current layout (server stopped) | `cd ~/juno && uv run python scripts/migrate_store.py` | |
 | Time the timeline's routes on a copy of the store | `cd ~/juno && uv run python scripts/bench_routes.py snapshot --out <dir on the store's disk>`, then `run --snapshot <dir> --label <name>` | Set `JUNO_TIMING_FILE` in `.env`: one line per GET the window makes |
 | Claude Code prompts as timeline moments | | `cd ~/juno && uv run python -m capture.claude_hook install` (`uninstall` to remove) |
+| Settings | The client's Settings view, or `cd ~/juno && uv run python -m juno.settings server set PATH=VALUE` (applies on restart) | The client's Settings view, or `cd ~/juno && uv run python -m juno.settings device set PATH=VALUE` |
 
 The client starts the recorder; its devices panel shows whether this computer is recording.
 

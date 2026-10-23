@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from dotenv import find_dotenv, load_dotenv
 from PIL import Image
 
-from juno.config import ConfigError, load_config, resolve_data_dir
+from juno.config import data_dir
 
 # A frame whose brightest pixel is at or below this is treated as black, which
 # is what an X11-only grabber returns on Wayland.
@@ -170,23 +171,19 @@ def main(argv=None) -> int:
     parser.add_argument("session_dir", nargs="?", type=Path,
                         help="Session to check (default: newest under --data-dir)")
     parser.add_argument("--data-dir", type=Path, default=None,
-                        help="Base directory (default: data_dir from the YAML config)")
+                        help="Base directory (default: JUNO_DATA_DIR, else ~/.local/share/juno)")
     parser.add_argument("--sample", type=int, default=50,
                         help="Screenshots to inspect for black frames (default: %(default)s)")
     args = parser.parse_args(argv)
 
     session_dir = args.session_dir
     if session_dir is None:
-        data_dir = args.data_dir
-        if data_dir is None:
-            try:
-                data_dir = resolve_data_dir(load_config().capture)
-            except ConfigError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 2
-        session_dir = latest_session(data_dir)
+        # This computer's data directory may live in a .env file.
+        load_dotenv(find_dotenv(usecwd=True))
+        base_dir = args.data_dir or data_dir()
+        session_dir = latest_session(base_dir)
         if session_dir is None:
-            print(f"error: no session found under {data_dir}", file=sys.stderr)
+            print(f"error: no session found under {base_dir}", file=sys.stderr)
             return 2
     if not session_dir.is_dir():
         print(f"error: {session_dir} is not a session directory", file=sys.stderr)

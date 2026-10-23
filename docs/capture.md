@@ -47,24 +47,31 @@ at `http://<host>:8765/docs`. Chats are completed by the model server in
 `llm.base_url` (vLLM); each chat is one JSON file, `<data_dir>/chats/<id>.json`,
 next to the recorder's `<data_dir>/screen/`.
 
-There are no command-line flags. Both read [`config.yaml`](config.yaml)
-from the working directory, or the file named by `JUNO_CONFIG_PATH`. What
-differs between devices, the server host and the device id, is read from `.env`
-instead (see [`.env.example`](.env.example)). For a
-synthetic session that needs no access, set `backend: fake` and `duration: 10`
-under `capture`.
+There are no command-line flags. Settings have three homes (`juno.config`):
+
+| What | Where | Changed from |
+|---|---|---|
+| The server's (models, tools, annotation, Jev, prediction, grading, timing) | `<data_dir>/settings.json` on the server | the client's Settings view (`GET`/`PATCH /settings`), or `uv run python -m juno.settings server set PATH=VALUE`; applies when the server restarts |
+| This computer's recorder's (`capture.*`, `claude_hook.*`) | `<data_dir>/device.json` on that computer | its client's Settings view, which restarts the recorder, or `uv run python -m juno.settings device set PATH=VALUE` |
+| What must be known first: the data directory, the server's host, port and URL, the device id; and the API keys | `.env` at the checkout root (see [`.env.example`](../.env.example)) | the file; the Settings view shows each as set or not |
+
+Each file holds only the values that differ from the defaults in `juno.config`,
+whose field descriptions are what the Settings view shows. For a synthetic
+session that needs no access, `uv run python -m juno.settings device set
+capture.backend=fake capture.duration=10`.
 
 Before logging out and in, the group can be used with
 `sg input -c 'npm start'` (or `sg input -c 'uv run python -m capture'`).
 
 Sessions go to `~/.local/share/juno/screen/sessions/session_<timestamp>/`
-(`capture.data_dir` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
+(`JUNO_DATA_DIR` to change). Defaults match Tada: 5 fps, 120 s frame buffer,
 screenshots scaled to 100 dpi, mouse moves not recorded. On a 4K screen those
-defaults are heavy; `scale: 0.5` with `buffer_seconds: 10` is much lighter.
+defaults are heavy; `capture.scale` 0.5 with `capture.buffer_seconds` 10 is much lighter.
 
-With `annotate.live` set, the recorder also uploads each aggregation and its
-screenshot to the server at `JUNO_SERVER_HOST` (`PUT /events/{id}`), which can
-be another machine. The server keeps every device's sessions under
+With `capture.upload` set, the recorder also uploads each aggregation and its
+screenshot to the server at `JUNO_SERVER_URL` (`PUT /events/{id}`), which can
+be another machine, and reports to it as often as the server's
+`control.poll_seconds` says. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
 fills. A session's id on the server is `<device_id>-session_<timestamp>`.
 

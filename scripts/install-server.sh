@@ -52,7 +52,7 @@ set_env JUNO_SERVER_HOST "${host:-${default_host:-127.0.0.1}}"
 key=$(ask "Gemini API key for annotation (Enter to leave unset): ")
 [ -z "$key" ] || set_env GEMINI_API_KEY "$key"
 
-port=$(uv run python -c 'from juno.config import load_config; print(load_config().server.port)')
+port=$(uv run python -c 'from juno.config import server_port; print(server_port())')
 cat <<MESSAGE
 
 Installed. Start the server with:
@@ -60,4 +60,5 @@ Installed. Start the server with:
     cd $JUNO_DIR && uv run python -m server
 
 Clients connect to http://${host:-${default_host:-127.0.0.1}}:$port (the client install asks for this address).
+Every other setting is in the client's Settings view, under Server.
 MESSAGE

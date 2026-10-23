@@ -13,7 +13,7 @@ from juno.sessions import session_dir
 from annotate.request import AnnotationFrame
 from annotate.sanitize import Sanitization
 from annotate.store import new_caption, write_caption_file
-from juno.config import CaptureConfig, Config, LlmConfig, PredictConfig, devices_dir
+from juno.config import LlmConfig, PredictConfig, ServerSettings, devices_dir
 from predict.benchmarks import GradedRow, GraderSettings, PredictorSettings, run_file
 from server.app import create_app
 
@@ -68,12 +68,11 @@ def model_server():
 
 
 def client_for(tmp_path, base_url: str, **predict) -> TestClient:
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    llm=LlmConfig(base_url=base_url, max_tokens=77, temperature=0.5),
-                    predict=PredictConfig(**{"past_len": 4, "future_len": 3,
+    config = ServerSettings(llm=LlmConfig(base_url=base_url, max_tokens=77, temperature=0.5),
+                            predict=PredictConfig(**{"past_len": 4, "future_len": 3,
                                              "num_imgs_per_sample": 2, **predict}))
     # The MCP endpoint only answers requests addressed to the server's own host.
-    return TestClient(create_app(config), base_url="http://127.0.0.1:8765")
+    return TestClient(create_app(config, data_dir=tmp_path), base_url="http://127.0.0.1:8765")
 
 
 def write_annotation(tmp_path, chunk: int, captions: list[str], dense_caption: str,

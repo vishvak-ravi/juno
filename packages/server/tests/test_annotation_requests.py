@@ -9,7 +9,7 @@ from PIL import Image
 from annotate.label import Action, Annotation
 from juno.sessions import session_dir
 from annotate.store import FileActivityCaptions, new_caption, write_caption_file
-from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
+from juno.config import AnnotateConfig, ServerSettings, devices_dir
 from server.app import create_app
 
 SESSION = "laptop-session_20260101_120000"
@@ -37,9 +37,8 @@ def write_session(tmp_path, rows: int):
 
 
 def client_for(tmp_path, annotate_request) -> TestClient:
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2))
-    return TestClient(create_app(config, annotate_request=annotate_request))
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2))
+    return TestClient(create_app(config, data_dir=tmp_path, annotate_request=annotate_request))
 
 
 def wait_until_settled(tmp_path, chunk):

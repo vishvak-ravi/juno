@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from anyio import to_thread
 
-from juno.config import CaptureConfig, Config, LlmConfig
+from juno.config import LlmConfig, ServerSettings
 from server.app import create_app
 from server.routes import chats
 
@@ -75,9 +75,8 @@ def model_server():
 
 
 def client_for(tmp_path, base_url: str) -> TestClient:
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    llm=LlmConfig(base_url=base_url, max_tokens=77, temperature=0.5))
-    return TestClient(create_app(config))
+    config = ServerSettings(llm=LlmConfig(base_url=base_url, max_tokens=77, temperature=0.5))
+    return TestClient(create_app(config, data_dir=tmp_path))
 
 
 def test_puts_to_the_same_id_append_the_messages_and_the_replies(tmp_path, model_server):

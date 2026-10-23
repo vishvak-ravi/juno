@@ -3,21 +3,23 @@ import threading
 
 import httpx
 
-from capture.__main__ import main
+from capture.__main__ import main, run
 from capture.check import check_session, latest_session
-from juno.config import CaptureConfig, ControlConfig
+from juno.config import CaptureConfig
 from test_upload import running_server, wait_for
 
 
-def test_unavailable_backend_exits_with_a_clear_error(tmp_path, capsys):
-    assert main(CaptureConfig(backend="windows", data_dir=tmp_path)) == 2
-    assert "Unknown backend" in capsys.readouterr().err
+def test_an_unknown_backend_in_the_device_settings_is_refused(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("JUNO_DATA_DIR", str(tmp_path))
+    (tmp_path / "device.json").write_text('{"capture": {"backend": "windows"}}')
+    assert run() == 2
+    assert "capture.backend" in capsys.readouterr().err
     assert not (tmp_path / "screen").exists()
 
 
 def test_fake_backend_records_a_session_that_passes_the_check(tmp_path, capsys):
     before = signal.getsignal(signal.SIGINT)
-    code = main(CaptureConfig(backend="fake", data_dir=tmp_path, fps=20, duration=3.5))
+    code = main(CaptureConfig(backend="fake", fps=20, duration=3.5), tmp_path)
     assert code == 0
     assert signal.getsignal(signal.SIGINT) is before  # Ctrl+C still works afterwards
 
@@ -51,9 +53,8 @@ def test_switching_a_device_off_and_on_ends_its_session_and_starts_a_new_one(tmp
     switching = threading.Thread(target=switch)
     switching.start()
     try:
-        code = main(CaptureConfig(backend="fake", data_dir=tmp_path / "recorder", fps=20,
-                                  duration=8.0),
-                    server_url=url, control=ControlConfig(poll_seconds=0.2))
+        code = main(CaptureConfig(backend="fake", fps=20, duration=8.0), tmp_path / "recorder",
+                    server_url=url)
     finally:
         switching.join()
         server.should_exit = True

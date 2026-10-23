@@ -22,7 +22,7 @@ stopped by the provider's daily limit continues where it left off.
 ``--limit`` caps the chunks graded in one run; each costs one judge call, three
 with ``--formatting``.
 
-The judge is ``grade.model`` in ``config.yaml``; keys come from the environment
+The judge is the server's ``grade.model`` (``juno.settings``); keys come from the environment
 or ``.env`` (GEMINI_API_KEY for gemini/).
 """
 
@@ -43,7 +43,8 @@ from pydantic import BaseModel, ValidationError
 from annotate.store import CAPTIONS_DIR, ActivityCaption, read_caption_file
 from grade.call import CallFailed, judge_for
 from grade.judge import Judgement, judge_accuracy, judge_formatting
-from juno.config import ConfigError, load_config
+from juno.config import ConfigError
+from juno.settings import server_settings
 from predict.predictor import build_actions_block
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -137,8 +138,7 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv(ROOT_DIR / ".env")
     try:
-        config = load_config(None if os.environ.get("JUNO_CONFIG_PATH")
-                             else ROOT_DIR / "config.yaml").grade
+        config = server_settings().read().grade
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

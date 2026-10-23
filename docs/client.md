@@ -23,7 +23,7 @@ asks what changed.
 | Timeline | sessions, newest first, from the start of this week, with a heading where the day changes and "Earlier" adding a week; a session opens to its **sequences** (the rows captioned together), newest first, each to its actions with a divider where a moment starts; the open action's session and sequence summaries stay pinned under the day heading as the list scrolls (the sequence's once it outruns the list), pressed to fold them; the **moment rail** down the pane's left edge, every moment of the sessions listed in the list's order with a divider per day, the wheel over it zooming, the moment under the pointer staying put; **Now** scrolls to the top and the calendar to today | the **calendar**: a week (or a day, or a month) of sessions as blocks on their days, each with one index curving down its right side and its moments pinned on its left, the moment types shown chosen by the chips above it, now marked in red; a block opens its session on the left, a pin opens its action. An **action** opens in the calendar's place: the ribbon of its day across the top (its sessions and moments, the action marked; pressed, or Escape, to go back), the action's caption, its parent sequence's caption, a button per Claude Code conversation its moments carry, the screenshot with the inputs replayed over it, the frames of its sequence and the sequences around it (the arrow keys step through them), and its inputs folded |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
-| Settings | opens a panel above the bar: the server address (see below) | |
+| Settings | this app's settings, this computer's recorder's and the server's, each by section with an Environment entry, read together (`window.juno.describePrefs`, `describeDeviceSettings`, `GET /settings`); a source that cannot be read says why in its place | the open section's form (see Settings below) |
 
 The light on the devices button is green while any device records, amber
 while this computer's recorder has exited or a device has not yet done what
@@ -56,8 +56,7 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | Action lists | the `<action>` elements of `prediction` and `ground_truth`; green where both hold the same text at the same position |
 
 A screenshot is requested only when its event is opened, and then the screenshots
-of the `client.prefetch` actions either side of it (`config.yaml`, read through the
-checkout's Python when the app starts) are fetched ahead, so stepping to them shows
+of the actions either side of it, as many as the app's prefetch setting, are fetched ahead, so stepping to them shows
 each at once; a prediction's
 prompts and the predictor's screenshots (`GET /predictions/{id}`) only when the
 prediction is opened, the screenshots only when their section is expanded.
@@ -67,7 +66,8 @@ Setup and run commands are in the [README](../README.md).
 ## Recorder
 
 The client starts the recorder, `python -m capture` run with the checkout's `.venv/bin/python`
-from the checkout root (so it reads the same `config.yaml` and `.env`), when it starts, and
+from the checkout root (so it reads the same `.env`), with `JUNO_SERVER_URL` set to the
+server address in the app's settings, when it starts, and
 quits only once the recorder has saved its session. The devices panel shows
 whether it is running and, if it exited, its status and last log lines; it is not
 restarted until the app is. Status 2 is a backend that could not start: on macOS
@@ -103,23 +103,38 @@ The profile names the binary's path, so it survives `npm ci` and Electron
 updates; redo it only if the checkout moves. Making `chrome-sandbox` root-owned
 with mode 4755 also works but is undone by every reinstall.
 
-## Server address
+## Settings
 
-The window reads from the address saved in the settings panel, kept in
-`settings.json` in Electron's userData directory (`src/main/settings.js`;
-`~/.config/juno-client` on Linux, `~/Library/Application Support/juno-client`
-on macOS). With none saved it is `http://<JUNO_SERVER_HOST>:8765`, the host
-read from `.env` at the checkout root (see `.env.example`; default
-`127.0.0.1`), which `JUNO_SERVER_URL` overrides. Saving reloads the window. The
-recorder uploads to the server named in `.env` whatever the panel says.
+Each source describes its settings the same way (`juno.settings`: sections of
+fields, each with its kind, value, default and description), and one form
+(`apps/web/src/settings.js`) draws a section: a field per setting, the
+advanced ones folded, "Use default" where a value differs from its default,
+and Save sending only what changed as `{set, reset}` by dotted path. A refused
+change says why under each field and saves nothing. A field marked local
+(`juno.config.LOCAL`: the bash and Claude tools' switches, sandbox, command,
+permission mode and directory) is shown as it is, with the command that changes
+it on the server's machine. The pane is made once and kept, like the timeline's;
+it reads a source again when a change to it is saved.
+
+| Source | Kept in | A save |
+|---|---|---|
+| This app (`app.*`: server address, prefetch, passive agent module) | `settings.json` in Electron's userData directory (`src/main/prefs.js`, `src/main/settings.js`; `~/.config/juno-client` on Linux, `~/Library/Application Support/juno-client` on macOS) | a new server address reloads the window and restarts the recorder; the passive agent module changes when the app restarts, which the view offers |
+| This computer (`capture.*`, `claude_hook.*`) | `<data_dir>/device.json`, through the checkout's Python (`src/main/device.js`, `python -m juno.settings device`) | restarts the recorder, which saves its session first |
+| Server | `<data_dir>/settings.json` on the server (`GET`/`PATCH /settings`) | applies when the server restarts; the list counts the saved changes waiting for it |
+
+Each source's Environment entry lists what its process reads from `.env`, an
+API key only as set or not, and which settings need a key that is not set.
+With no server address saved, it is `JUNO_SERVER_URL`, else
+`http://<JUNO_SERVER_HOST>:<JUNO_SERVER_PORT>` from `.env` at the checkout root
+(defaults `127.0.0.1` and `8765`).
 
 ## Passive agent module
 
-`JUNO_PASSIVE_AGENT=1` in `.env` turns on the passive agent module: the camera
+The app's passive agent setting turns on the passive agent module: the camera
 preview with hand keypoints and the gesture roles (`src/renderer/hand.js`), and
 the dictation helper (`native/juno-dictate`, built by `npm run native`, macOS
 only) that the dictate role feeds the message box from. The gesture model is
 `models/gesture_recognizer.task`, downloaded by `npm run model`. The main
-process starts the helper only when the switch is on and tells the pages
-through `window.juno.passiveAgent`; off, or unset, the pages show the composer
+process starts the helper only when the setting was on at startup and tells the pages
+through `window.juno.passiveAgent`; off, the pages show the composer
 only and start neither the camera nor the helper.

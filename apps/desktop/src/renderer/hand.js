@@ -6,7 +6,7 @@
 // While the "dictate" role is held, speech is appended to the message box;
 // entering the "send" role submits it.
 // All of it runs only with the passive agent module on (window.juno.passiveAgent,
-// from JUNO_PASSIVE_AGENT): off, the preview is hidden and nothing listens.
+// the app's setting when it started): off, the preview is hidden and nothing listens.
 // Minimizing the preview hides it only: the camera, the recognizer and the
 // roles keep running, and the chip left in its place shows the role in effect.
 import {

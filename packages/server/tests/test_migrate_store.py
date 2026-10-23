@@ -53,10 +53,8 @@ def write_old_store(data_dir: Path) -> None:
 
 
 def migrate(tmp_path: Path) -> int:
-    config = tmp_path / "config.yaml"
-    config.write_text(f"capture:\n  data_dir: {tmp_path / 'data'}\n")
     return subprocess.run([sys.executable, str(ROOT / "scripts" / "migrate_store.py")],
-                          env={"JUNO_CONFIG_PATH": str(config), "PATH": ""}, cwd=tmp_path).returncode
+                          env={"JUNO_DATA_DIR": str(tmp_path / "data"), "PATH": ""}, cwd=tmp_path).returncode
 
 
 def test_a_migrated_store_holds_the_same_rows_captions_and_answers(tmp_path):

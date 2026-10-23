@@ -21,22 +21,24 @@ was known at its cutoff:
 Screenshots are referenced by ``file://`` URL instead of embedded; the benchmark
 script reads them when it sends the request. The dataset is written next to the
 session's events, in ``<session dir>/datasets/`` (see ``predict.benchmarks``).
-Settings come from the ``predict`` and ``capture`` sections of
-``config.yaml`` (or JUNO_CONFIG_PATH).
+Settings come from the ``predict`` section of the server's settings
+(``juno.settings``), the store from JUNO_DATA_DIR (the checkout's ``.env`` is read).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from juno.sessions import session_dir
 from annotate.store import FileActivityCaptions
-from juno.config import ConfigError, devices_dir, load_config, resolve_data_dir
+from juno.config import ConfigError, data_dir, devices_dir
+from juno.settings import server_settings
 from predict.benchmarks import RUN_FORMAT, datasets_dir
 from predict.predictor import Predictor, build_actions_block, prediction_events
 
@@ -79,16 +81,16 @@ def main(argv: list[str] | None = None) -> int:
                              "Default: <session dir>/datasets/<time>.jsonl")
     args = parser.parse_args(argv)
 
+    load_dotenv(ROOT_DIR / ".env")
     try:
-        config = load_config(None if os.environ.get("JUNO_CONFIG_PATH")
-                             else ROOT_DIR / "config.yaml")
+        config = server_settings().read()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    data_dir = resolve_data_dir(config.capture)
+    base_dir = data_dir()
 
     records = [record.model_copy(update={"updated_at": record.end_time})
-               for record in FileActivityCaptions(devices_dir(data_dir)).all(session_id=args.session_id)
+               for record in FileActivityCaptions(devices_dir(base_dir)).all(session_id=args.session_id)
                if record.status == "done" and record.end_time is not None]
     events = prediction_events(records)
     needed = config.predict.past_len + config.predict.future_len

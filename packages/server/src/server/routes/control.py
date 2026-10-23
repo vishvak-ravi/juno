@@ -3,8 +3,8 @@
 ``GET /control`` is everything the status page shows. ``PATCH /control/server``
 pauses or resumes the annotation queue; ``PATCH /control/devices/{id}`` turns a
 device's recording on or off. A recorder sends ``PUT /control/devices/{id}/report``
-every ``control.poll_seconds`` and is answered with whether to record; its first
-report adds the device, recording.
+and is answered with whether to record and, from ``control.poll_seconds``, when to
+report again; its first report adds the device, recording.
 """
 
 import time
@@ -92,5 +92,6 @@ def patch_device(device_id: DeviceId, body: DevicePatch, request: Request) -> Co
 
 @router.put("/devices/{device_id}/report")
 def report(device_id: DeviceId, body: Report, request: Request) -> Instruction:
-    """Store the recorder's report; the answer says whether it should record."""
-    return Instruction(capture=request.app.state.control.record_report(device_id, body))
+    """Store the recorder's report; the answer says whether it should record and when to report next."""
+    return Instruction(capture=request.app.state.control.record_report(device_id, body),
+                       poll_seconds=request.app.state.control_config.poll_seconds)
