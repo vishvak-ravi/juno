@@ -118,6 +118,7 @@ def test_a_users_caption_replaces_the_models_until_it_is_cleared(tmp_path):
     with client_for(tmp_path, [Action(start=1, end=2, caption="Clicked.")]) as client:
         put(client, LAPTOP, 0, 1000.0)
         put(client, LAPTOP, 1, 1001.0)
+        put(client, LAPTOP, 2, 1002.0)
         wait_for_annotation(tmp_path, LAPTOP, 0)
         event_id = f"{LAPTOP}-000000"
 
@@ -154,12 +155,14 @@ def test_a_store_moved_to_another_data_directory_keeps_its_screenshots_and_capti
     with client_for(tmp_path / "before", [Action(start=1, end=2, caption="Clicked.")]) as client:
         put(client, LAPTOP, 0, 1000.0)
         put(client, LAPTOP, 1, 1001.0)
+        put(client, LAPTOP, 2, 1002.0)
         wait_for_annotation(tmp_path / "before", LAPTOP, 0)
     shutil.move(tmp_path / "before", tmp_path / "after")
 
     with client_for(tmp_path / "after") as client:
         events = client.get("/events", params={"order": "asc"}).json()["data"]
-        assert [e["caption"] for e in events] == ["Clicked.", "Clicked."]
+        # The third row is in the next chunk, which has no caption yet.
+        assert [e["caption"] for e in events] == ["Clicked.", "Clicked.", None]
         assert client.get(f"/events/{LAPTOP}-000000/screenshot").content == png()
     frames = FileActivityCaptions(devices_dir(tmp_path / "after")).get(LAPTOP, 0).frames
     assert [open(frame.screenshot_path, "rb").read() for frame in frames] == [png(), png()]
@@ -215,3 +218,28 @@ def test_a_time_range_lists_only_the_events_and_sessions_inside_it(tmp_path):
         assert [s["id"] for s in sessions] == [DESKTOP]
         indices = client.get("/indices", params={"since": 4000, "until": 6000}).json()
         assert sum(b["rows"] for b in indices["buckets"]) == 1
+
+
+def test_an_input_the_recorder_wrote_in_the_row_before_is_listed_under_its_own_event(tmp_path):
+    def record(at, shot, end, clicks):
+        events = [{"timestamp": t, "monitor_index": 0, "monitor": MONITOR, "event_type": "mouse_down",
+                   "details": {"x": 3, "y": 4, "button": "left"}, "cursor_position": [3, 4]}
+                  for t in clicks]
+        return json.dumps({
+            "timestamp": at, "reason": "click_end_stale", "event_type": "click",
+            "request_state": "end", "screenshot_path": f"/recorder/{shot}.png",
+            "screenshot_timestamp": shot, "end_screenshot_timestamp": end,
+            "num_events": len(events), "events": events, "cursor_position": None,
+            "monitor": MONITOR, "burst_id": 7, "scale_factor": 1.0})
+
+    with client_for(tmp_path) as client:
+        # The recorder wrote the first row while it was its last: it holds the
+        # click that the second row's screenshot was taken before.
+        for index, body in enumerate([record(1000.0, 1000.5, None, [1001.7]),
+                                      record(1001.7, 1001.5, None, [])]):
+            response = client.put(f"/events/{LAPTOP}-{index:06d}", data={"aggregation": body},
+                                  files={"screenshot": (f"{index}.png", png(), "image/png")})
+            assert response.status_code == 201, response.text
+
+        events = client.get(f"/sessions/{LAPTOP}").json()["events"]
+        assert [[i["timestamp"] for i in e["inputs"]] for e in events] == [[], [1001.7]]

@@ -84,9 +84,10 @@ def find_work(events: Events, captions: ActivityCaptions, config: AnnotateConfig
     """Every chunk in the store that should be annotated and has not been.
 
     That is a chunk with no record, a pending record, a failed record with
-    attempts left, or a done record made when the chunk held fewer rows. The
-    rows after a session's last full chunk count only once the session has gone
-    ``config.tail_idle_seconds`` without a new row.
+    attempts left, or a done record made when the chunk held fewer rows. A
+    session's last chunk, full or not, counts only once the session has gone
+    ``config.tail_idle_seconds`` without a new row: its last row's inputs are
+    settled by the row after it (``juno.sessions.regroup_inputs``).
     """
     work = []
     for session_id in events.sessions():
@@ -100,7 +101,8 @@ def find_work(events: Events, captions: ActivityCaptions, config: AnnotateConfig
             if record is not None and record.status == "failed" \
                     and record.attempts >= config.max_attempts:
                 continue
-            if len(rows) < size and now - max(timestamps) < config.tail_idle_seconds:
+            last = (chunk + 1) * size >= len(timestamps)
+            if last and now - max(timestamps) < config.tail_idle_seconds:
                 continue
             work.append(Work(session_id=session_id, chunk=chunk,
                              end_time=max(rows)))
