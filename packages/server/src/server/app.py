@@ -33,6 +33,7 @@ from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
 from server.routes.web import WEB_DIR
 from server.routes.web import router as web_router
+from server.timing import TimingMiddleware
 from server.agent.tools import create_chat_tools, session_tools
 from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
@@ -124,6 +125,7 @@ def create_app(config: Optional[Config] = None,
                 app.state.question_worker.stop()
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
+    app.add_middleware(TimingMiddleware)
     app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm

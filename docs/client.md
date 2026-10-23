@@ -57,6 +57,7 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 A screenshot is requested only when its event is opened; a prediction's
 prompts and the predictor's screenshots (`GET /predictions/{id}`) only when the
 prediction is opened, the screenshots only when their section is expanded.
+With `JUNO_TIMING_FILE` set, the main process (`src/main/server.js`) appends one JSON line per GET to that file: the route, milliseconds to the headers and to the parsed body, the server's `Server-Timing` milliseconds and the bytes.
 Setup and run commands are in the [README](../README.md).
 
 ## Recorder

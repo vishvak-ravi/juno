@@ -1,5 +1,27 @@
 # Status
 
+## 2026-10-22: Timeline route timings
+
+| Piece | State |
+|---|---|
+| `Server-Timing: app;dur=` on every response and a `server.timing` log line with duration and bytes (`server.timing`) | done; tested |
+| `JUNO_TIMING_FILE`: the desktop client appends route, ms to headers and body, server ms and bytes per GET | done; not yet run in the app |
+| `scripts/bench_routes.py` snapshot and run | done; run on `~/.local/share/juno-bench/2026-10-22` (45 sessions, 27,709 rows, day 2026-10-22) |
+
+Baseline (`--label baseline`, 1 cold and 5 warm passes, server on this machine, annotation off), in ms:
+
+| Request | Cold | p50 | p95 | Server p50 | Bytes |
+|---|---|---|---|---|---|
+| calendar (`/events/activity`) | 6,518 | 3,965 | 4,109 | 3,964 | 689 |
+| day events (`/events?…&limit=100`) | 4,184 | 4,167 | 5,174 | 4,166 | 136,271 |
+| day indices (`/indices`) | 4,046 | 3,999 | 5,016 | 3,998 | 1,609 |
+| day events, next page (`after=`) | 3,860 | 3,930 | 6,454 | 3,929 | 66,966 |
+| day sessions (`/sessions`) | 4,305 | 4,181 | 4,250 | 4,180 | 636 |
+| open session (`/sessions/{id}`) | 69 | 57 | 66 | 55 | 835,502 |
+| open day (events and indices together) | 8,704 | 8,555 | 9,087 | 8,553 | 137,880 |
+
+Server time is within 1 ms of the whole request on every route: the bytes take no measurable time on this machine. `/events`, `/events/activity` and `/indices` each build every stored event (`stored_events`), and `/sessions` every session's (`session_of`), before filtering by time, about 4 s; the two requests of a day together take their sum. The one-session route, which builds one session, answers 835 KB in 57 ms.
+
 ## 2026-10-22: Store behind repositories
 
 | Piece | State |
