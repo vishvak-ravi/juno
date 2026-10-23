@@ -73,10 +73,10 @@ annotate:
   # openrouter/<vendor>/<model> (OPENROUTER_API_KEY), or openai/<served name>
   # for a model on an OpenAI-compatible server (llama.cpp, vLLM, SGLang) at
   # api_base. Each annotation records it.
-  model: gemini/gemini-3.1-flash-lite
+  model: openai/Qwen3.8-27B-UD-Q4_K_M
   # The server an openai/ model is sent to, e.g. http://localhost:8000/v1; it
   # needs no key. null: the provider's own endpoint.
-  api_base: null
+  api_base: http://localhost:57617/v1
   # Upper bound on the reply, hidden reasoning included.
   max_tokens: 8192
   # Aggregations (screenshots) per request.
