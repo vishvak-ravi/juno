@@ -21,19 +21,11 @@ import json
 import re
 import threading
 from pathlib import Path
-from typing import Literal, Optional, Protocol
+from typing import Hashable, Literal, Optional, Protocol
 
 from pydantic import BaseModel
 
-from juno.sessions import (
-    Aggregation,
-    replace_file,
-    resolved,
-    session_dir,
-    session_dirs,
-    session_id_of,
-    stored_path,
-)
+from juno.sessions import (Aggregation, file_stamp, replace_file, resolved, session_dir, session_dirs, session_id_of, stored_path)
 
 EVENT_ROWS_FILE = "event_rows.jsonl"
 SCREENSHOTS_DIR = "screenshots"
@@ -90,6 +82,9 @@ class Events(Protocol):
     def hide(self, session_id: str, row: int) -> None:
         """Leave a row out of what the API lists; it stays stored."""
 
+    def version(self, session_id: str) -> Hashable:
+        """A value that differs whenever the session's rows or edits do."""
+
 
 def read_rows(directory: Path) -> list[Aggregation]:
     """The rows stored in a session directory, screenshot paths absolute."""
@@ -145,6 +140,10 @@ class FileEvents:
 
     def row_count(self, session_id: str) -> int:
         return count_lines(session_dir(self.devices_dir, session_id) / EVENT_ROWS_FILE)
+
+    def version(self, session_id: str) -> Hashable:
+        directory = session_dir(self.devices_dir, session_id)
+        return file_stamp(directory / EVENT_ROWS_FILE), file_stamp(directory / EDITS_FILE)
 
     def screenshot(self, session_id: str, row: int) -> Optional[Path]:
         directory = session_dir(self.devices_dir, session_id)

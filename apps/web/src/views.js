@@ -31,6 +31,37 @@ export async function load(target, work, current = () => true) {
   }
 }
 
+// Makes `nodes` the children of `parent`, in that order, moving only what has
+// to move: nodes not there yet are inserted, children not in `nodes` removed,
+// the rest left where they are so their state (open, focused, selected) stays.
+// Unless motion is reduced, a child that stays slides from where it was to
+// where it is and a new one fades in, so what lands above pushes the rest down.
+// Returns the nodes inserted.
+export function reconcile(parent, nodes) {
+  const wanted = new Set(nodes);
+  const animate = parent.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const before = new Map();
+  if (animate) for (const child of parent.children) if (wanted.has(child)) before.set(child, child.getBoundingClientRect().top);
+  for (const child of [...parent.children]) if (!wanted.has(child)) child.remove();
+  const added = [];
+  let at = parent.firstElementChild;
+  for (const node of nodes) {
+    if (node === at) {
+      at = at.nextElementSibling;
+      continue;
+    }
+    if (node.parentNode !== parent) added.push(node);
+    parent.insertBefore(node, at);
+  }
+  if (!animate) return added;
+  for (const [node, top] of before) {
+    const delta = top - node.getBoundingClientRect().top;
+    if (delta) node.animate([{ transform: `translateY(${delta}px)` }, { transform: "none" }], { duration: 300, easing: "ease-out" });
+  }
+  for (const node of added) node.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 300, easing: "ease-out" });
+  return added;
+}
+
 // One paged list, with its first page already fetched. `render(item)` makes the
 // list element for one item; "Load more" fetches the next page with ?after=<last_id>.
 // `first` is the first page when the caller has fetched it already.

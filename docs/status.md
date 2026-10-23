@@ -1,5 +1,28 @@
 # Status
 
+## 2026-10-22: Live timeline
+
+| Piece | State |
+|---|---|
+| `GET /changes?cursor=&since=&until=&events=`: the sessions changed since the cursor, with the changed events of the ones named (`server.routes.changes`) | done; tested |
+| A session's fingerprint (`version` of `Events`, `ActivityCaptions`, `QuestionAnswers`; the device's prompts in its span) numbers its changes, and its events are built once per fingerprint with the rows that differ from the build before (`server.versions`) | done; tested through `/changes` |
+| `control.live_seconds` (2), returned by `GET /control`: how often the client asks | done |
+| The desktop timeline pane is kept across views and asks every `live_seconds` while shown; sessions, sequences, actions and dividers are reconciled by key (`reconcile` in `apps/web/src/views.js`), what lands above sliding the rest down; the Now button counts sessions that landed above a scrolled view | done; not yet run against a recording device |
+| The calendar's blocks and pins are drawn again (one `GET /indices`) when a changed session is on its days; the month's counts read again | done |
+| The phone page | not live |
+
+Against the rows cache alone (`--label built-cache`, same snapshot, day and passes), in ms:
+
+| Request | Rows cache p50 | Now cold | Now p50 | Now p95 |
+|---|---|---|---|---|
+| calendar (`/events/activity`) | 18 | 2,290 | 21 | 22 |
+| day events (`/events?…&limit=100`) | 63 | 87 | 27 | 44 |
+| day indices (`/indices`) | 46 | 18 | 31 | 504 |
+| day events, next page (`after=`) | 62 | 14 | 41 | 73 |
+| day sessions (`/sessions`) | 44 | 20 | 29 | 40 |
+| open session (`/sessions/{id}`) | 22 | 13 | 15 | 38 |
+| open day (events and indices together) | 80 | 41 | 35 | 89 |
+
 ## 2026-10-22: Timeline routes read only what they need
 
 | Piece | State |

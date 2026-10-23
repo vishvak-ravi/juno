@@ -11,11 +11,11 @@ that row it stands in for Jev's moment of the same type.
 import logging
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Hashable, Optional
 
 from pydantic import BaseModel, ValidationError
 
-from juno.sessions import Aggregation
+from juno.sessions import Aggregation, file_stamp
 from keypoints.derive import Conversation, Moment
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,9 @@ HARNESS = "claude_code"
 MOMENT_TYPE = "agent_prompt_submitted"
 
 append_lock = threading.Lock()
+# By prompts file: its stamp and the prompts read from it.
+prompts_cache: dict[Path, tuple[Optional[tuple[int, int]], list["Prompt"]]] = {}
+prompts_cache_lock = threading.Lock()
 
 
 class Prompt(BaseModel):
@@ -54,9 +57,31 @@ def append_prompt(device_dir: Path, prompt: Prompt) -> None:
 
 
 def read_prompts(device_dir: Path) -> list[Prompt]:
-    """The device's prompts in the order they arrived; a line that is not a prompt is skipped."""
+    """The device's prompts in the order they arrived; a line that is not a prompt is skipped.
+
+    The file is read again only once its size or modification time has changed.
+    Callers share the list and must not change it.
+    """
+    path = prompts_file(device_dir)
+    stamp = file_stamp(path)
+    with prompts_cache_lock:
+        cached = prompts_cache.get(path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        prompts = parse_prompts(path)
+        prompts_cache[path] = (stamp, prompts)
+        return prompts
+
+
+def prompts_version(device_dir: Path, since: float, until: float) -> Hashable:
+    """A value that differs whenever the prompts between ``since`` and ``until`` do."""
+    return tuple(prompt.timestamp for prompt in read_prompts(device_dir)
+                 if since <= prompt.timestamp <= until)
+
+
+def parse_prompts(path: Path) -> list[Prompt]:
     try:
-        lines = prompts_file(device_dir).read_text().splitlines()
+        lines = path.read_text().splitlines()
     except FileNotFoundError:
         return []
     prompts = []
@@ -66,7 +91,7 @@ def read_prompts(device_dir: Path) -> list[Prompt]:
         try:
             prompts.append(Prompt.model_validate_json(line))
         except ValidationError as exc:
-            logger.warning("skipping a line of %s: %s", prompts_file(device_dir), exc)
+            logger.warning("skipping a line of %s: %s", path, exc)
     return prompts
 
 

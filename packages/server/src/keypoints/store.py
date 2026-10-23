@@ -12,11 +12,11 @@ or two versions of the questions can be compared later.
 
 import logging
 from pathlib import Path
-from typing import Annotated, Literal, Optional, Protocol, Union
+from typing import Annotated, Hashable, Literal, Optional, Protocol, Union
 
 from pydantic import BaseModel, Field, ValidationError
 
-from juno.sessions import replace_file, session_dir
+from juno.sessions import dir_stamps, replace_file, session_dir
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,9 @@ class QuestionAnswers(Protocol):
     def save(self, answers: ChunkAnswers) -> None:
         """Store the chunk's answers, replacing earlier ones."""
 
+    def version(self, session_id: str) -> Hashable:
+        """A value that differs whenever any answers of the session do."""
+
     def by_row(self, session_id: str) -> dict[int, dict[str, Answer]]:
         """Every answered row of a session, by row."""
 
@@ -101,6 +104,9 @@ class FileQuestionAnswers:
     def save(self, answers: ChunkAnswers) -> None:
         replace_file(answers_file(session_dir(self.devices_dir, answers.session_id), answers.chunk),
                      answers.model_dump_json(indent=2))
+
+    def version(self, session_id: str) -> Hashable:
+        return dir_stamps(session_dir(self.devices_dir, session_id) / ANSWERS_DIR)
 
     def by_row(self, session_id: str) -> dict[int, dict[str, Answer]]:
         answered = {}

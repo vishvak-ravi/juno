@@ -23,6 +23,7 @@ from server.control import FileControl
 from server.events import FileEvents
 from server.integrity import StoreReport, check_store
 from server.agent.mcp import MCP_PATH, create_mcp
+from server.routes.changes import router as changes_router
 from server.routes.chats import router as chats_router
 from server.routes.control import router as control_router
 from server.routes.draw import router as draw_router
@@ -34,6 +35,7 @@ from server.routes.sessions import router as sessions_router
 from server.routes.web import WEB_DIR
 from server.routes.web import router as web_router
 from server.timing import TimingMiddleware
+from server.versions import SessionVersions, session_fingerprint
 from server.agent.tools import create_chat_tools, session_tools
 from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
@@ -132,6 +134,8 @@ def create_app(config: Optional[Config] = None,
     app.state.annotate = config.annotate
     app.state.predictor = predictor
     app.state.events = events
+    # Each session's events, built once per change, and which sessions changed since a cursor.
+    app.state.versions = SessionVersions(session_fingerprint(events, captions, answers, devices_dir(data_dir)))
     app.state.captions = captions
     app.state.answers = answers
     app.state.control = control
@@ -156,6 +160,7 @@ def create_app(config: Optional[Config] = None,
     mcp = create_mcp(session_tools(app.state, config.llm.tool_result_chars))
     app.include_router(router)
     app.include_router(web_router)
+    app.include_router(changes_router)
     app.include_router(chats_router)
     app.include_router(control_router)
     app.include_router(draw_router)

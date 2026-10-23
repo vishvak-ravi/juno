@@ -39,6 +39,8 @@ class ControlView(BaseModel):
     devices: dict[str, DeviceView]
     # Seconds between a recorder's reports; how often this is worth asking for again.
     poll_seconds: float
+    # Seconds between a client's checks of GET /changes.
+    live_seconds: float
 
 
 class ServerPatch(BaseModel):
@@ -61,7 +63,8 @@ def view(request: Request, state: ControlState) -> ControlView:
     return ControlView(
         server=ServerView(annotate=state.server.annotate, queue=app.worker.status()),
         devices={id: device_view(device) for id, device in sorted(state.devices.items())},
-        poll_seconds=app.control_config.poll_seconds)
+        poll_seconds=app.control_config.poll_seconds,
+        live_seconds=app.control_config.live_seconds)
 
 
 @router.get("")
