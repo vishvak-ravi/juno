@@ -12,7 +12,7 @@ call at a time. ``--model`` and ``--api-base`` default to ``annotate.model`` and
 The session directory is only read. Results go to ``--out``, by default
 ``data/annotations/<session id>/<model with / as _>/`` under the checkout:
 
-- ``annotations/NNNN.json``: the chunk's ``AnnotationRecord``, as the server
+- ``activity_captions/NNNN.json``: the chunk's ``ActivityCaption``, as the server
   stores it, so a run here never touches the server's own annotations
 - ``calls.jsonl``: one line per model call, failed ones included: its timing,
   the size of what was sent, the token counts, the reply and its reasoning, and
@@ -45,9 +45,10 @@ from annotate.label import (AnnotationError, completion_params, parse_completion
                             retry_after_seconds, retryable)
 from annotate.request import AnnotationRequest, chunk_request
 from annotate.sanitize import sanitize
-from annotate.store import covers, new_record, read_record, write_record
+from annotate.store import covers, new_caption, read_caption_file, write_caption_file
 from juno.config import AnnotateConfig, ConfigError, load_config
 from juno.sessions import Aggregation, read_aggregations, session_id_of
+from server.events import EVENT_ROWS_FILE, read_rows
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 GEMINI_KEY_ENV = "GEMINI_API_KEY"
@@ -129,7 +130,7 @@ def annotate_chunk(session_dir: Path, aggregations: list[Aggregation], chunk: in
         return "empty"
     request = sanitize(request)
     rows = chunk_rows(aggregations, chunk, config.chunk_size)
-    record = new_record(session_id, chunk, model).model_copy(update={
+    record = new_caption(session_id, chunk, model).model_copy(update={
         "frames": request.frames, "rows": rows,
         "start_time": request.frames[0].timestamp, "end_time": request.frames[-1].timestamp})
     params = completion_params(request, model, config.max_tokens, api_base=api_base)
@@ -162,14 +163,15 @@ def annotate_chunk(session_dir: Path, aggregations: list[Aggregation], chunk: in
                 continue
         append_line(out / "calls.jsonl", call)
         break
-    write_record(out, record.model_copy(update={"updated_at": time.time()}))
+    write_caption_file(out, record.model_copy(update={"updated_at": time.time()}))
     return record.status
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("session_dir", type=Path,
-                        help="a session directory holding raw_aggregations.jsonl")
+                        help="a session directory, the server's (event_rows.jsonl) "
+                             "or a recorder's (raw_aggregations.jsonl)")
     parser.add_argument("--chunk", type=int,
                         help="annotate only this chunk, counting from 0; default: every chunk")
     parser.add_argument("--model", help="litellm model; default: annotate.model")
@@ -183,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv(find_dotenv(usecwd=True))
     try:
         config = load_config().annotate
-        aggregations = read_aggregations(args.session_dir)
+        server_copy = (args.session_dir / EVENT_ROWS_FILE).is_file()
+        aggregations = (read_rows(args.session_dir) if server_copy
+                        else read_aggregations(args.session_dir))
     except (ConfigError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -227,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     counts = {"done": 0, "failed": 0, "skipped": 0, "empty": 0}
     for number, chunk in enumerate(chunks, start=1):
         rows = chunk_rows(aggregations, chunk, config.chunk_size)
-        if covers(read_record(out, chunk), rows):
+        if covers(read_caption_file(out, chunk), rows):
             counts["skipped"] += 1
             continue
         started = time.time()
@@ -237,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
     print(json.dumps({"session_id": session_id, "model": model, "out": str(out), **counts}))
     if args.chunk is not None and counts["done"]:
-        print(read_record(out, args.chunk).annotation.model_dump_json(indent=2))
+        print(read_caption_file(out, args.chunk).annotation.model_dump_json(indent=2))
     return 0 if counts["failed"] == 0 else 1
 
 

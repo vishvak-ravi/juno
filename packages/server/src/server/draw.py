@@ -23,7 +23,7 @@ from capture.recorder import Recorder, new_session_dir
 from capture.sources.base import Backend
 from capture.upload import AggregationUploader
 from juno.config import CaptureConfig
-from server.control import Report, record_report
+from server.control import Control, Report
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class DrawRecorder:
 
     def __init__(self, backend: Backend, capture: CaptureConfig, poll_seconds: float,
-                 control_file: Path, sessions: Path, events_url: str, device_id: str):
+                 control: Control, sessions: Path, events_url: str, device_id: str):
         """
         Args:
             backend: a ``capture.sources.pushed`` backend the page's socket feeds.
@@ -42,7 +42,7 @@ class DrawRecorder:
         self.backend = backend
         self.capture = capture
         self.poll_seconds = poll_seconds
-        self.control_file = control_file
+        self.control = control
         self.sessions = sessions
         self.events_url = events_url
         self.device_id = device_id
@@ -59,7 +59,7 @@ class DrawRecorder:
 
     def _report(self, session_id: Optional[str]) -> bool:
         report = Report(capture="running" if session_id else "paused", session_id=session_id)
-        return record_report(self.control_file, self.device_id, report)
+        return self.control.record_report(self.device_id, report)
 
     def _run(self) -> None:
         recorder: Optional[Recorder] = None

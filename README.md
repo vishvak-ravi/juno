@@ -14,6 +14,7 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 | Install | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-server.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/vishvak-ravi/juno/main/scripts/install-client.sh \| bash` |
 | Start | `cd ~/juno && uv run python -m server` | `cd ~/juno/apps/desktop && npm start` |
 | Tests | `cd ~/juno && uv run pytest` | `cd ~/juno/apps/desktop && npm test` |
+| Move a store to the current layout (server stopped) | `cd ~/juno && uv run python scripts/migrate_store.py` | |
 | Claude Code prompts as timeline moments | | `cd ~/juno && uv run python -m capture.claude_hook install` (`uninstall` to remove) |
 
 The client starts the recorder; its devices panel shows whether this computer is recording.

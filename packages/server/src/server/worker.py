@@ -1,9 +1,9 @@
-"""Annotates chunks: one thread, a priority queue, several model calls in flight.
+"""Captions chunks: one thread, a priority queue, several model calls in flight.
 
-The queue is durable because it is the store: a chunk is queued by writing its
-annotation record as ``pending`` (``annotate.store``), and a record stays
+The queue is durable because it is the store: a chunk is queued by saving its
+activity caption as ``pending`` (``annotate.store``), and a caption stays
 pending until its call ends. Whatever a stopped server had queued or in flight
-is therefore still pending on disk, and the next server queues it again.
+is therefore still pending in the store, and the next server queues it again.
 
 The worker's thread runs an event loop. ``annotate.max_concurrency`` tasks on
 it take chunks off one priority queue, lowest ``Priority`` first and the most
@@ -34,30 +34,17 @@ import random
 import threading
 import time
 from enum import IntEnum
-from pathlib import Path
 from typing import Awaitable, Callable, Optional, Union
 
 from pydantic import BaseModel
 
 from annotate.label import Annotation, retry_after_seconds, retryable
-from juno.sessions import (
-    count_rows,
-    read_aggregations,
-    session_dir,
-    session_dirs,
-    session_id_of,
-)
 from annotate.request import AnnotationRequest, chunk_request
 from annotate.sanitize import sanitize
-from annotate.store import (
-    AnnotationRecord,
-    covers,
-    list_records,
-    new_record,
-    read_record,
-    write_record,
-)
+from annotate.store import ActivityCaption, ActivityCaptions, covers, new_caption
 from juno.config import AnnotateConfig
+from juno.sessions import Aggregation
+from server.events import Events
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +79,8 @@ class QueueStatus(BaseModel):
     paused_seconds: float
 
 
-def find_work(devices_dir: Path, config: AnnotateConfig, now: float) -> list[Work]:
+def find_work(events: Events, captions: ActivityCaptions, config: AnnotateConfig,
+              now: float) -> list[Work]:
     """Every chunk in the store that should be annotated and has not been.
 
     That is a chunk with no record, a pending record, a failed record with
@@ -101,15 +89,12 @@ def find_work(devices_dir: Path, config: AnnotateConfig, now: float) -> list[Wor
     ``config.tail_idle_seconds`` without a new row.
     """
     work = []
-    for directory in session_dirs(devices_dir):
-        try:
-            timestamps = [aggregation.timestamp for aggregation in read_aggregations(directory)]
-        except FileNotFoundError:
-            continue
+    for session_id in events.sessions():
+        timestamps = [aggregation.timestamp for aggregation in events.rows(session_id)]
         size = config.chunk_size
         for chunk in range(-(-len(timestamps) // size)):
             rows = timestamps[chunk * size:(chunk + 1) * size]
-            record = read_record(directory, chunk)
+            record = captions.get(session_id, chunk)
             if covers(record, len(rows)):
                 continue
             if record is not None and record.status == "failed" \
@@ -117,14 +102,14 @@ def find_work(devices_dir: Path, config: AnnotateConfig, now: float) -> list[Wor
                 continue
             if len(rows) < size and now - max(timestamps) < config.tail_idle_seconds:
                 continue
-            work.append(Work(session_id=session_id_of(directory), chunk=chunk,
+            work.append(Work(session_id=session_id, chunk=chunk,
                              end_time=max(rows)))
     return work
 
 
-def build_request(directory: Path, chunk: int, chunk_size: int) -> tuple[AnnotationRequest, int]:
+def build_request(aggregations: list[Aggregation], chunk: int,
+                  chunk_size: int) -> tuple[AnnotationRequest, int]:
     """The sanitized request for a chunk, and how many rows the chunk holds."""
-    aggregations = read_aggregations(directory)
     request = chunk_request(aggregations, chunk, chunk_size)
     if request is None:
         raise ValueError("the chunk has no aggregation with a screenshot")
@@ -133,15 +118,17 @@ def build_request(directory: Path, chunk: int, chunk_size: int) -> tuple[Annotat
 
 class AnnotationWorker:
 
-    def __init__(self, devices_dir: Path, config: AnnotateConfig,
+    def __init__(self, events: Events, captions: ActivityCaptions, config: AnnotateConfig,
                  annotate_request: AnnotateRequest, annotating: bool = True):
         """
         Args:
-            devices_dir: where the server stores every device's sessions.
+            events: the rows the chunks are made of.
+            captions: where each chunk's caption, pending or not, is stored.
             annotate_request: the model call for one sanitized request.
             annotating: whether calls are made; False starts the worker paused.
         """
-        self.devices_dir = devices_dir
+        self.events = events
+        self.captions = captions
         self.config = config
         self.annotate_request = annotate_request
         self._lock = threading.Lock()
@@ -169,7 +156,7 @@ class AnnotationWorker:
                 lambda: self._tasks.append(self._loop.create_task(self._scan_forever())))
             return
         # Without backfill, only what a stopped server left pending is taken up again.
-        for record in list_records(self.devices_dir):
+        for record in self.captions.all():
             if record.status == "pending":
                 self.request(record.session_id, record.chunk, Priority.BACKFILL, record.end_time)
 
@@ -187,7 +174,7 @@ class AnnotationWorker:
             return (session_id, chunk) in self._waiting
 
     def request(self, session_id: str, chunk: int, priority: Priority = Priority.REQUESTED,
-                end_time: Optional[float] = None) -> AnnotationRecord:
+                end_time: Optional[float] = None) -> ActivityCaption:
         """The chunk's annotation, queued at ``priority`` unless it is finished.
 
         A chunk that is new, failed, was left pending by a server that stopped,
@@ -200,20 +187,19 @@ class AnnotationWorker:
         Args:
             end_time: Unix seconds of the chunk's last row; None means now.
         """
-        directory = session_dir(self.devices_dir, session_id)
         size = self.config.chunk_size
         # One request at a time: the record is read, then written.
         with self._request_lock:
-            rows = max(0, min(size, count_rows(directory) - chunk * size))
-            record = read_record(directory, chunk)
+            rows = max(0, min(size, self.events.row_count(session_id) - chunk * size))
+            record = self.captions.get(session_id, chunk)
             if covers(record, rows):
                 return record
             if record is None or not self.is_waiting(session_id, chunk):
                 attempts = (record.attempts if record is not None and record.status == "failed"
                             and priority == Priority.BACKFILL else 0)
-                record = new_record(session_id, chunk, self.config.model).model_copy(
+                record = new_caption(session_id, chunk, self.config.model).model_copy(
                     update={"attempts": attempts})
-                write_record(directory, record)
+                self.captions.save(record)
             self._submit(session_id, chunk, priority, end_time)
             return record
 
@@ -285,7 +271,7 @@ class AnnotationWorker:
     def _queue_found_work(self) -> int:
         """Queue what ``find_work`` finds and is not queued already; returns how many."""
         queued = 0
-        found = find_work(self.devices_dir, self.config, time.time())
+        found = find_work(self.events, self.captions, self.config, time.time())
         # Most recent first, so the first chunks handed over are the first wanted.
         for work in sorted(found, key=lambda work: work.end_time, reverse=True):
             if not self.is_waiting(work.session_id, work.chunk):
@@ -328,8 +314,7 @@ class AnnotationWorker:
         Returns the seconds after which to call again, or None if the record
         is now done or failed.
         """
-        directory = session_dir(self.devices_dir, session_id)
-        record = await asyncio.to_thread(read_record, directory, chunk)
+        record = await asyncio.to_thread(self.captions.get, session_id, chunk)
         if record is None or record.status != "pending":
             return None
         while (wait := self._paused_until - time.monotonic()) > 0:
@@ -338,7 +323,8 @@ class AnnotationWorker:
         update: dict = {"attempts": record.attempts + 1}
         retry_in = None
         try:
-            request, rows = await asyncio.to_thread(build_request, directory, chunk,
+            aggregations = await asyncio.to_thread(self.events.rows, session_id)
+            request, rows = await asyncio.to_thread(build_request, aggregations, chunk,
                                                     self.config.chunk_size)
             update.update(frames=request.frames, rows=rows,
                           start_time=request.frames[0].timestamp,
@@ -358,5 +344,5 @@ class AnnotationWorker:
                 update["status"] = "failed"
                 logger.warning("annotation %s failed: %s", record.id, exc)
         update["updated_at"] = time.time()
-        await asyncio.to_thread(write_record, directory, record.model_copy(update=update))
+        await asyncio.to_thread(self.captions.save, record.model_copy(update=update))
         return retry_in

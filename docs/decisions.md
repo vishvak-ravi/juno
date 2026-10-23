@@ -2,6 +2,20 @@
 
 Newest first. Each entry is dated; later entries may supersede earlier ones.
 
+## 2026-10-22: The server's store behind repositories
+
+Routes and workers read and write the store only through `Events`,
+`ActivityCaptions`, `QuestionAnswers` and `Control` (see `capture.md`), each
+with a file implementation, so a database can replace one without touching its
+callers. The stored names say what they hold: the model's chunk captions are
+activity captions (`activity_captions/`, was `annotations/`), Jev's answers
+are question answers (`question_answers/`, was `detections/jev/`), and the
+server's copy of the rows is `event_rows.jsonl`; the recorder still writes Tada's
+`raw_aggregations.jsonl`. Screenshot paths are stored relative to the session,
+and `scripts/migrate_store.py` moves an older store. The `annotate` and
+`keypoints` packages, the `annotate:`/`keypoints:` sections of `config.yaml`
+and the chat tools `list_annotations`/`get_annotation` keep their names.
+
 ## 2026-10-22: Claude Code reports its own prompts
 
 Outside "Capture follows Tada", like Jev's moments. Claude Code's

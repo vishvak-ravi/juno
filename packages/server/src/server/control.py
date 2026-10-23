@@ -1,22 +1,24 @@
-"""The switches clients set and what each recorder last reported, in one JSON file.
+"""The switches clients set and what each recorder last reported.
 
-``<data_dir>/control.json`` (``juno.config.control_file``) holds a ``server``
-section, whose ``annotate`` switch pauses or resumes the annotation queue, and a
-``devices`` section with each device's ``capture`` switch and last report. Only
-the server reads and writes the file; other devices go through ``/control``.
+The state has a ``server`` section, whose ``annotate`` switch pauses or resumes
+the captioning and question queues, and a ``devices`` section with each
+device's ``capture`` switch and last report. Only the server reads and writes
+it; other devices go through ``/control``. ``Control`` is what the server reads
+and writes through; ``FileControl`` keeps the state in one JSON file,
+``<data_dir>/control.json`` (``juno.config.control_file``).
 """
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Protocol
 
 from pydantic import BaseModel, Field
 
 from juno.control import Report
+from juno.sessions import replace_file
 
 
 class ServerSwitches(BaseModel):
@@ -37,33 +39,59 @@ class ControlState(BaseModel):
     devices: dict[str, DeviceState] = {}
 
 
-# A change reads, edits and replaces the file; two at once must not interleave.
-lock = threading.Lock()
+class UnknownDevice(KeyError):
+    """No device with this id has reported."""
 
 
-def read_state(path: Path) -> ControlState:
-    try:
-        return ControlState.model_validate_json(path.read_text())
-    except FileNotFoundError:
-        return ControlState()
+class Control(Protocol):
+
+    def read(self) -> ControlState: ...
+
+    def record_report(self, device_id: str, report: Report) -> bool:
+        """Store a recorder's report, adding the device if new; returns whether it should record."""
+
+    def set_recording(self, device_id: str, on: bool) -> ControlState:
+        """Turn a device's recording on or off; ``UnknownDevice`` if it never reported."""
+
+    def set_annotating(self, on: bool) -> ControlState:
+        """Turn the server's captioning and question queues on or off."""
 
 
-def change_state(path: Path, change: Callable[[ControlState], None]) -> ControlState:
-    """Apply ``change`` to the stored state and store the result in one step."""
-    with lock:
-        state = read_state(path)
-        change(state)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(state.model_dump_json(indent=2))
-        os.replace(temporary, path)
-        return state
+class FileControl:
 
+    def __init__(self, path: Path):
+        self.path = path
+        # A change reads, edits and replaces the file; two at once must not interleave.
+        self._lock = threading.Lock()
 
-def record_report(path: Path, device_id: str, report: Report) -> bool:
-    """Store a recorder's report, adding the device if new; returns whether it should record."""
-    def change(state: ControlState) -> None:
-        device = state.devices.setdefault(device_id, DeviceState())
-        device.reported = report
-        device.reported_at = time.time()
-    return change_state(path, change).devices[device_id].capture
+    def read(self) -> ControlState:
+        try:
+            return ControlState.model_validate_json(self.path.read_text())
+        except FileNotFoundError:
+            return ControlState()
+
+    def record_report(self, device_id: str, report: Report) -> bool:
+        def change(state: ControlState) -> None:
+            device = state.devices.setdefault(device_id, DeviceState())
+            device.reported = report
+            device.reported_at = time.time()
+        return self._change(change).devices[device_id].capture
+
+    def set_recording(self, device_id: str, on: bool) -> ControlState:
+        def change(state: ControlState) -> None:
+            if device_id not in state.devices:
+                raise UnknownDevice(device_id)
+            state.devices[device_id].capture = on
+        return self._change(change)
+
+    def set_annotating(self, on: bool) -> ControlState:
+        def change(state: ControlState) -> None:
+            state.server.annotate = on
+        return self._change(change)
+
+    def _change(self, change: Callable[[ControlState], None]) -> ControlState:
+        with self._lock:
+            state = self.read()
+            change(state)
+            replace_file(self.path, state.model_dump_json(indent=2))
+            return state

@@ -7,7 +7,7 @@ from PIL import Image
 
 from annotate.label import Annotation
 from juno.sessions import session_dir
-from annotate.store import annotation_file, new_record, write_record
+from annotate.store import caption_file, new_caption, write_caption_file
 from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
 from server.integrity import check_store
@@ -29,14 +29,14 @@ def write_session(tmp_path, session_id: str, rows: int):
             "screenshot_timestamp": 1000.0 + index, "end_screenshot_timestamp": 1001.0 + index,
             "num_events": 0, "events": [], "cursor_position": None,
             "monitor": None, "burst_id": 1, "scale_factor": 1.0}))
-    (directory / "raw_aggregations.jsonl").write_text("\n".join(lines) + "\n")
+    (directory / "event_rows.jsonl").write_text("\n".join(lines) + "\n")
     return directory
 
 
 def test_a_sound_store_reports_per_device_what_arrived_and_what_is_annotated(tmp_path):
     directory = write_session(tmp_path, SESSION, rows=7)
     write_session(tmp_path, "desktop-session_20260101_120000", rows=2)
-    write_record(directory, new_record(SESSION, 0, "any"))  # chunk 0 pending; 1, 2 not asked for
+    write_caption_file(directory, new_caption(SESSION, 0, "any"))  # chunk 0 pending; 1, 2 not asked for
 
     report = check_store(devices_dir(tmp_path), chunk_size=2)
 
@@ -52,20 +52,20 @@ def test_a_sound_store_reports_per_device_what_arrived_and_what_is_annotated(tmp
 def test_each_broken_thing_on_disk_is_reported_as_an_issue(tmp_path):
     directory = write_session(tmp_path, SESSION, rows=4)
     (directory / "1.png").unlink()
-    with open(directory / "raw_aggregations.jsonl", "a") as rows:
+    with open(directory / "event_rows.jsonl", "a") as rows:
         rows.write("not a row\n")
-    done = new_record(SESSION, 0, "any").model_copy(update={"status": "done"})
-    write_record(directory, done)  # done, but nothing came back
-    write_record(directory, new_record(SESSION, 9, "any"))  # the session has no such rows
-    stray = new_record("desktop-session_20260101_120000", 1, "any")
-    annotation_file(directory, 1).write_text(stray.model_dump_json())  # another session's record
-    annotation_file(directory, 2).write_text("{")
+    done = new_caption(SESSION, 0, "any").model_copy(update={"status": "done"})
+    write_caption_file(directory, done)  # done, but nothing came back
+    write_caption_file(directory, new_caption(SESSION, 9, "any"))  # the session has no such rows
+    stray = new_caption("desktop-session_20260101_120000", 1, "any")
+    caption_file(directory, 1).write_text(stray.model_dump_json())  # another session's record
+    caption_file(directory, 2).write_text("{")
 
     report = check_store(devices_dir(tmp_path), chunk_size=2)
 
     assert sorted((issue.kind, issue.subject) for issue in report.issues) == [
-        ("annotation_incomplete", "0"), ("annotation_misfiled", "0001.json"),
-        ("annotation_unreadable", "0002.json"), ("annotation_without_rows", "9"),
+        ("caption_incomplete", "0"), ("caption_misfiled", "0001.json"),
+        ("caption_unreadable", "0002.json"), ("caption_without_rows", "9"),
         ("row_unreadable", "4"), ("screenshot_missing", "1")]
     assert report.devices[0].issues == 6
 

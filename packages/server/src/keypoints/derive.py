@@ -9,7 +9,10 @@ from typing import Optional
 from pydantic import BaseModel
 
 from keypoints.questions import QuestionSet
-from keypoints.store import DETECTOR, Answer, ChoiceAnswer, NoulAnswer, ScoreAnswer
+from keypoints.store import Answer, ChoiceAnswer, NoulAnswer, ScoreAnswer
+
+# ``Moment.detector`` of the moments found in Jev's answers.
+DETECTOR = "jev"
 
 
 class Conversation(BaseModel):

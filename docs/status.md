@@ -1,5 +1,14 @@
 # Status
 
+## 2026-10-22: Store behind repositories
+
+| Piece | State |
+|---|---|
+| `Events`, `ActivityCaptions`, `QuestionAnswers`, `Control` with file implementations; routes, workers, chat tools and scripts go through them | done; tested |
+| `scripts/migrate_store.py` | done; tested, and run on copies of two real sessions (7,392 rows, 740 captions: no integrity issues). The live store is not migrated yet |
+| Database implementations | not started |
+| Claude Code prompts (`server.hooks`, `<device dir>/hooks/`) and chats (`server.chats`) | still read as files by their callers |
+
 ## 2026-10-22: Claude Code prompts as moments
 
 | Piece | State |

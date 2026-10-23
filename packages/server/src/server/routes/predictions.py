@@ -38,7 +38,7 @@ def create_prediction(request: Request, device: DeviceFilter = None) -> Predicti
     """
     state = request.app.state
     try:
-        return predict(state.devices_dir, state.predictor, state.llm, device)
+        return predict(state.captions, state.predictor, state.llm, device)
     except NotEnoughData as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except OSError as exc:

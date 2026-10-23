@@ -4,7 +4,7 @@
         [--chunk N] [--limit N] [--formatting] [--out FILE]
 
 REFERENCE and CANDIDATE are annotation stores of the same session: a directory
-holding ``annotations/NNNN.json`` (``annotate.store``), either a session in the
+holding ``activity_captions/NNNN.json`` (``annotate.store``), either a session in the
 server's store or a run of ``scripts/annotate_session_activity.py`` under
 ``data/annotations/``. A chunk is graded when both have a finished annotation
 of it over the same frames. Its two ``<actions>`` blocks, one ``<action>`` per
@@ -40,7 +40,7 @@ import litellm
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
-from annotate.store import ANNOTATIONS_DIR, AnnotationRecord, read_record
+from annotate.store import CAPTIONS_DIR, ActivityCaption, read_caption_file
 from grade.call import CallFailed, judge_for
 from grade.judge import Judgement, judge_accuracy, judge_formatting
 from juno.config import ConfigError, load_config
@@ -80,17 +80,17 @@ def slug(model: str) -> str:
 
 
 def stored_chunks(store: Path) -> list[int]:
-    return sorted(int(path.stem) for path in (store / ANNOTATIONS_DIR).glob("*.json")
+    return sorted(int(path.stem) for path in (store / CAPTIONS_DIR).glob("*.json")
                   if path.stem.isdigit())
 
 
-def actions_block(record: AnnotationRecord) -> str:
+def actions_block(record: ActivityCaption) -> str:
     return build_actions_block([{"text": action.caption}
                                 for action in record.annotation.actions])
 
 
-def comparable(reference: Optional[AnnotationRecord],
-               candidate: Optional[AnnotationRecord]) -> bool:
+def comparable(reference: Optional[ActivityCaption],
+               candidate: Optional[ActivityCaption]) -> bool:
     """Whether both records are finished annotations of the same frames."""
     return (reference is not None and candidate is not None
             and reference.status == "done" and candidate.status == "done"
@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
 
     chunks = [args.chunk] if args.chunk is not None else sorted(
         set(stored_chunks(args.reference)) & set(stored_chunks(args.candidate)))
-    pairs = [(chunk, read_record(args.reference, chunk), read_record(args.candidate, chunk))
+    pairs = [(chunk, read_caption_file(args.reference, chunk), read_caption_file(args.candidate, chunk))
              for chunk in chunks]
     pairs = [(chunk, ref, cand) for chunk, ref, cand in pairs if comparable(ref, cand)]
     if not pairs:

@@ -11,13 +11,14 @@ from typesafe_sdk import TypeSafeBadRequestError
 from annotate.label import Action, Annotation
 from annotate.request import build_request
 from annotate.sanitize import sanitize
-from annotate.store import new_record, write_record
+from annotate.store import new_caption, write_caption_file
 from juno.config import AnnotateConfig, CaptureConfig, Config, KeypointsConfig, devices_dir
-from juno.sessions import read_aggregations, session_dir
+from juno.sessions import session_dir
 from keypoints.derive import session_moments
 from keypoints.questions import load_questions
-from keypoints.store import NoulAnswer, RowDetection, read_detection
+from keypoints.store import FileQuestionAnswers, NoulAnswer, RowAnswers
 from server.app import create_app
+from server.events import read_rows
 
 SESSION = "laptop-session_20260101_120000"
 QUESTIONS = load_questions()
@@ -59,7 +60,7 @@ def test_the_assistant_is_named_only_when_one_is_in_focus():
                 "agent_harness": harness},
             1: {"agent_prompt_submitted": noul(0.9), "agent": noul(0.2),
                 "agent_harness": harness}}
-    rows = {row: RowDetection.model_validate({"answers": answers}).answers
+    rows = {row: RowAnswers.model_validate({"answers": answers}).answers
             for row, answers in rows.items()}
     found = session_moments(rows, QUESTIONS, ON, OFF)
     assert [m.label for m in found[0]] == ["codex"]
@@ -87,17 +88,17 @@ def write_session(tmp_path, inputs_per_row):
             "screenshot_timestamp": at, "end_screenshot_timestamp": at + 1.0,
             "num_events": len(events), "events": events, "cursor_position": None,
             "monitor": None, "burst_id": 1, "scale_factor": 1.0}))
-    (directory / "raw_aggregations.jsonl").write_text("\n".join(lines) + "\n")
-    aggregations = read_aggregations(directory)
+    (directory / "event_rows.jsonl").write_text("\n".join(lines) + "\n")
+    aggregations = read_rows(directory)
     for chunk in range(-(-len(aggregations) // 2)):
         request = sanitize(build_request(aggregations[chunk * 2:chunk * 2 + 2], prompt=""))
         annotation = Annotation(actions=[Action(start=1, end=len(request.frames), caption="Typed.")],
                                 dense_caption="", sanitization=request.sanitization)
-        record = new_record(SESSION, chunk, "test").model_copy(update={
+        record = new_caption(SESSION, chunk, "test").model_copy(update={
             "status": "done", "annotation": annotation, "frames": request.frames,
             "rows": len(request.frames), "start_time": request.frames[0].timestamp,
             "end_time": request.frames[-1].timestamp})
-        write_record(directory, record)
+        write_caption_file(directory, record)
     return directory
 
 
@@ -121,7 +122,7 @@ class FakeJev:
                 first = next(iter(question["criteria"]))
                 answers[key] = {"type": "choice", "choice": first, "confidence": 1.0,
                                 "probabilities": {first: 1.0}}
-        return RowDetection.model_validate({"answers": answers, "input_tokens": 10})
+        return RowAnswers.model_validate({"answers": answers, "input_tokens": 10})
 
 
 def client_for(tmp_path, jev):
@@ -131,20 +132,21 @@ def client_for(tmp_path, jev):
     return TestClient(create_app(config, annotate_request=lambda r: None, ask=jev))
 
 
-def wait_for_detection(directory, chunks):
+def wait_for_answers(tmp_path, chunks):
+    answers = FileQuestionAnswers(devices_dir(tmp_path))
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        if all(read_detection(directory, chunk) is not None for chunk in range(chunks)):
+        if all(answers.get(SESSION, chunk) is not None for chunk in range(chunks)):
             return
         time.sleep(0.02)
-    raise AssertionError("the chunks were not detected")
+    raise AssertionError("the chunks were not answered")
 
 
 def test_every_annotated_row_gets_indices_and_moments(tmp_path):
     directory = write_session(tmp_path, [["key_press"], [], ["mouse_down"]])
     jev = FakeJev()
     with client_for(tmp_path, jev) as client:
-        wait_for_detection(directory, 2)
+        wait_for_answers(tmp_path, 2)
         events = client.get("/events", params={"order": "asc"}).json()["data"]
 
     action = set(QUESTIONS.action)
@@ -166,7 +168,7 @@ def test_every_annotated_row_gets_indices_and_moments(tmp_path):
 def test_indices_are_averaged_per_bucket(tmp_path):
     directory = write_session(tmp_path, [["key_press"], [], ["mouse_down"]])
     with client_for(tmp_path, FakeJev()) as client:
-        wait_for_detection(directory, 2)
+        wait_for_answers(tmp_path, 2)
         indices = client.get("/indices").json()
         wide = client.get("/indices", params={"bucket_seconds": 60}).json()
 
@@ -186,7 +188,7 @@ def test_nothing_is_asked_while_the_annotate_switch_is_off(tmp_path):
         time.sleep(0.2)
         assert jev.asked == []
         client.patch("/control/server", json={"annotate": True})
-        wait_for_detection(directory, 1)
+        wait_for_answers(tmp_path, 1)
 
 
 def test_a_row_jev_refuses_is_stored_with_its_error(tmp_path):
@@ -196,9 +198,9 @@ def test_a_row_jev_refuses_is_stored_with_its_error(tmp_path):
         raise TypeSafeBadRequestError(400, {"detail": "bad image"}, Headers())
 
     with client_for(tmp_path, refuse) as client:
-        wait_for_detection(directory, 1)
+        wait_for_answers(tmp_path, 1)
         events = client.get("/events").json()["data"]
-    record = read_detection(directory, 0)
+    record = FileQuestionAnswers(devices_dir(tmp_path)).get(SESSION, 0)
     assert all(row.error and not row.answers for row in record.rows.values())
     assert all(e["indices"] == {} and e["moments"] == [] for e in events)
 

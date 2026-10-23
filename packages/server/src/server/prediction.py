@@ -6,12 +6,11 @@ chats use. Nothing is stored.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
 
-from annotate.store import list_records
+from annotate.store import ActivityCaptions
 from juno.config import LlmConfig
 from predict.predictor import Predictor, prediction_events
 from server.agent.llm import complete
@@ -30,7 +29,7 @@ class Prediction(BaseModel):
     timestamp: str
 
 
-def predict(devices_dir: Path, predictor: Predictor, llm: LlmConfig,
+def predict(captions: ActivityCaptions, predictor: Predictor, llm: LlmConfig,
             device: Optional[str] = None) -> Prediction:
     """Predict the next actions from the latest annotated ones, of one device or of all.
 
@@ -39,7 +38,7 @@ def predict(devices_dir: Path, predictor: Predictor, llm: LlmConfig,
     ``server.agent.llm.LlmError`` if the model server gives no reply.
     """
     config = predictor.config
-    done = [record for record in list_records(devices_dir, device_id=device)
+    done = [record for record in captions.all(device_id=device)
             if record.status == "done"]
     events = prediction_events(done)
     if len(events) < config.past_len:

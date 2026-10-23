@@ -12,7 +12,7 @@ from annotate.label import Action, Annotation
 from juno.sessions import session_dir
 from annotate.request import AnnotationFrame
 from annotate.sanitize import Sanitization
-from annotate.store import new_record, write_record
+from annotate.store import new_caption, write_caption_file
 from juno.config import CaptureConfig, Config, LlmConfig, PredictConfig, devices_dir
 from predict.benchmarks import GradedRow, GraderSettings, PredictorSettings, run_file
 from server.app import create_app
@@ -92,12 +92,12 @@ def write_annotation(tmp_path, chunk: int, captions: list[str], dense_caption: s
                                       events=""))
     actions = [Action(start=number, end=number, caption=caption)
                for number, caption in enumerate(captions, start=1)]
-    record = new_record(session_id, chunk, "fake-annotator").model_copy(update={
+    record = new_caption(session_id, chunk, "fake-annotator").model_copy(update={
         "status": "done", "frames": frames,
         "updated_at": 2000.0 + chunk if finished_at is None else finished_at,
         "annotation": Annotation(actions=actions, dense_caption=dense_caption,
                                  sanitization=SANITIZATION)})
-    write_record(directory, record)
+    write_caption_file(directory, record)
 
 
 def sent_parts(model_server) -> tuple[list[dict], str]:

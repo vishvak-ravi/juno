@@ -30,13 +30,13 @@ from anyio import to_thread
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ValidationError, create_model
 
-from juno.sessions import session_dir
-from annotate.store import AnnotationRecord, list_records, parse_annotation_id, read_record
+from annotate.store import ActivityCaption, ActivityCaptions, parse_caption_id
 from juno.config import LlmConfig, ToolsConfig
 from predict.predictor import Predictor
 from server import chats
 from server.agent.claude import ClaudeError, TmuxDest, forward_to_claude
 from server.agent.llm import LlmError
+from server.events import Events
 from server.prediction import NotEnoughData, predict
 from server.agent.search import SearchError, search_web
 from server.agent.shell import BashError, run_bash
@@ -107,7 +107,7 @@ def local_time(timestamp: Optional[float]) -> Optional[str]:
     return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
 
 
-def summary(record: AnnotationRecord) -> dict:
+def summary(record: ActivityCaption) -> dict:
     """What an agent needs to know of a finished annotation to decide whether to read more."""
     return {
         "id": record.id,
@@ -124,9 +124,9 @@ def result_text(result: dict) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
-                  llm: LlmConfig) -> list[Callable[..., Any]]:
-    """The tools over the sessions of every device stored in ``devices_dir``.
+def session_tools(events: Events, captions: ActivityCaptions, result_chars: int,
+                  predictor: Predictor, llm: LlmConfig) -> list[Callable[..., Any]]:
+    """The tools over the stored sessions of every device: their activity captions and predictions.
 
     Args:
         result_chars: the most characters a tool result may take; ``list_annotations``
@@ -136,7 +136,7 @@ def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
     """
     def known_devices(device: Optional[str]) -> list[str]:
         """Every device there is activity from; a ``ToolError`` if ``device`` is not one."""
-        devices = sorted(path.name for path in devices_dir.glob("*") if path.is_dir())
+        devices = events.devices()
         if device is not None and device not in devices:
             raise ToolError(f"no device {device}; the devices are: {', '.join(devices) or 'none'}")
         return devices
@@ -164,8 +164,7 @@ def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
             start = now - last_minutes * 60
         end = datetime.fromisoformat(until).timestamp() if until else None
         devices = known_devices(device)
-        done = [record for record in list_records(devices_dir, since=start, until=end,
-                                                  device_id=device)
+        done = [record for record in captions.all(since=start, until=end, device_id=device)
                 if record.status == "done"]
         newest_first = sorted(done, key=lambda record: record.end_time, reverse=True)
         # The oldest are dropped until the result fits, so the reader is never
@@ -186,8 +185,8 @@ def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
         Args:
             annotation_id: an "id" returned by list_annotations.
         """
-        parsed = parse_annotation_id(annotation_id)
-        record = read_record(session_dir(devices_dir, parsed[0]), parsed[1]) if parsed else None
+        parsed = parse_caption_id(annotation_id)
+        record = captions.get(*parsed) if parsed else None
         if record is None or record.status != "done":
             # A ToolError's message is shown to the agent; other exceptions are hidden.
             raise ToolError(f"no finished annotation with id {annotation_id}; "
@@ -212,7 +211,7 @@ def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
         known_devices(device)
         try:
             # In a thread: the model call blocks, and this runs on the server's event loop.
-            prediction = await to_thread.run_sync(predict, devices_dir, predictor, llm, device)
+            prediction = await to_thread.run_sync(predict, captions, predictor, llm, device)
         except NotEnoughData as exc:
             raise ToolError(f"{exc}: too few of the user's actions are annotated yet")
         except OSError as exc:
@@ -228,8 +227,8 @@ def session_tools(devices_dir: Path, result_chars: int, predictor: Predictor,
     return [list_annotations, get_annotation, predict_next_actions]
 
 
-def create_chat_tools(devices_dir: Path, chats_dir: Path, result_chars: int,
-                      tools: ToolsConfig, workspace: Path, claude_results: Path,
+def create_chat_tools(events: Events, captions: ActivityCaptions, chats_dir: Path,
+                      result_chars: int, tools: ToolsConfig, workspace: Path, claude_results: Path,
                       predictor: Predictor, llm: LlmConfig) -> dict[str, Tool]:
     """Every tool of Juno's chat model, by name: ``session_tools`` and the chats stored in
     ``chats_dir``, and those of ``tools`` that are enabled.
@@ -244,7 +243,7 @@ def create_chat_tools(devices_dir: Path, chats_dir: Path, result_chars: int,
         claude_results: where Claude Code reports the end of each turn.
         predictor, llm: as for ``session_tools``.
     """
-    functions = session_tools(devices_dir, result_chars, predictor, llm)
+    functions = session_tools(events, captions, result_chars, predictor, llm)
 
     def search_chats(query: str, limit: int = 10) -> dict:
         """Search the user's past chats with Juno for messages about something, best match

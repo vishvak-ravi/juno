@@ -2,16 +2,17 @@
 
 import io
 import json
+import shutil
 import time
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from annotate.label import Action, Annotation
-from juno.sessions import read_aggregations, session_dir
-from annotate.store import read_record
+from annotate.store import FileActivityCaptions
 from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
+from server.events import FileEvents
 
 LAPTOP = "laptop-session_20260101_120000"
 DESKTOP = "desktop-session_20260101_120000"
@@ -55,7 +56,7 @@ def client_for(tmp_path, actions=()):
 def wait_for_annotation(data_dir, session, chunk):
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        record = read_record(session_dir(devices_dir(data_dir), session), chunk)
+        record = FileActivityCaptions(devices_dir(data_dir)).get(session, chunk)
         if record is not None and record.status == "done":
             return
         time.sleep(0.02)
@@ -139,10 +140,25 @@ def test_a_deleted_event_is_gone_from_the_api_but_its_row_and_screenshot_stay_on
         after = client.get("/events", params={"order": "asc", "after": event_id}).json()
         assert [e["id"] for e in after["data"]] == [f"{LAPTOP}-000001"]
 
-    stored = read_aggregations(session_dir(devices_dir(tmp_path), LAPTOP))
+    stored = FileEvents(devices_dir(tmp_path)).rows(LAPTOP)
     assert len(stored) == 2
     assert stored[0].burst_id == 7
     assert open(stored[0].screenshot_path, "rb").read() == png()
+
+
+def test_a_store_moved_to_another_data_directory_keeps_its_screenshots_and_captions(tmp_path):
+    with client_for(tmp_path / "before", [Action(start=1, end=2, caption="Clicked.")]) as client:
+        put(client, LAPTOP, 0, 1000.0)
+        put(client, LAPTOP, 1, 1001.0)
+        wait_for_annotation(tmp_path / "before", LAPTOP, 0)
+    shutil.move(tmp_path / "before", tmp_path / "after")
+
+    with client_for(tmp_path / "after") as client:
+        events = client.get("/events", params={"order": "asc"}).json()["data"]
+        assert [e["caption"] for e in events] == ["Clicked.", "Clicked."]
+        assert client.get(f"/events/{LAPTOP}-000000/screenshot").content == png()
+    frames = FileActivityCaptions(devices_dir(tmp_path / "after")).get(LAPTOP, 0).frames
+    assert [open(frame.screenshot_path, "rb").read() for frame in frames] == [png(), png()]
 
 
 def test_paging_after_an_unknown_event_is_refused(tmp_path):

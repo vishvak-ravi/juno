@@ -20,7 +20,7 @@ from typing import Any
 
 from PIL import Image
 
-from annotate.store import AnnotationRecord
+from annotate.store import ActivityCaption
 from juno.config import PredictConfig
 from predict.retrievers import InMemoryBM25Temporal, jaccard_ngrams, mmr_select
 
@@ -39,7 +39,7 @@ TASK_DESCRIPTION_WITH_IMAGES = (
 CONTEXT_NAMESPACE = "context"
 
 
-def prediction_events(records: list[AnnotationRecord]) -> list[dict[str, Any]]:
+def prediction_events(records: list[ActivityCaption]) -> list[dict[str, Any]]:
     """Tada's buffer items for finished annotations, oldest first.
 
     One event per action, as Tada's labeler makes them: the action's caption,

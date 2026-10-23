@@ -11,8 +11,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
-from juno.sessions import session_dirs
-from server.routes.events import Event, session_events
+from server.routes.events import Event, stored_events
 from server.routes.paging import DeviceFilter
 
 router = APIRouter(prefix="/indices", tags=["indices"])
@@ -63,9 +62,7 @@ def get_indices(
 ) -> Indices:
     state = request.app.state
     seconds = bucket_seconds or state.keypoints.bucket_seconds
-    events = [event for directory in session_dirs(state.devices_dir, device)
-              for event in session_events(directory, state.annotate.chunk_size,
-                                          state.keypoints, state.questions).values()
+    events = [event for event in stored_events(state, device)
               if (since is None or event.timestamp >= since)
               and (until is None or event.timestamp <= until)]
     names = list(state.questions.indices)

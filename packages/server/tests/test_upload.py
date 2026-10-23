@@ -11,11 +11,11 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from annotate.label import Action, Annotation
-from juno.sessions import read_aggregations, session_dir
-from annotate.store import read_record
+from annotate.store import FileActivityCaptions
 from capture.upload import AggregationUploader, copy_sessions
 from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
+from server.events import FileEvents
 
 SESSION = "laptop-session_20260101_120000"
 MONITOR = {"left": 0, "top": 0, "width": 40, "height": 20}
@@ -59,7 +59,7 @@ def put(client, session, index):
 
 def annotation(data_dir, session, chunk):
     """The chunk's stored annotation record, or None."""
-    return read_record(session_dir(devices_dir(data_dir), session), chunk)
+    return FileActivityCaptions(devices_dir(data_dir)).get(session, chunk)
 
 
 def event_ids(client, **params):
@@ -155,7 +155,7 @@ def test_sessions_already_recorded_are_copied_unannotated_and_a_second_copy_adds
 
             copied = "laptop-session_20260102_120000"
             stored = devices_dir(tmp_path / "server")
-            assert [len(read_aggregations(session_dir(stored, session)))
+            assert [len(FileEvents(stored).rows(session))
                     for session in (SESSION, copied)] == [3, 2]
             assert annotation(tmp_path / "server", SESSION, 0) is None
     finally:
@@ -185,7 +185,7 @@ def test_the_uploader_sends_every_complete_row_in_order_with_its_screenshot(tmp_
         with httpx.Client(base_url=f"http://127.0.0.1:{port}") as client:
             assert event_ids(client) == [f"{SESSION}-{n:06d}" for n in range(3)]
             # The stored rows point at the server's copies, not the recorder's files.
-            stored = read_aggregations(session_dir(devices_dir(tmp_path / "server"), SESSION))
+            stored = FileEvents(devices_dir(tmp_path / "server")).rows(SESSION)
             assert all(str(tmp_path / "server") in row.screenshot_path for row in stored)
             assert client.get(f"/events/{SESSION}-000002/screenshot").content == png()
     finally:
