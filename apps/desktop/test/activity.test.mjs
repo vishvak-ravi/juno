@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { activity, activityRail, describe, keyOf } from "../src/renderer/activity.mjs";
+import { activity, describe, keyOf, replaySteps } from "../src/renderer/activity.mjs";
 
 // Inputs one tenth of a second apart from `start`, unless they carry their own timestamp.
 const inputs = (start, ...list) => list.map((input, n) => ({ timestamp: start + n * 0.1, ...input }));
@@ -87,14 +87,10 @@ test("keys read as what they are", () => {
   assert.deepEqual(keyOf("\u0003"), { char: "c" });
 });
 
-test("the activity list is newest first, marked by hour, with moments and device names", () => {
-  const at = (hour, minute) => new Date(2026, 9, 21, hour, minute).getTime() / 1000;
-  const error = { type: "error_shown", probability: 0.9, detector: "jev", label: null };
-  const rail = activityRail([
-    event("e1", at(15, 55), inputs(at(15, 55), click())),
-    event("e2", at(16, 5), inputs(at(16, 5), ...typing("hi")), { moments: [error] }),
-    { ...event("t1", at(16, 10), inputs(at(16, 10), click())), device_id: "tablet" },
-  ]);
-  const shape = rail.map((r) => (r.hour != null ? "hour" : r.moment ? "moment" : `${r.item.kind}${r.named ? " named" : ""}`));
-  assert.deepEqual(shape, ["hour", "click named", "moment", "typed named", "hour", "click named"]);
+test("a replay steps through an event's items at their offsets, a click or scroll where it happened", () => {
+  const e = event("e1", 100, [{ type: "mouse_down", timestamp: 100.5, button: "Button.left", x: 640, y: 400 },
+                             ...inputs(102, ...typing("hi"))]);
+  const steps = replaySteps(e);
+  assert.deepEqual(steps.map((s) => [s.offset.toFixed(1), s.kind, s.x, s.y, s.words.what]),
+                   [["0.5", "click", 640, 400, "Click"], ["2.0", "typed", null, null, "Typed"]]);
 });

@@ -95,6 +95,11 @@ class Event(BaseModel):
     inputs: list[Input]
     # The user's caption if they set one, else the model's; None until annotated.
     caption: Optional[str]
+    # The sequence this row is in, from 0: the ``annotate.chunk_size`` rows
+    # captioned together, and the model's description of what was on screen
+    # through them; None until annotated.
+    sequence: int
+    sequence_caption: Optional[str]
     # Index name -> 0..1 for this row (``keypoints.derive``); empty until Jev has answered.
     indices: dict[str, float] = {}
     # The moments starting at this row; the timeline draws them as dividers.
@@ -106,10 +111,13 @@ class EventPatch(BaseModel):
     caption: Optional[str]
 
 
-def model_captions(state: State, session_id: str, aggregations: list[Aggregation]) -> dict[int, str]:
-    """The model's caption of each row its activity captions cover, by row (frames as in ``framed_rows``)."""
+def model_captions(state: State, session_id: str,
+                   aggregations: list[Aggregation]) -> tuple[dict[int, str], dict[int, str]]:
+    """The model's caption of each row its activity captions cover, by row (frames as in
+    ``framed_rows``), and its description of each sequence, by sequence."""
     chunk_size = state.annotate.chunk_size
     captions = {}
+    sequences = {}
     for chunk in range(-(-len(aggregations) // chunk_size)):
         try:
             caption = state.captions.get(session_id, chunk)
@@ -119,11 +127,12 @@ def model_captions(state: State, session_id: str, aggregations: list[Aggregation
             continue
         if caption is None or caption.annotation is None:
             continue
+        sequences[chunk] = caption.annotation.dense_caption
         framed = framed_rows(aggregations, chunk, chunk_size)
         for action in caption.annotation.actions:
             for row in framed[action.start - 1:action.end]:
                 captions[row] = action.caption
-    return captions
+    return captions, sequences
 
 
 def session_events(state: State, session_id: str,
@@ -139,7 +148,8 @@ def session_events(state: State, session_id: str,
         return {}
     device_id = session_id.split("-", 1)[0]
     edits = state.events.edits(session_id).rows
-    captions = model_captions(state, session_id, aggregations)
+    captions, sequences = model_captions(state, session_id, aggregations)
+    chunk_size = state.annotate.chunk_size
     answers = state.answers.by_row(session_id)
     moments = merge_moments(
         session_moments(answers, state.questions, state.keypoints.moment_on,
@@ -158,6 +168,7 @@ def session_events(state: State, session_id: str,
             inputs=[{"type": e.event_type, "timestamp": e.timestamp, **e.details}
                     for e in aggregation.events],
             caption=edit.caption if edit.caption is not None else captions.get(row),
+            sequence=row // chunk_size, sequence_caption=sequences.get(row // chunk_size),
             indices=row_indices(answers.get(row, {}), state.questions),
             moments=moments.get(row, []))
     return events

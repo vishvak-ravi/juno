@@ -44,9 +44,9 @@ def put(client, session, index, at, screenshot=True):
     assert response.status_code == 201, response.text
 
 
-def client_for(tmp_path, actions=()):
+def client_for(tmp_path, actions=(), dense_caption=""):
     def annotate_request(request):
-        return Annotation(actions=list(actions), dense_caption="",
+        return Annotation(actions=list(actions), dense_caption=dense_caption,
                           sanitization=request.sanitization)
     config = Config(capture=CaptureConfig(data_dir=tmp_path),
                     annotate=AnnotateConfig(chunk_size=2))
@@ -94,20 +94,24 @@ def test_an_event_shows_its_inputs_screenshot_and_nothing_of_the_recorders_bookk
             "screenshot_url": f"/events/{LAPTOP}-000000/screenshot",
             "inputs": [{"type": "mouse_down", "timestamp": 1000.5, "button": "left",
                         "x": 3, "y": 4}],
-            "caption": None, "indices": {}, "moments": []}
+            "caption": None, "sequence": 0, "sequence_caption": None, "indices": {}, "moments": []}
         assert client.get(event["screenshot_url"]).content == png()
 
 
 def test_a_caption_lands_on_the_rows_its_frames_were_made_from(tmp_path):
     # The first row has no screenshot, so frame 1 of the chunk is the second row.
-    with client_for(tmp_path, [Action(start=1, end=1, caption="Clicked.")]) as client:
+    with client_for(tmp_path, [Action(start=1, end=1, caption="Clicked.")], "A terminal.") as client:
         put(client, LAPTOP, 0, 1000.0, screenshot=False)
         put(client, LAPTOP, 1, 1001.0)
+        put(client, LAPTOP, 2, 1002.0)
         wait_for_annotation(tmp_path, LAPTOP, 0)
 
         events = client.get("/events", params={"order": "asc"}).json()["data"]
         assert [(e["screenshot_url"] is not None, e["caption"]) for e in events] == [
-            (False, None), (True, "Clicked.")]
+            (False, None), (True, "Clicked."), (True, None)]
+        # Both rows of the first sequence carry its description; the row after it is in the next, not yet captioned.
+        assert [(e["sequence"], e["sequence_caption"]) for e in events] == [
+            (0, "A terminal."), (0, "A terminal."), (1, None)]
 
 
 def test_a_users_caption_replaces_the_models_until_it_is_cleared(tmp_path):

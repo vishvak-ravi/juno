@@ -8,14 +8,17 @@ draws with too; each page keeps its own shell and chat flow.
 
 ## Window
 
-The left pane shows one of three lists, picked by the buttons in the dark bar
-pinned below it; the detail pane on the right shows what is open in it. On
+The left pane shows one of three lists, picked by the buttons in the bar
+pinned below it; the detail pane on the right shows what is open in it. The
+divider between them drags to set the left pane's width, remembered on the
+computer (`juno.aside`). What takes long enough to notice to arrive shows as
+shimmering lines in its place. On
 startup the chats list is shown with the most recently changed chat open.
 
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
-| Timeline | one day, the day picked from a calendar shaded by activity, in one of four views picked by a switch above it and remembered on the computer: **Activity**, what the user did, newest first, a time and a line per item coloured by its kind, marked by hour and by moment; **Linear**, every device's events on one line, newest first, marked by hour and by moment, with a rail of the day's moments folded into the pane's left edge and a minimap of the day's indices down its right edge, pressed to jump to a time; **Sessions**, the day's sessions, newest first, a session fetching its events when opened; **Indices**, each index through the day in its own lane, read at the pointer | one event: caption, a button per Claude Code conversation its moments carry, screenshot, inputs; a bar below it steps to the earlier and later event of the session, or of the activity or linear view's rows fetched, also on the arrow keys; an activity item opens the event it began in |
+| Timeline | sessions, newest first, from the start of this week, with a heading where the day changes and "Earlier" adding a week; a session opens to its **sequences** (the rows captioned together), newest first, each to its actions with a divider where a moment starts; the **moment rail** down the pane's left edge, every moment of the sessions listed in the list's order with a divider per day, the wheel over it zooming, the moment under the pointer staying put; **Now** scrolls to the top and the calendar to today | the **calendar**: a week (or a day, or a month) of sessions as blocks on their days, each with one index curving down its right side and its moments pinned on its left, the moment types shown chosen by the chips above it, now marked in red; a block opens its session on the left, a pin opens its action. An **action** opens in the calendar's place: the ribbon of its day across the top (its sessions and moments, the action marked; pressed, or Escape, to go back), the action's caption, its parent sequence's caption, a button per Claude Code conversation its moments carry, the screenshot with the inputs replayed over it, the frames of its sequence and the sequences around it (the arrow keys step through them), and its inputs folded |
 | Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
@@ -30,24 +33,19 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 
 | Shown | From |
 |---|---|
-| A day's tint in the calendar | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
-| A day, linear | `GET /events?since=&until=&order=desc&limit=100`, since and until the local midnights around it, and `GET /indices?since=&until=` for the minimap, fetched together; the next page is fetched when "Earlier events" scrolls into view. Pressing the minimap at a time outside the rows fetched refetches around it: `GET /events?until=<time>&order=desc` and `GET /events?since=<time>&order=asc`, then "Later events" above the rows and "Earlier events" below them each fetch their next page when scrolled into view; the rows stay one unbroken run of the day |
-| A day, activity | the same pages, every row fetched so far folded again as each page arrives (`src/renderer/activity.mjs`): each device's inputs in time order, pointer moves and releases making no item |
-| Typed text | characters and spaces pressed with no modifier but Shift (the character comes shifted), Backspace taking off the last one; it goes on past scrolls and ends at Enter (marked ⏎), a pause of `GAPS.typing` seconds, a click or any other named key but Backspace |
-| A shortcut | a key pressed while Ctrl, Alt or Cmd is held, or Shift with a named key; the same one again within `GAPS.keys` counts up; a modifier pressed more than `GAPS.modifier` seconds before with no key since is taken as released |
-| Keys | named keys (arrows, Esc, Tab, …) within `GAPS.keys` of each other, repeats counted; Cmd or Alt pressed and released alone is a key |
-| A click | each press of a button; two of one button within `GAPS.click` are a double click |
-| A scroll | scroll steps within `GAPS.scroll` of each other, summed per direction; `dy > 0` is up, as napsack reads it |
-| An hour mark | wherever the local hour of an event differs from the one above it |
-| A moment | a divider above the event of each of its `moments`, under that event's hour mark; its text from the moment's `type` and the assistant in its `label`, its diamond in the type's colour |
-| The moment rail | one line per divider, in the list's order, coloured by the moment's `type`; a 3px sliver at the pane's left edge that opens to 28px when the pointer reaches it. Lines are spaced evenly, 5px to 14px apart; a shaded band spans the lines whose dividers are in view. Hovering a line grows it and its two neighbours a step less and shows the moment's text and time; pressing it scrolls the list to the divider, lit for 1.5s |
-| The index minimap | the day down the pane's right edge, 22px wide, the day's end at the top, in place of the list's scrollbar; a column per name in `names` of `GET /indices`, a cell per bucket with a value, its darkness the value; nothing shown when no bucket was answered. A thumb spans the rows in view; a mark in the open event's device tone sits at the open event. The pointer over the strip reads the time and every index of the bucket there; pressing opens the nearest event, in the middle of the view; the arrow keys move the reading a bucket and Enter jumps to it |
-| A day, indices | `GET /indices?since=&until=`, the day's buckets of `keypoints.bucket_seconds`; a lane per name in `names`, the line broken where a bucket is missing or has no value; nothing drawn when no bucket was answered |
-| A device's colour | its place among the devices of `GET /control` in id order, then devices not there as they are drawn; one of six |
-| A day, sessions | `GET /sessions?since=&until=&limit=100`: each session with an event that day, its start, end, event count and captioned count |
-| A session's events | `GET /sessions/{id}`, the first time the session is opened |
-| A session's light | green when `GET /control` reports a device recording that session |
-| An event's chips | its `inputs` counted by type: key presses, clicks, scrolls; key and button releases and pointer moves are left out of the chips and listed folded in the event's detail |
+| A day's tint in the month | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
+| The sessions list | `GET /sessions?since=&until=&order=desc&limit=100`, every page, from the local start of this week with no `until`; "Earlier" fetches the week before the earliest loaded |
+| A session's sequences | `GET /sessions/{id}`, the first time the session is opened (or a block, a pin or a rail line opens it); its events grouped by their `sequence`, each sequence's caption its events' `sequence_caption` |
+| A moment's divider | above the action it starts at, under its sequence; its text from the moment's `type` and the assistant in its `label`, its diamond in the type's colour; hidden with its type |
+| The moment rail | one line per moment of the sessions listed, from the sessions' `moments`, in the list's order, coloured by `type`, with a divider where the day changes; a line's reading (its text, day and time) shows beside it on hover. Lines are `juno.timeline.pitch` px apart, 2 to 14, remembered on the computer; the wheel over the rail changes it, the line under the pointer keeping its place (the list is scrolled to what that needs); when the lines outrun the rail it scrolls with the list. The line nearest the pointer, within half a pitch, is the one read and pressed. A shaded band spans the lines of the sessions in view. Pressing a line opens its session, scrolls the list to its divider, lit for 1.5s, and opens its action |
+| The calendar's days | the week holding the day shown, from the locale's first weekday; one day; or the six weeks of the month, pressed to open that week |
+| A session's blocks | `GET /sessions?since=&until=` over the days shown, every page: one block per day the session touches, from and to as fractions of that day; "now" as its end while `GET /control` reports a device recording it |
+| An index's curve | `GET /indices?since=&until=` over the days shown, the index picked above the calendar (`agent` when there is one, else the first in `names`); the bucket means averaged over three buckets, broken where a bucket is missing or has no value, drawn as an area from the block's left edge |
+| A moment's pin | a session's `moments` on their day; moments closer than a pin's height share one pin (ringed), in the colour most of them have, pressed to open the first; the chips above the calendar hide a type everywhere |
+| The ribbon's pins | the same, a hundredth of the day apart, pressed to open the moment's action; the rest of the ribbon goes back to the calendar |
+| The ribbon | the open action's day: the blocks and pins of the sessions listed that touch it, now, and a mark at the action |
+| A replay | the action's inputs folded into items (`src/renderer/activity.mjs`), one stop per item at its offset from the screenshot; a click or scroll is drawn where it happened, in the screenshot's own pixels, keys as a bubble; play steps through them |
+| The frames | the events of the action's sequence and of one sequence either side, a divider between sequences, the open one marked; a frame opens its action, the arrow keys step through the session's events |
 | A conversation's button | each distinct `conversation` among the event's `moments`, drawn when the event's `device_id` is this computer's (`resolve_device_id`, asked of the checkout's Python at startup); on another device's event, a line naming that device. Pressing it runs `claude --resume <session_id>` in a new Ghostty window in `cwd` (`src/main/terminal.js`), without the variables of a Claude Code the app was started from |
 | An input's time | its `timestamp` minus its event's `timestamp` |
 | A run | `GET /predictions?limit=100` rows grouped by `run`; its time read from the run's name (`YYYYMMDD_HHMMSS`); mean reward over the rows with a reward; failed rows are those with an `error` |

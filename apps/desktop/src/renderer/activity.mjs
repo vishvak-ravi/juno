@@ -1,9 +1,8 @@
-// The activity view's rows, computed from GET /events rows without drawing or
+// What the user did, computed from GET /events rows without drawing or
 // requesting anything: every device's inputs read in time order and folded into
-// what the user did, one item per typed text, shortcut, run of keys, click or
-// scroll. Typed text ends at Enter, a pause, a click or any other key. Pointer moves and key and button releases make no item; a modifier's
-// release ends its hold.
-import { hourOf } from "./rows.mjs";
+// items, one per typed text, shortcut, run of keys, click or scroll. Typed text
+// ends at Enter, a pause, a click or any other key. Pointer moves and key and
+// button releases make no item; a modifier's release ends its hold.
 
 // An item is { kind, device_id, start, end, events, ... } with `events` the ids of
 // the events whose inputs it holds, oldest first, and per kind:
@@ -221,29 +220,15 @@ function runs(keys) {
   return out;
 }
 
-// The activity view's list for `events` (GET /events rows, in any order), newest
-// first: `{ hour }` wherever the local hour changes, `{ moment, event }` where a
-// moment starts (at its event's time, above an item starting then), and `{ item, named }` for each item,
-// `named` where its device differs from the item drawn above it or a new hour begins.
-export function activityRail(events, gaps = GAPS) {
-  const entries = [
-    ...activity(events, gaps).map((item) => ({ at: item.start, item })),
-    ...events.flatMap((event) => (event.moments ?? []).map((moment) => ({ at: event.timestamp, moment, event }))),
-  ].sort((a, b) => b.at - a.at || (b.moment ? 1 : 0) - (a.moment ? 1 : 0));
-  const rows = [];
-  let hour = null;
-  let device = null;
-  for (const { at, item, moment, event } of entries) {
-    const now = hourOf(at);
-    const newHour = now !== hour;
-    if (newHour) rows.push({ hour: now });
-    hour = now;
-    if (moment) {
-      rows.push({ moment, event });
-      continue;
-    }
-    rows.push({ item, named: newHour || item.device_id !== device });
-    device = item.device_id;
-  }
-  return rows;
+// One event's inputs as the steps of a replay over its screenshot, in order:
+// `{ offset, kind, x, y, words }` per item of its activity, `offset` seconds
+// after the screenshot, `x` and `y` where a click or scroll happened (desktop
+// pixels; null where the pointer was not read or the item is keys) and `words`
+// as `describe` puts them.
+export function replaySteps(event, gaps = GAPS) {
+  return activity([event], gaps).map((item) => {
+    const type = item.kind === "click" ? "mouse_down" : item.kind === "scroll" ? "mouse_scroll" : null;
+    const input = type && event.inputs.find((i) => i.type === type && i.timestamp === item.start);
+    return { offset: item.start - event.timestamp, kind: item.kind, x: input?.x ?? null, y: input?.y ?? null, words: describe(item) };
+  });
 }
