@@ -109,22 +109,22 @@ def test_puts_to_the_same_id_append_the_messages_and_the_replies(tmp_path, model
     assert model_server.requests[0]["temperature"] == 0.5
 
 
-def test_the_model_can_read_annotations_before_it_answers(tmp_path, model_server):
+def test_the_model_can_read_the_record_before_it_answers(tmp_path, model_server):
     client = client_for(tmp_path, model_server.url)
     question = {"role": "user", "content": "a question about recent activity"}
     model_server.tool_calls.append({
         "id": "call-1", "type": "function",
-        "function": {"name": "list_annotations", "arguments": '{"last_minutes": 60}'}})
+        "function": {"name": "find_events", "arguments": '{"last_minutes": 60}'}})
 
     response = client.put("/chats/abc", json={"messages": [question]})
     assert response.status_code == 200
 
     # The model was offered the tools, and asked again with the result of its call.
     first, second = model_server.requests
-    assert "list_annotations" in [tool["function"]["name"] for tool in first["tools"]]
+    assert "find_events" in [tool["function"]["name"] for tool in first["tools"]]
     result = second["messages"][-1]
     assert (result["role"], result["tool_call_id"]) == ("tool", "call-1")
-    assert json.loads(result["content"])["annotations"] == []
+    assert json.loads(result["content"])["runs"] == []
     # Only the question and the final answer are kept.
     assert response.json()["messages"] == [
         question, {"role": "assistant", "content": "re: " + result["content"]}]
@@ -135,7 +135,7 @@ def test_activity_names_the_tool_a_reply_is_waiting_for(tmp_path, model_server, 
     question = {"role": "user", "content": "a question about recent activity"}
     model_server.tool_calls.append({
         "id": "call-1", "type": "function",
-        "function": {"name": "list_annotations", "arguments": "{}"}})
+        "function": {"name": "find_events", "arguments": "{}"}})
     idle = {"replying": False, "tool": None, "messages": []}
     assert client.get("/chats/abc/activity").json() == idle
 
@@ -155,7 +155,7 @@ def test_activity_names_the_tool_a_reply_is_waiting_for(tmp_path, model_server, 
     try:
         assert called.wait(timeout=10)
         assert client.get("/chats/abc/activity").json() == {
-            "replying": True, "tool": "list_annotations", "messages": [question]}
+            "replying": True, "tool": "find_events", "messages": [question]}
         # The question is stored only with its reply, and other chats are not waiting.
         assert client.get("/chats/abc").status_code == 404
         assert client.get("/chats/other/activity").json() == idle

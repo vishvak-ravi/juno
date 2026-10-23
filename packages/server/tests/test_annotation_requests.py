@@ -9,7 +9,7 @@ from PIL import Image
 from annotate.label import Action, Annotation
 from juno.sessions import session_dir
 from annotate.store import FileActivityCaptions, new_caption, write_caption_file
-from juno.config import AnnotateConfig, CaptureConfig, Config, LlmConfig, devices_dir
+from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
 from server.app import create_app
 
 SESSION = "laptop-session_20260101_120000"
@@ -104,81 +104,6 @@ def test_a_failed_model_call_is_recorded_and_a_new_request_retries_it(tmp_path):
 
     assert worker.request(SESSION, 0).status == "pending"
     assert wait_until_settled(tmp_path, 0).status == "done"
-
-
-def test_an_agent_reads_finished_annotations_over_mcp(tmp_path):
-    write_session(tmp_path, rows=2)
-
-    def annotate_request(request):
-        return Annotation(actions=[Action(start=1, end=2, caption="Typed a.")],
-                          dense_caption="a", sanitization=request.sanitization)
-
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2))
-    app = create_app(config, annotate_request=annotate_request)
-    annotation_id = f"{SESSION}-0000"
-
-    def call(client, tool, arguments):
-        response = client.post(
-            "/mcp", headers={"Accept": "application/json, text/event-stream"},
-            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                  "params": {"name": tool, "arguments": arguments}})
-        result = response.json()["result"]
-        return result["isError"], json.loads(result["content"][0]["text"]) \
-            if not result["isError"] else result["content"][0]["text"]
-
-    # The MCP endpoint only answers requests addressed to the server's own host.
-    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        client.app.state.worker.request(SESSION, 0)
-        wait_until_settled(tmp_path, 0)
-
-        is_error, listed = call(client, "list_annotations", {"limit": 5})
-        assert not is_error
-        assert [(a["id"], a["actions"], a["text_on_screen"]) for a in listed["annotations"]] == [
-            (annotation_id, ["Typed a."], "a")]
-
-        assert listed["devices"] == ["laptop"]
-        assert listed["annotations"][0]["device"] == "laptop"
-        is_error, only = call(client, "list_annotations", {"device": "laptop"})
-        assert not is_error and [a["id"] for a in only["annotations"]] == [annotation_id]
-        is_error, message = call(client, "list_annotations", {"device": "phone"})
-        assert is_error and "laptop" in message
-
-        is_error, full = call(client, "get_annotation", {"annotation_id": annotation_id})
-        assert not is_error
-        assert full["actions"] == [{"start": 1, "end": 2, "caption": "Typed a."}]
-        assert "Key pressed: a" in full["frames"][0]["input"]
-
-        is_error, message = call(client, "get_annotation", {"annotation_id": "nope"})
-        assert is_error and "list_annotations" in message
-
-
-def test_a_listing_too_long_for_the_agent_keeps_the_newest_and_says_more_is_available(tmp_path):
-    write_session(tmp_path, rows=6)
-
-    def annotate_request(request):
-        return Annotation(actions=[Action(start=1, end=2, caption="Typed a.")],
-                          dense_caption="a" * 400, sanitization=request.sanitization)
-
-    budget = 1500  # room for two of the three annotations
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2),
-                    llm=LlmConfig(tool_result_chars=budget))
-    with TestClient(create_app(config, annotate_request=annotate_request),
-                    base_url="http://127.0.0.1:8765") as client:
-        for chunk in range(3):
-            client.app.state.worker.request(SESSION, chunk)
-            wait_until_settled(tmp_path, chunk)
-        response = client.post(
-            "/mcp", headers={"Accept": "application/json, text/event-stream"},
-            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                  "params": {"name": "list_annotations", "arguments": {}}})
-        text = response.json()["result"]["content"][0]["text"]
-
-    assert len(text) <= budget
-    listed = json.loads(text)
-    assert [a["id"] for a in listed["annotations"]] == [f"{SESSION}-0002", f"{SESSION}-0001"]
-    assert listed["more_available"] is True
 
 
 def test_an_annotation_left_pending_by_a_stopped_server_is_finished_by_the_next(tmp_path):

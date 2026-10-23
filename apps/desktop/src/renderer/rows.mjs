@@ -92,6 +92,34 @@ export function indexLanes(indices, since, until) {
   });
 }
 
+// GET /indices as the minimap draws it: the day from `since` to `until` down a
+// strip with `until` at the top; per index name, one cell per bucket with a
+// value, `{ top, height, value, start }`, top and height as fractions of the strip.
+export function indexCells(indices, since, until) {
+  const span = until - since;
+  const step = indices.bucket_seconds;
+  return indices.names.map((name) => ({ name, cells: indices.buckets
+    .filter((bucket) => bucket.values[name] != null)
+    .map((bucket) => ({ top: 1 - (bucket.start + step - since) / span, height: step / span,
+                        value: bucket.values[name], start: bucket.start })) }));
+}
+// The bucket of GET /indices holding the time `seconds`; null between buckets.
+export const bucketAt = (indices, seconds) => indices.buckets
+  .find((bucket) => seconds >= bucket.start && seconds < bucket.start + indices.bucket_seconds) ?? null;
+// The time at `fraction` down a strip that runs from `until` at the top to `since` at the bottom.
+export const timeDown = (fraction, since, until) => until - fraction * (until - since);
+
+// `rows` (newest first) with the events of `page` merged in, newest first and
+// each event once, in the order GET /events uses: by timestamp, then id.
+export function mergeEvents(rows, page) {
+  const byId = new Map(rows.map((event) => [event.id, event]));
+  for (const event of page) byId.set(event.id, event);
+  return [...byId.values()].sort((a, b) => b.timestamp - a.timestamp || (b.id < a.id ? -1 : b.id > a.id ? 1 : 0));
+}
+// The event of `events` nearest to `seconds`; null when there are none.
+export const nearestEvent = (events, seconds) => events.reduce((best, event) =>
+  (best == null || Math.abs(event.timestamp - seconds) < Math.abs(best.timestamp - seconds) ? event : best), null);
+
 // Inputs that say what the user did, by type, and how each is counted; the rest
 // (releases and pointer moves) are folded away under the ones shown.
 const SHOWN = { key_press: ["key", "keys"], mouse_down: ["click", "clicks"], mouse_scroll: ["scroll", "scrolls"] };

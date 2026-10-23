@@ -13,8 +13,8 @@ are question answers (`question_answers/`, was `detections/jev/`), and the
 server's copy of the rows is `event_rows.jsonl`; the recorder still writes Tada's
 `raw_aggregations.jsonl`. Screenshot paths are stored relative to the session,
 and `scripts/migrate_store.py` moves an older store. The `annotate` and
-`keypoints` packages, the `annotate:`/`keypoints:` sections of `config.yaml`
-and the chat tools `list_annotations`/`get_annotation` keep their names.
+`keypoints` packages and the `annotate:`/`keypoints:` sections of
+`config.yaml` keep their names.
 
 ## 2026-10-22: Claude Code reports its own prompts
 
@@ -44,6 +44,26 @@ prompt by that much and never blocks it.
 
 A prompt sent while nothing was recorded on its device is stored and shown
 on no event.
+
+## 2026-10-22: The MCP is the record, three tools over it
+
+An agent connected over MCP gets Juno's record and works out from it what the
+user is referring to; it looks further with its own tools (files, shell, web).
+The record is devices, their sessions, and the sessions' events, with each
+event's caption, text on screen, indices, moments and screenshot. The tools
+follow that nesting: `list_sessions` (what each device did when, with moment
+counts and mean indices), `find_events` (runs of same-caption events, by
+words on screen, moment, session, device or time) and `get_event` (one event
+in full with its screenshot as an MCP image, or a device's newest). They
+replace the per-chunk `list_annotations` and `get_annotation`;
+`predict_next_actions` is dropped, and `POST /predictions` stays. Juno's chat
+model gets the same three and is sent text only.
+
+Shaped by Anthropic's "Writing effective tools for agents" (few tools built
+for tasks, readable fields, results capped with a way to get more, errors that
+name the fix), Block's "Playbook for designing MCP servers" (workflow-first,
+one risk level per tool) and the MCP 2025-11-25 tools spec (image content,
+`isError` results).
 
 ## 2026-10-21: Jev indexes the timeline
 

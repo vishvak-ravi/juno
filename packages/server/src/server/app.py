@@ -101,12 +101,7 @@ def create_app(config: Optional[Config] = None,
     captions = FileActivityCaptions(devices_dir(data_dir))
     answers = FileQuestionAnswers(devices_dir(data_dir))
     control = FileControl(control_file(data_dir))
-    chat_tools = create_chat_tools(events, captions, chats_dir,
-                                   config.llm.tool_result_chars, config.tools,
-                                   workspace_dir(data_dir), claude_results_dir(data_dir),
-                                   predictor, config.llm)
-    mcp = create_mcp(session_tools(events, captions, config.llm.tool_result_chars,
-                                   predictor, config.llm))
+    questions = load_questions()
 
     if ask is None and config.keypoints.enabled:
         if os.environ.get(TYPESAFE_KEY_ENV):
@@ -132,7 +127,6 @@ def create_app(config: Optional[Config] = None,
     app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
-    app.state.chat_tools = chat_tools
     app.state.annotate = config.annotate
     app.state.predictor = predictor
     app.state.events = events
@@ -147,12 +141,17 @@ def create_app(config: Optional[Config] = None,
     app.state.worker = AnnotationWorker(events, captions, config.annotate, annotate_request,
                                         annotating=annotating)
     app.state.keypoints = config.keypoints
-    app.state.questions = load_questions()
+    app.state.questions = questions
     # None when keypoints are off or no key is set.
     app.state.question_worker = (QuestionWorker(events, captions, answers, config.annotate,
                                                 config.keypoints, app.state.questions, ask,
                                                 asking=annotating)
                                  if config.keypoints.enabled and ask is not None else None)
+    # The tools read events as the routes do, through the state above.
+    app.state.chat_tools = create_chat_tools(app.state, chats_dir, config.llm.tool_result_chars,
+                                             config.tools, workspace_dir(data_dir),
+                                             claude_results_dir(data_dir))
+    mcp = create_mcp(session_tools(app.state, config.llm.tool_result_chars))
     app.include_router(router)
     app.include_router(web_router)
     app.include_router(chats_router)

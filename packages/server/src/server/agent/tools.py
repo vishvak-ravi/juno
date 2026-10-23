@@ -1,8 +1,9 @@
 """The tools of Juno's chat model, as plain functions, and the registry the chat loop
 calls them through.
 
-``session_tools`` read the recorded sessions: their annotations, and predictions made
-from them. They are the only tools other agents get, over MCP (``server.agent.mcp``).
+``session_tools`` read the recorded sessions: their events, with the captions, indices
+and moments of ``/events``, and screenshots. They are the only tools other agents get,
+over MCP (``server.agent.mcp``).
 ``create_chat_tools`` adds the ones only Juno's own chat model gets: its past chats
 (``server.chats``), and ``web_search``, ``bash`` and ``fwd_to_claude`` when
 ``ToolsConfig`` enables them. Agents that connect over MCP have tools like these of
@@ -10,7 +11,8 @@ their own.
 
 A tool is a function: its parameters are the arguments the model may pass and its
 docstring is the description the model reads. The message of a ``ToolError`` it raises
-is shown to the model; what it returns is shown as is when it is text, else as JSON.
+is shown to the model; what it returns is shown as is when it is text, else as JSON. A
+list of text and images is shown whole over MCP; Juno's chat model is shown its text.
 """
 
 from __future__ import annotations
@@ -24,22 +26,23 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional, get_type_hints
+from typing import Any, Callable, Optional, Union, get_type_hints
 
 from anyio import to_thread
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.utilities.types import Image
 from pydantic import BaseModel, ValidationError, create_model
+from starlette.datastructures import State
 
-from annotate.store import ActivityCaption, ActivityCaptions, parse_caption_id
-from juno.config import LlmConfig, ToolsConfig
-from predict.predictor import Predictor
+from annotate.request import framed_rows
+from juno.config import ToolsConfig
+from juno.events import EVENT_ID
+from keypoints.derive import Moment
 from server import chats
 from server.agent.claude import ClaudeError, TmuxDest, forward_to_claude
-from server.agent.llm import LlmError
-from server.events import Events
-from server.prediction import NotEnoughData, predict
 from server.agent.search import SearchError, search_web
 from server.agent.shell import BashError, run_bash
+from server.routes.events import Event, session_events, sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +100,10 @@ async def call_chat_tool(tools: dict[str, Tool], name: str, arguments: str) -> s
         # As over MCP, what went wrong stays in the server's log.
         logger.exception("the %s tool failed", name)
         return f"error: the {name} tool failed"
+    if isinstance(result, list):
+        # Text and images: the chat model is sent its tool results as text only.
+        return "\n".join(item if isinstance(item, str) else "[an image you are not shown]"
+                         for item in result)
     return result if isinstance(result, str) else result_text(result)
 
 
@@ -107,143 +114,335 @@ def local_time(timestamp: Optional[float]) -> Optional[str]:
     return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
 
 
-def summary(record: ActivityCaption) -> dict:
-    """What an agent needs to know of a finished annotation to decide whether to read more."""
-    return {
-        "id": record.id,
-        "device": record.device_id,
-        "start": local_time(record.start_time),
-        "end": local_time(record.end_time),
-        "actions": [action.caption for action in record.annotation.actions],
-        "text_on_screen": record.annotation.dense_caption,
-    }
-
-
 def result_text(result: dict) -> str:
     """A tool result as the text the model, or an MCP client, is shown."""
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def session_tools(events: Events, captions: ActivityCaptions, result_chars: int,
-                  predictor: Predictor, llm: LlmConfig) -> list[Callable[..., Any]]:
-    """The tools over the stored sessions of every device: their activity captions and predictions.
+def moment_name(moment: Moment) -> str:
+    """A moment's type, with its label when it has one: ``type (label)``."""
+    return f"{moment.type} ({moment.label})" if moment.label else moment.type
+
+
+def spans_of(events: list[Event]) -> list[list[Event]]:
+    """``events`` of one session, oldest first, grouped into runs of consecutive events
+    with the same caption."""
+    spans: list[list[Event]] = []
+    for event in events:
+        if spans and spans[-1][-1].caption == event.caption:
+            spans[-1].append(event)
+        else:
+            spans.append([event])
+    return spans
+
+
+def span_summary(span: list[Event], names: list[str]) -> dict:
+    """One run of events as a tool shows it: its first event's id, its caption, every
+    moment in it and the highest value of each of the indices ``names``."""
+    first, last = span[0], span[-1]
+    moments = list(dict.fromkeys(moment_name(m) for event in span for m in event.moments))
+    indices = {name: round(max(event.indices[name] for event in span if name in event.indices), 2)
+               for name in names if any(name in event.indices for event in span)}
+    result = {"first_event": first.id, "events": len(span), "device": first.device_id,
+              "start": local_time(first.timestamp), "end": local_time(last.timestamp),
+              "caption": first.caption}
+    if moments:
+        result["moments"] = moments
+    if indices:
+        result["indices"] = indices
+    return result
+
+
+def row_of(event: Event) -> int:
+    """The event's row in its session."""
+    return int(EVENT_ID.match(event.id).group("row"))
+
+
+def context_summary(span: list[Event]) -> dict:
+    """A run of events as the context of another event."""
+    return {"first_event": span[0].id, "start": local_time(span[0].timestamp),
+            "caption": span[0].caption}
+
+
+def screen_texts(state: State, session_id: str, chunks: set[int]) -> dict[int, str]:
+    """The text on screen the activity caption of each of ``chunks`` read, by chunk; chunks
+    without a finished caption are left out."""
+    texts = {}
+    for chunk in chunks:
+        caption = state.captions.get(session_id, chunk)
+        if caption is not None and caption.annotation is not None:
+            texts[chunk] = caption.annotation.dense_caption
+    return texts
+
+
+def matches(query: str, text: str) -> bool:
+    """Whether every word of ``query`` is in ``text``, ignoring case."""
+    lowered = text.lower()
+    return all(word in lowered for word in re.findall(r"\w+", query.lower()))
+
+
+def cut_to_fit(result: dict, key: str, result_chars: int) -> bool:
+    """Shorten the list ``result[key]``, from its end, until ``result`` fits in
+    ``result_chars``; whether anything was cut."""
+    cut = False
+    while result[key] and len(result_text(result)) > result_chars:
+        result[key].pop()
+        cut = True
+    return cut
+
+
+def session_tools(state: State, result_chars: int) -> list[Callable[..., Any]]:
+    """The tools over the stored sessions of every device.
+
+    A device's sessions are its recorder runs; a session's events are its rows, each a
+    screenshot and the input after it, with the caption, indices and moments
+    ``server.routes.events`` gives it.
 
     Args:
-        result_chars: the most characters a tool result may take; ``list_annotations``
-            returns fewer annotations than asked for rather than exceed it.
-        predictor: builds the request ``predict_next_actions`` sends.
-        llm: the model server that request is sent to.
+        result_chars: the most characters a tool's text may take; a listing returns
+            fewer items than asked for rather than exceed it.
+        state: the app's state, which the events are read through as for ``/events``.
     """
+    chunk_size = state.annotate.chunk_size
+    index_names = list(state.questions.indices)
+    moment_types = state.questions.moments.state + state.questions.moments.action
+
     def known_devices(device: Optional[str]) -> list[str]:
         """Every device there is activity from; a ``ToolError`` if ``device`` is not one."""
-        devices = events.devices()
+        devices = state.events.devices()
         if device is not None and device not in devices:
             raise ToolError(f"no device {device}; the devices are: {', '.join(devices) or 'none'}")
         return devices
 
-    def list_annotations(last_minutes: Optional[float] = None, since: Optional[str] = None,
-                         until: Optional[str] = None, limit: int = 20,
-                         device: Optional[str] = None) -> dict:
-        """What the user did on their computers, newest first, each annotation naming its
-        device. The result's "devices" lists every device there is activity from. When
-        "more_available" is true there is earlier activity that was left out: call again
-        with until set to the earliest "start" returned.
+    def time_range(last_minutes: Optional[float], since: Optional[str],
+                   until: Optional[str]) -> tuple[Optional[float], Optional[float]]:
+        try:
+            start = datetime.fromisoformat(since).timestamp() if since else None
+            end = datetime.fromisoformat(until).timestamp() if until else None
+        except ValueError as exc:
+            raise ToolError(f"{exc}; give times as local ISO 8601, e.g. 2026-01-31T14:05:00")
+        if last_minutes is not None:
+            start = time.time() - last_minutes * 60
+        return start, end
+
+    def events_in(session_id: str, start: Optional[float], end: Optional[float]) -> list[Event]:
+        """The events of one session between ``start`` and ``end``, oldest first."""
+        events = session_events(state, session_id)
+        return [events[row] for row in sorted(events)
+                if (start is None or events[row].timestamp >= start)
+                and (end is None or events[row].timestamp <= end)]
+
+    def list_sessions(last_minutes: Optional[float] = None, since: Optional[str] = None,
+                      until: Optional[str] = None, device: Optional[str] = None,
+                      limit: int = 20) -> dict:
+        """The user's recording sessions, newest first: one per recorder run on a device.
+        Start here to see which devices were in use when, and what stood out in each
+        session: "moments" counts the moments Juno spotted in it by type (a label in
+        parentheses names, e.g., which AI assistant), and "indices" is the mean of each
+        index over the session, 0 to 1. Read a session's events with find_events and its
+        "id". When "more_available" is true there are earlier sessions: call again with
+        until set to the earliest "start" returned.
 
         Args:
-            last_minutes: only activity from this many minutes ago until now.
-            since: only activity after this local time, ISO 8601 (as in the
+            last_minutes: only sessions with activity from this many minutes ago until now.
+            since: only sessions with activity after this local time, ISO 8601 (as in the
                 "start" and "end" this tool returns). Ignored with last_minutes.
-            until: only activity before this local time, ISO 8601.
-            limit: the most annotations to return.
-            device: only activity on this device, one of the "devices" this tool
-                returns. Left out: every device, in one list ordered by time.
+            until: only sessions with activity before this local time, ISO 8601.
+            device: only this device's sessions, one of the "devices" this tool returns.
+            limit: the most sessions to return.
         """
-        now = time.time()
-        start = datetime.fromisoformat(since).timestamp() if since else None
-        if last_minutes is not None:
-            start = now - last_minutes * 60
-        end = datetime.fromisoformat(until).timestamp() if until else None
         devices = known_devices(device)
-        done = [record for record in captions.all(since=start, until=end, device_id=device)
-                if record.status == "done"]
-        newest_first = sorted(done, key=lambda record: record.end_time, reverse=True)
-        # The oldest are dropped until the result fits, so the reader is never
-        # handed a result cut off in the middle.
-        result = {"now": local_time(now),
-                  "devices": devices,
-                  "more_available": len(done) > limit,
-                  "annotations": [summary(record) for record in newest_first[:limit]]}
-        while result["annotations"] and len(result_text(result)) > result_chars:
-            result["annotations"].pop()
+        start, end = time_range(last_minutes, since, until)
+        sessions = []
+        for session_id in state.events.sessions(device):
+            events = events_in(session_id, None, None)
+            if not events or (start is not None and events[-1].timestamp < start) \
+                    or (end is not None and events[0].timestamp > end):
+                continue
+            moments: dict[str, int] = {}
+            for moment in (m for event in events for m in event.moments):
+                moments[moment_name(moment)] = moments.get(moment_name(moment), 0) + 1
+            indices = {}
+            for name in index_names:
+                found = [event.indices[name] for event in events if name in event.indices]
+                if found:
+                    indices[name] = round(sum(found) / len(found), 2)
+            sessions.append((events[-1].timestamp, {
+                "id": session_id, "device": events[0].device_id,
+                "start": local_time(events[0].timestamp), "end": local_time(events[-1].timestamp),
+                "events": len(events), "moments": moments, "indices": indices}))
+        sessions.sort(key=lambda item: item[0], reverse=True)
+        result = {"now": local_time(time.time()), "devices": devices,
+                  "more_available": len(sessions) > limit,
+                  "sessions": [session for _, session in sessions[:limit]]}
+        if cut_to_fit(result, "sessions", result_chars):
             result["more_available"] = True
         return result
 
-    def get_annotation(annotation_id: str) -> dict:
-        """One annotation in full: its actions with frame numbers, and the keys, clicks and
-        scrolls recorded for each frame.
+    def find_events(query: Optional[str] = None, moment: Optional[str] = None,
+                    session_id: Optional[str] = None, device: Optional[str] = None,
+                    last_minutes: Optional[float] = None, since: Optional[str] = None,
+                    until: Optional[str] = None, limit: int = 20) -> dict:
+        """What the user did, newest first, across every device unless one is named. Each
+        item is a run of consecutive events of one session with the same caption: its
+        "first_event" id, how many "events" it covers, its "caption", the "moments" in it
+        and the highest value of each index in it, 0 to 1. With query, only runs whose
+        caption or on-screen text has every word of the query, each with a "snippet" of
+        that text. Read one event in full, with its screenshot, with get_event. When
+        "more_available" is true there are earlier runs: call again with until set to the
+        earliest "start" returned.
 
         Args:
-            annotation_id: an "id" returned by list_annotations.
+            query: words to look for in what the user did or saw on screen, e.g. a
+                command, a file name, a site or a person.
+            moment: only runs with a moment of this type, a type (without the label in
+                parentheses) from the "moments" of list_sessions.
+            session_id: only this session's events, an "id" returned by list_sessions.
+            device: only this device's events, one of the "devices" of list_sessions.
+            last_minutes: only events from this many minutes ago until now.
+            since: only events after this local time, ISO 8601 (as in the "start" and
+                "end" this tool returns). Ignored with last_minutes.
+            until: only events before this local time, ISO 8601.
+            limit: the most runs to return.
         """
-        parsed = parse_caption_id(annotation_id)
-        record = captions.get(*parsed) if parsed else None
-        if record is None or record.status != "done":
-            # A ToolError's message is shown to the agent; other exceptions are hidden.
-            raise ToolError(f"no finished annotation with id {annotation_id}; "
-                             "use an id from list_annotations")
-        return {**summary(record),
-                "actions": [action.model_dump() for action in record.annotation.actions],
-                "frames": [{"frame": number, "time": local_time(frame.timestamp),
-                            "input": frame.events}
-                           for number, frame in enumerate(record.frames, start=1)]}
+        devices = known_devices(device)
+        if moment is not None and moment not in moment_types:
+            raise ToolError(f"no moment type {moment}; the types are: {', '.join(moment_types)}")
+        if session_id is not None:
+            if session_id not in state.events.sessions():
+                raise ToolError(f"no session {session_id}; use an id from list_sessions")
+            session_ids = [session_id]
+        else:
+            session_ids = state.events.sessions(device)
+        start, end = time_range(last_minutes, since, until)
+        found = []
+        for searched in session_ids:
+            spans = spans_of(events_in(searched, start, end))
+            if moment is not None:
+                spans = [span for span in spans
+                         if any(m.type == moment for event in span for m in event.moments)]
+            texts = screen_texts(state, searched, {row_of(event) // chunk_size
+                                                   for span in spans for event in span}) if query else {}
+            # A chunk's text on screen is shared by every run in it: a run found only by
+            # text a newer run of the session already showed is left out.
+            shown: set[int] = set()
+            for span in reversed(spans):
+                summary = span_summary(span, index_names)
+                if query:
+                    chunks = set(row_of(event) // chunk_size for event in span)
+                    screen = "\n".join(texts[chunk] for chunk in sorted(chunks) if chunk in texts)
+                    caption = span[0].caption or ""
+                    if not matches(query, f"{caption}\n{screen}") \
+                            or (chunks <= shown and not matches(query, caption)):
+                        continue
+                    if screen and not chunks <= shown:
+                        summary["snippet"] = chats.snippet(screen, query)
+                    shown |= chunks
+                found.append((span[-1].timestamp, summary))
+        found.sort(key=lambda item: item[0], reverse=True)
+        result = {"now": local_time(time.time()), "devices": devices,
+                  "more_available": len(found) > limit,
+                  "runs": [summary for _, summary in found[:limit]]}
+        if cut_to_fit(result, "runs", result_chars):
+            result["more_available"] = True
+        return result
 
-    async def predict_next_actions(device: Optional[str] = None) -> dict:
-        """What the user is likely to do next: a model's guess at their next few actions,
-        soonest first, made from their latest annotated actions, the screenshots of the
-        newest ones and earlier activity that resembles them. Each call asks the model
-        again, which takes a while and can give a different guess. It fails until enough
-        activity has been annotated.
+    def newest_event(device: Optional[str]) -> tuple[str, Event]:
+        """The newest event of ``device``, or of any device, with its session id: each
+        device's newest session is the last of its sessions by id."""
+        newest: dict[str, tuple[str, Event]] = {}
+        for session_id in reversed(state.events.sessions(device)):
+            device_id = session_id.split("-", 1)[0]
+            if device_id in newest:
+                continue
+            events = events_in(session_id, None, None)
+            if events:
+                newest[device_id] = (session_id, max(events, key=sort_key))
+        if not newest:
+            raise ToolError("nothing has been recorded" + (f" on {device}" if device else ""))
+        return max(newest.values(), key=lambda found: sort_key(found[1]))
+
+    def get_event(event_id: Optional[str] = None, device: Optional[str] = None,
+                  context: int = 3) -> list[Union[str, Image]]:
+        """One event in full, and its screenshot: what was on screen and what the user did
+        right after. The result has its "caption", the "text_on_screen" the annotator read
+        from its part of the session, its "input" (keys, clicks and scrolls), its indices
+        and moments, and the captions of the runs just "before" and "after" it in its
+        session. Without event_id: the newest event, e.g. for what the user is doing now.
 
         Args:
-            device: predict from the activity on this device only, one of the "devices"
-                list_annotations returns. Left out: the activity on every device.
+            event_id: a "first_event" returned by find_events, or a "first_event" of
+                "before" or "after" in an earlier get_event.
+            device: without event_id, the newest event of this device, one of the
+                "devices" of list_sessions.
+            context: how many runs before and after the event to describe.
         """
         known_devices(device)
-        try:
-            # In a thread: the model call blocks, and this runs on the server's event loop.
-            prediction = await to_thread.run_sync(predict, captions, predictor, llm, device)
-        except NotEnoughData as exc:
-            raise ToolError(f"{exc}: too few of the user's actions are annotated yet")
-        except OSError as exc:
-            raise ToolError(f"could not read a screenshot: {exc}")
-        except LlmError as exc:
-            raise ToolError(str(exc))
-        # The reply is an <actions> block of <action> tags; a reply without tags is kept whole.
-        actions = [action.strip() for action in
-                   re.findall(r"<action>(.*?)</action>", prediction.actions, re.DOTALL)]
-        return {"now": local_time(time.time()),
-                "predicted_actions": actions or [prediction.actions.strip()]}
+        if event_id is None:
+            session_id, event = newest_event(device)
+        else:
+            match = EVENT_ID.match(event_id)
+            session_id = match.group("session_id") if match else None
+            event = session_events(state, session_id).get(
+                int(match.group("row"))) if session_id is not None else None
+            if event is None:
+                raise ToolError(f"no event {event_id}; use a first_event from find_events")
+        row = row_of(event)
+        aggregations = state.events.rows(session_id)
+        chunk = row // chunk_size
+        caption = state.captions.get(session_id, chunk)
+        annotation = caption.annotation if caption is not None else None
+        # Frame f of the annotation is row framed[f]; its input text is as the annotator read it.
+        framed = framed_rows(aggregations, chunk, chunk_size)
+        frame = framed.index(row) if annotation is not None and row in framed else None
+        spans = spans_of(events_in(session_id, None, None))
+        at = next(i for i, span in enumerate(spans) if any(e.id == event.id for e in span))
+        context = max(0, context)
+        result = {"id": event.id, "session_id": session_id,
+                  "device": event.device_id, "time": local_time(event.timestamp),
+                  "caption": event.caption,
+                  "text_on_screen": annotation.dense_caption if annotation is not None else None,
+                  "input": (caption.frames[frame].events
+                            if frame is not None and frame < len(caption.frames) else None),
+                  "moments": [moment_name(m) for m in event.moments],
+                  "indices": {name: round(value, 2) for name, value in event.indices.items()},
+                  "before": [context_summary(span) for span in spans[max(0, at - context):at]],
+                  "after": [context_summary(span) for span in spans[at + 1:at + 1 + context]]}
+        # The farthest runs go first, then the end of the text on screen.
+        while (result["before"] or result["after"]) \
+                and len(result_text(result)) > result_chars:
+            if len(result["before"]) >= len(result["after"]):
+                result["before"].pop(0)
+            else:
+                result["after"].pop()
+        over = len(result_text(result)) - result_chars
+        if over > 0 and result["text_on_screen"]:
+            screen = result["text_on_screen"]
+            # Escapes in the JSON text make it longer than the content, so cut twice the excess.
+            result["text_on_screen"] = screen[:max(0, len(screen) - 2 * over)] + " [cut]"
+        text = result_text(result)
+        screenshot = state.events.screenshot(session_id, row)
+        return [text, Image(path=screenshot)] if screenshot is not None else [text]
 
-    return [list_annotations, get_annotation, predict_next_actions]
+    return [list_sessions, find_events, get_event]
 
 
-def create_chat_tools(events: Events, captions: ActivityCaptions, chats_dir: Path,
-                      result_chars: int, tools: ToolsConfig, workspace: Path, claude_results: Path,
-                      predictor: Predictor, llm: LlmConfig) -> dict[str, Tool]:
+def create_chat_tools(state: State, chats_dir: Path, result_chars: int,
+                      tools: ToolsConfig, workspace: Path, claude_results: Path) -> dict[str, Tool]:
     """Every tool of Juno's chat model, by name: ``session_tools`` and the chats stored in
     ``chats_dir``, and those of ``tools`` that are enabled.
 
     Args:
         result_chars: the most characters a tool result may take.
-            ``list_annotations``, ``search_chats`` and ``get_chat`` return fewer
+            The listings, ``search_chats`` and ``get_chat`` return fewer
             items than asked for and ``bash`` cuts the middle out of its output
             rather than exceed it.
         workspace: the directory bash commands start in, and Claude Code too
             unless ``tools.claude.cwd`` names another.
         claude_results: where Claude Code reports the end of each turn.
-        predictor, llm: as for ``session_tools``.
+        state: as for ``session_tools``.
     """
-    functions = session_tools(events, captions, result_chars, predictor, llm)
+    functions = session_tools(state, result_chars)
 
     def search_chats(query: str, limit: int = 10) -> dict:
         """Search the user's past chats with Juno for messages about something, best match

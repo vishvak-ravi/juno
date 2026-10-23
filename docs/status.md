@@ -18,6 +18,23 @@
 | "Resume in Claude Code" on the event: a new Ghostty window running `claude --resume` in the conversation's directory | done on Linux, pressed in the client against rows uploaded by hand (the recorder writes rows only on real input); macOS (`open -na Ghostty`) not yet run |
 | Cloud sessions, the Claude desktop app, IDE extensions, claude.ai chats | left out at the route |
 
+## 2026-10-22: MCP over the record
+
+| Piece | State |
+|---|---|
+| `list_sessions`, `find_events`, `get_event` replace `list_annotations`, `get_annotation`, `predict_next_actions`, over MCP and in Juno's chat | done; tested end to end over MCP with a fake Jev; run read-only against the stored sessions of 2026-10-21 |
+| `get_event` returns the screenshot as an MCP image | done over MCP; Juno's chat model is told an image exists but not shown it |
+| Each call reads every stored session (about 3 s over 3,000 events) | not optimized |
+| Tablet captions: new prompt and chunking | not started |
+
+## 2026-10-21: Activity view
+
+| Piece | State |
+|---|---|
+| Inputs folded into typed text, shortcuts, key runs, clicks and scrolls, in the client (`activity.mjs`) | done; unit tested, and run over a recorded session of 16k inputs (700 items) |
+| Activity view, the timeline's default: newest first, a colour per kind | done; not yet seen drawn, Electron did not start from the agent's shell |
+| Folding behind an API route | not yet; its gaps (`GAPS`) move to `config.yaml` then |
+
 ## 2026-10-21: Jev keypoints
 
 | Piece | State |
@@ -26,6 +43,7 @@
 | `indices` and `moments` on `GET /events` and `GET /sessions/{id}`; `GET /indices` | done; tested with a fake Jev |
 | Moment dividers in the linear timeline; Indices view with a lane per index | done; drawn with the page's example data only |
 | Moment rail down the linear timeline's left edge: lines by type, heading on hover, press to scroll to the divider | done; checked in a browser with the page's example data |
+| Index minimap down the linear timeline's right edge, press to jump; the linear view fetched around a time and paged both ways | done; checked in a browser with the page's example data |
 | Image token cost per row | not yet measured |
 
 ## 2026-10-21: Desktop window, timeline details

@@ -1,4 +1,4 @@
-"""One next-action prediction, for ``POST /predictions`` and the ``predict_next_actions`` tool.
+"""One next-action prediction, for ``POST /predictions``.
 
 The request Tada's prompted user model sends (see ``predict.predictor``) is
 built from the finished annotations and completed with the model server the

@@ -1,16 +1,18 @@
 // The timeline and predictions panes of the desktop browser, coarse to fine: the
-// left pane lists one day's events on one line, newest first, or that day's
-// sessions, each fetched whole when opened (or the graded runs, a run opening to
+// left pane lists one day's activity, newest first (what the user typed, pressed,
+// clicked and scrolled, read from the events' inputs), or its events on one line,
+// or that day's sessions, each fetched whole when opened (or the graded runs, a run opening to
 // its predictions), and one event or prediction opens in full in the detail pane.
 // A screenshot is requested only when its event is opened; a prediction's prompts
 // and the predictor's screenshots only when it is opened and their section expanded.
 import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
-  actions, chips, clock, conversationsOf, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel, indexLanes,
-  inputLine, linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
-  weekStart, weekdays,
+  actions, bucketAt, chips, clock, conversationsOf, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourLabel,
+  indexCells, indexLanes, inputLine, linePitch, liveSessions, matches, mergeEvents, modelName, momentText, monthGrid,
+  nearestEvent, offset, railItems, shade, shownInputs, timeDown, weekStart, weekdays,
 } from "./rows.mjs";
+import { activityRail, describe } from "./activity.mjs";
 
 // The routes' largest page.
 const PAGE = 100;
@@ -128,21 +130,21 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 // Timeline
 
 // The views of the timeline pane, the one shown remembered on this computer.
-const VIEWS = [["linear", "Linear"], ["sessions", "Sessions"], ["indices", "Indices"]];
+const VIEWS = [["activity", "Activity"], ["linear", "Linear"], ["sessions", "Sessions"], ["indices", "Indices"]];
 const VIEW_KEY = "juno.timeline.view";
 function savedView() {
   try {
     const saved = localStorage.getItem(VIEW_KEY);
-    return VIEWS.some(([value]) => value === saved) ? saved : "linear";
+    return VIEWS.some(([value]) => value === saved) ? saved : "activity";
   } catch {
-    return "linear";
+    return "activity";
   }
 }
 function saveView(view) {
   try {
     localStorage.setItem(VIEW_KEY, view);
   } catch {
-    // Not remembered; the linear view shows next time.
+    // Not remembered; the activity view shows next time.
   }
 }
 
@@ -212,8 +214,9 @@ document.addEventListener("keydown", (event) => {
 
 // The timeline pane: the view switch, the day shown with a button that opens the
 // calendar to pick another, then that day in the view picked, with the moment
-// rail down the pane's left edge in the linear view. `control()` is the latest
-// GET /control, for which sessions are being recorded and which devices there are.
+// rail down the pane's left edge and the index minimap down its right edge in
+// the linear view. `control()` is the latest GET /control, for which sessions
+// are being recorded and which devices there are.
 export function timelinePane(pane, detail, control) {
   let view = savedView();
   let date = new Date();
@@ -233,6 +236,7 @@ export function timelinePane(pane, detail, control) {
   });
   const list = el("div", { className: "scroll" });
   const rail = momentRail(list);
+  const map = indexMap(list);
   const cal = calendar((picked) => {
     cal.close();
     date = picked;
@@ -240,7 +244,7 @@ export function timelinePane(pane, detail, control) {
   });
   pane.replaceChildren(el("header", {},
     el("span", { className: "views", role: "group", ariaLabel: "Timeline view" }, ...switches),
-    el("span", { className: "day" }, pick, cal.box)), list, rail.strip);
+    el("span", { className: "day" }, pick, cal.box)), list, rail.strip, map.strip);
   const tone = tones(Object.keys(control()?.devices ?? {}));
   const show = () => {
     const mine = ++shown;
@@ -249,8 +253,11 @@ export function timelinePane(pane, detail, control) {
     switches.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
     rail.clear();
     rail.strip.hidden = view !== "linear";
+    map.clear();
+    const reload = (work) => load(list, work, () => shown === mine);
     const views = {
-      linear: () => linearView(since, until, detail, tone, rail),
+      activity: () => activityView(since, until, detail),
+      linear: () => linearView(since, until, detail, tone, rail, map, reload),
       sessions: () => sessionsView(since, until, detail, liveSessions(control()), tone),
       indices: () => indicesView(since, until),
     };
@@ -293,31 +300,141 @@ function pager(path, add, label) {
   return { more, next };
 }
 
-// The linear view: every event of the day on one line, newest first, an hour
-// mark where the hour changes, the device named where it changes and a divider
-// where a moment starts, each divider also a line on the moment rail. Opened
-// events step through the rows fetched, earlier and later.
-async function linearView(since, until, detail, tone, rail) {
+// The activity view: what the user did through the day, newest first, read from
+// the inputs of the events fetched (activity.mjs) and drawn anew as each earlier
+// page arrives, since an item can go on into the page before. A row opens the
+// event its item began in; the step bar steps through the events fetched.
+async function activityView(since, until, detail) {
   const path = `/events?since=${since}&until=${until}&order=desc&limit=${PAGE}`;
   const rows = [];  // newest first
+  const rail = el("ol", { className: "rail activity" });
+  const sequence = { events: () => rows.toReversed(), note: () => null,
+                     row: (id) => rail.querySelector(`[data-events~="${CSS.escape(id)}"]`) };
+  const { more, next } = pager(path, (page) => {
+    rows.push(...page.data);
+    const drawn = activityRail(rows).map((entry) =>
+      (entry.hour != null ? hourMark(entry.hour) : entry.moment ? momentMark(entry) : activityRow(entry, sequence, detail)));
+    rail.replaceChildren(...drawn);
+    reselect(rail);
+  }, "Earlier activity");
+  const first = await api(path);
+  if (!first.data.length) return [status("Nothing recorded this day.")];
+  next(first);
+  return [rail, more];
+}
+
+// One item: its time, a dot in its kind's colour, what was done and with what.
+function activityRow({ item, named }, sequence, detail) {
+  const words = describe(item);
+  const button = el("button", { className: `row tick act ${item.kind}` },
+    el("span", { className: "when", textContent: clock(item.start, true) }),
+    el("span", { className: "node" }),
+    el("span", { className: "body" },
+      ...(named ? [el("span", { className: "device", textContent: item.device_id })] : []),
+      el("span", { className: "line" },
+        el("span", { className: "what", textContent: words.what }),
+        ...(words.keys ? [el("span", { className: "keys" }, ...words.keys.map((key) => el("kbd", { textContent: key })))] : []),
+        ...(words.detail ? [el("span", { className: "detail", textContent: words.detail })] : [])),
+      ...(words.text == null ? [] : [el("span", { className: "typed" }, el("span", { textContent: words.text }),
+        ...(words.submitted ? [el("span", { className: "enter", textContent: "⏎", title: "Ended with Enter" })] : []))])));
+  button.dataset.key = `${item.device_id}:${item.start}`;
+  button.dataset.events = item.events.join(" ");
+  button.onclick = () => {
+    showEvent(sequence, item.events[0], detail);
+    select(button);
+  };
+  return el("li", {}, button);
+}
+
+// The linear view: every event of the day on one line, newest first, an hour
+// mark where the hour changes, the device named where it changes and a divider
+// where a moment starts, each divider also a line on the moment rail. The rows
+// are one unbroken run of the day, fetched from its end or from the time the
+// minimap was pressed at, and extended earlier and later as either end scrolls
+// into view. Opened events step through the rows fetched, earlier and later.
+async function linearView(since, until, detail, tone, rail, map, reload) {
+  let rows = [];  // newest first
   const sequence = { events: () => rows.toReversed(), note: () => null };
   const list = el("ol", { className: "rail" });
-  const { more, next } = pager(path, (page) => {
-    list.append(...railItems(page.data, rows.at(-1)).map((item) => {
+  const scroller = () => list.closest(".scroll");
+  // The rows in view, newest first, as the scroll container shows them.
+  const inView = () => {
+    const scroll = scroller();
+    if (!scroll) return [];
+    const top = scroll.getBoundingClientRect().top;
+    return [...list.querySelectorAll(".row.tick")].filter((row) => {
+      const box = row.getBoundingClientRect();
+      return box.bottom > top && box.top < top + scroll.clientHeight;
+    });
+  };
+  // Draws every row again; the row at the top of the view stays where it is.
+  const draw = () => {
+    const scroll = scroller();
+    const first = inView()[0];
+    const before = first?.getBoundingClientRect().top;
+    rail.clear();
+    list.replaceChildren(...railItems(rows).map((item) => {
       if (item.hour != null) return hourMark(item.hour);
       if (!item.moment) return railRow(item, sequence, detail, tone);
       const mark = momentMark(item);
       rail.add(item, mark);
       return mark;
     }));
-    rows.push(...page.data);
-    requestAnimationFrame(rail.layout);  // once the rows are in the document
+    const again = first && list.querySelector(`[data-key="${CSS.escape(first.dataset.key)}"]`);
+    if (again) scroll.scrollTop += again.getBoundingClientRect().top - before;
+    requestAnimationFrame(() => { rail.layout(); map.layout(); });  // once the rows are in the document
     reselect(list);
-  }, "Earlier events");
-  const first = await api(path);
-  if (!first.data.length) return [status("Nothing recorded this day.")];
-  next(first);
-  return [list, more];
+  };
+  const add = (page) => {
+    rows = mergeEvents(rows, page.data);
+    draw();
+  };
+  const byId = (key) => rows.find((event) => event.id === key);
+  const earlierPath = (at) => `/events?since=${since}&until=${at}&order=desc&limit=${PAGE}`;
+  const laterPath = (at) => `/events?since=${at}&until=${until}&order=asc&limit=${PAGE}`;
+  // The rows around `at`: the page ending there and the page starting there,
+  // then a pager at each end of the list.
+  const fill = async (at) => {
+    rows = [];
+    const [before, after] = await Promise.all([api(earlierPath(at)), at < until ? api(laterPath(at)) : null]);
+    if (!before.data.length && !after?.data.length) return [status("Nothing recorded this day.")];
+    const earlier = pager(earlierPath(at), add, "Earlier events");
+    const later = pager(laterPath(at), add, "Later events");
+    earlier.next(before);
+    if (after) later.next(after);
+    return [later.more, list, earlier.more];
+  };
+  // Opens the row nearest to `at`, in the middle of the view.
+  const openNear = (at) => {
+    const event = nearestEvent(rows, at);
+    if (!event) return;
+    list.querySelector(`[data-key="${CSS.escape(event.id)}"]`)
+      ?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    showEvent(sequence, event.id, detail);
+    map.layout();
+  };
+  list.addEventListener("click", () => requestAnimationFrame(map.layout));  // a row opened marks the map
+  const [nodes, indices] = await Promise.all([fill(until), api(`/indices?since=${since}&until=${until}`)]);
+  if (indices.buckets.some((bucket) => bucket.detected)) {
+    map.set({
+      indices, since, until,
+      range: () => {
+        const shown = inView();
+        const open = current?.closest(".rail") === list ? byId(current.dataset.key) : null;
+        return { newest: shown.length ? byId(shown[0].dataset.key).timestamp : null,
+                 oldest: shown.length ? byId(shown.at(-1).dataset.key).timestamp : null, open: open?.timestamp ?? null };
+      },
+      jump: (at) => {
+        if (rows.length && at <= rows[0].timestamp && at >= rows.at(-1).timestamp) return openNear(at);
+        reload(async () => {
+          const again = await fill(at);
+          requestAnimationFrame(() => openNear(at));
+          return again;
+        });
+      },
+    });
+  }
+  return nodes;
 }
 
 const hourMark = (hour) => el("li", { className: "hour" },
@@ -370,7 +487,7 @@ function momentRail(scroll) {
     },
     add({ moment, event }, mark) {
       const line = el("button", { className: "m", ariaLabel: `${momentText(moment)}, ${clock(event.timestamp)}` },
-        el("i"), el("span", { className: "h" },
+        el("i"), el("span", { className: "tip" },
           el("b", { textContent: momentText(moment) }), el("small", { textContent: clock(event.timestamp) })));
       line.style.setProperty("--i", marks.length);
       line.style.setProperty("--c", momentTone(moment));
@@ -381,6 +498,113 @@ function momentRail(scroll) {
       };
       marks.push(mark);
       strip.append(line);
+    },
+  };
+}
+
+// The index minimap: the day down the right edge of `scroll`, the day's end at
+// the top, one column per index of GET /indices, each bucket a cell as dark as
+// its value. A thumb spans the rows in view and a mark sits at the open event.
+// The pointer over the strip reads the time and every index there; pressing
+// jumps the list to that time, as do the arrow keys and Enter.
+const INDEX_NAMES = { sensitivity: "Sensitivity", agent: "Assistant in focus", error: "Error on screen" };
+const indexName = (name) => INDEX_NAMES[name] ?? name.replaceAll("_", " ");
+const SVG = "http://www.w3.org/2000/svg";
+const svg = (tag, attributes = {}) => {
+  const node = document.createElementNS(SVG, tag);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+  return node;
+};
+// A cell's darkness between the faintest and the darkest drawn, by its value.
+const CELL_FLOOR = 0.08;
+// Cells are drawn in a box MAP_HEIGHT tall, one unit per column, stretched to the strip.
+const MAP_HEIGHT = 1000;
+function indexMap(scroll) {
+  const plot = svg("svg", { preserveAspectRatio: "none", "aria-hidden": "true" });
+  const thumb = el("span", { className: "thumb", hidden: true });
+  const at = el("span", { className: "at", hidden: true });
+  const probe = el("span", { className: "probe", hidden: true });
+  const when = el("b");
+  const tip = el("span", { className: "tip", hidden: true }, when);
+  const strip = el("div", { className: "mini", role: "slider", tabIndex: 0, ariaValueMin: "0", ariaValueMax: "24", hidden: true },
+                   plot, thumb, at, probe, tip);
+  let shown = null;  // { indices, since, until, range, jump }
+  let looked = null;  // the fraction of the strip the pointer or the keys last read
+  const pct = (fraction) => `${(Math.min(1, Math.max(0, fraction)) * 100).toFixed(3)}%`;
+  const fractionAt = (clientY) => {
+    const box = strip.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientY - box.top) / box.height));
+  };
+  const look = (fraction) => {
+    looked = fraction;
+    probe.hidden = tip.hidden = fraction == null;
+    if (fraction == null) return;
+    const time = timeDown(fraction, shown.since, shown.until);
+    const bucket = bucketAt(shown.indices, time);
+    probe.style.top = tip.style.top = pct(fraction);
+    when.textContent = clock(time);
+    tip.replaceChildren(when, ...shown.indices.names.map((name) => el("small", {},
+      `${indexName(name)} `, el("b", { textContent: bucket?.values[name] == null ? "–" : score(bucket.values[name]) }))));
+  };
+  const layout = () => {
+    if (!shown) return;
+    const { newest, oldest, open } = shown.range();
+    const span = shown.until - shown.since;
+    thumb.hidden = newest == null;
+    if (newest != null) {
+      thumb.style.top = pct((shown.until - newest) / span);
+      thumb.style.height = pct(Math.max(0.004, (newest - oldest) / span));
+    }
+    at.hidden = open == null;
+    if (open != null) {
+      at.style.top = pct((shown.until - open) / span);
+      at.style.setProperty("--tone", current?.style.getPropertyValue("--tone") || "var(--ink)");
+      strip.ariaValueNow = ((open - shown.since) / 3600).toFixed(1);
+    }
+  };
+  strip.onpointermove = (event) => look(fractionAt(event.clientY));
+  strip.onpointerleave = () => look(null);
+  strip.onclick = (event) => shown?.jump(timeDown(fractionAt(event.clientY), shown.since, shown.until));
+  strip.onkeydown = (event) => {
+    if (!shown) return;
+    const step = shown.indices.bucket_seconds / (shown.until - shown.since);
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const from = looked ?? (shown.range().open == null ? 0 : (shown.until - shown.range().open) / (shown.until - shown.since));
+      look(Math.min(1, Math.max(0, from + (event.key === "ArrowUp" ? -step : step))));
+    } else if ((event.key === "Enter" || event.key === " ") && looked != null) {
+      shown.jump(timeDown(looked, shown.since, shown.until));
+    } else return;
+    event.preventDefault();
+  };
+  strip.onblur = () => look(null);
+  let queued = false;
+  scroll.addEventListener("scroll", () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; layout(); });
+  });
+  new ResizeObserver(layout).observe(strip);
+  return {
+    strip,
+    layout,
+    clear() {
+      shown = null;
+      looked = null;
+      plot.replaceChildren();
+      strip.hidden = thumb.hidden = at.hidden = probe.hidden = tip.hidden = true;
+      scroll.classList.remove("mapped");
+    },
+    set(data) {
+      shown = data;
+      const columns = indexCells(data.indices, data.since, data.until);
+      plot.setAttribute("viewBox", `0 0 ${columns.length} ${MAP_HEIGHT}`);
+      plot.replaceChildren(...columns.flatMap(({ cells }, n) => cells.map((cell) =>
+        svg("rect", { x: n + 0.1, width: 0.8, y: cell.top * MAP_HEIGHT, height: Math.max(1, cell.height * MAP_HEIGHT),
+                      "fill-opacity": CELL_FLOOR + (1 - CELL_FLOOR) * cell.value }))));
+      strip.ariaLabel = `The day's indices, ${columns.map((c) => indexName(c.name)).join(", ")}; press to jump to a time`;
+      strip.hidden = false;
+      scroll.classList.add("mapped");
+      layout();
     },
   };
 }
@@ -406,14 +630,6 @@ const eventLines = (event) => [
 // The indices view: each index of the day (GET /indices) in its own lane from 0
 // to 1, a line through the bucket means with a gap where nothing was answered;
 // the pointer over the lanes reads every index at that time.
-const INDEX_NAMES = { sensitivity: "Sensitivity", agent: "Assistant in focus", error: "Error on screen" };
-const indexName = (name) => INDEX_NAMES[name] ?? name.replaceAll("_", " ");
-const SVG = "http://www.w3.org/2000/svg";
-const svg = (tag, attributes = {}) => {
-  const node = document.createElementNS(SVG, tag);
-  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-  return node;
-};
 // Lanes are drawn in a WIDTH × HEIGHT box stretched to the pane.
 const WIDTH = 1000;
 const HEIGHT = 48;
@@ -539,7 +755,7 @@ function stepBar(sequence, detail) {
   return bar;
 }
 function showEvent(sequence, id, detail) {
-  const button = document.querySelector(`[data-key="${CSS.escape(id)}"]`);
+  const button = sequence.row?.(id) ?? document.querySelector(`[data-key="${CSS.escape(id)}"]`);
   if (button) {
     reveal(button);
     select(button);
