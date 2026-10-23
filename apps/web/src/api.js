@@ -35,9 +35,10 @@ async function checked(response) {
   return response.json();
 }
 
-// The bridge rejects with "<status> <body>" as one message; give it back its status.
+// The bridge rejects with "<status> <body>" as one message, which Electron prefixes with
+// "Error invoking remote method '<channel>': Error: "; give it back its status.
 const bridged = (promise) => promise.catch((error) => {
-  const m = /^(\d{3}) ([\s\S]*)$/.exec(error.message || "");
+  const m = /^(?:Error invoking remote method '[^']*': Error: )?(\d{3}) ([\s\S]*)$/.exec(error.message || "");
   throw m ? new ApiError(Number(m[1]), detailOf(m[2])) : error;
 });
 

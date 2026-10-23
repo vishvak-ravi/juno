@@ -69,6 +69,7 @@ def test_a_default_changed_in_code_reaches_an_install_that_never_set_it(tmp_path
     ({"capture": {"fps": 5}}, "capture"),         # a section, not a setting
     ({"capture.fps": "fast"}, "capture.fps"),     # wrong type
     ({"capture.backend": "windows"}, "capture.backend"),
+    ({"capture.scale": 2}, "capture.scale"),      # out of its range
 ])
 def test_a_refused_change_names_the_setting_and_saves_nothing(tmp_path, change, path):
     store = device_settings(tmp_path)

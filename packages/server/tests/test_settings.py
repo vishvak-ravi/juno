@@ -52,6 +52,8 @@ def test_a_refused_change_names_each_setting_and_saves_nothing(tmp_path):
     assert set(response.json()["detail"]) == {"annotate.modle"}
     response = client.patch("/settings", json={"set": {"keypoints.moment_on": "high"}})
     assert response.status_code == 422 and "keypoints.moment_on" in response.json()["detail"]
+    response = client.patch("/settings", json={"set": {"keypoints.moment_on": 8}})
+    assert response.status_code == 422 and "keypoints.moment_on" in response.json()["detail"]
     assert client.get("/settings").json()["restart"] == []
 
 

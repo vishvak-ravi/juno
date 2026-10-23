@@ -177,10 +177,10 @@ class AnnotateConfig(Section):
         "now. Every stored screenshot then goes to the model's provider."))
     max_tokens: int = Field(8192, description="Upper bound on the reply, hidden reasoning included.",
                             json_schema_extra=ADVANCED)
-    chunk_size: int = Field(10, description=(
+    chunk_size: int = Field(10, ge=1, description=(
         "Aggregations (screenshots) per request. Stored annotations are numbered by it, "
         "so changing it orphans them."), json_schema_extra=ADVANCED)
-    max_concurrency: int = Field(4, description="Model calls the server keeps in flight at once.",
+    max_concurrency: int = Field(4, ge=1, description="Model calls the server keeps in flight at once.",
                                  json_schema_extra=ADVANCED)
     max_attempts: int = Field(3, description=(
         "Calls made for one chunk before its annotation is left failed. A call is repeated "
@@ -207,11 +207,11 @@ class KeypointsConfig(Section):
     enabled: bool = Field(True, description=(
         "Whether rows are asked about (TYPESAFE_API_KEY). Every screenshot then goes to TypeSafe."))
     model: str = "jev-1.14.0"
-    moment_on: float = Field(0.7, description=(
+    moment_on: float = Field(0.7, ge=0.0, le=1.0, description=(
         "A moment starts at a probability of at least this; one of the same type that "
         "stays on screen starts again only after the probability has dropped below moment_off."))
-    moment_off: float = 0.4
-    max_concurrency: int = Field(8, description="Rows asked about at once.",
+    moment_off: float = Field(0.4, ge=0.0, le=1.0)
+    max_concurrency: int = Field(8, ge=1, description="Rows asked about at once.",
                                  json_schema_extra=ADVANCED)
     bucket_seconds: float = Field(300.0, description=(
         "Seconds per bucket of GET /indices when the request names none."),
@@ -251,7 +251,7 @@ class PredictConfig(Section):
         "Earlier activity retrieved with BM25; mmr_k of those are kept after MMR removes "
         "near-duplicates (mmr_alpha 1.0: relevance only)."), json_schema_extra=ADVANCED)
     mmr_k: int = Field(10, json_schema_extra=ADVANCED)
-    mmr_alpha: float = Field(0.5, json_schema_extra=ADVANCED)
+    mmr_alpha: float = Field(0.5, ge=0.0, le=1.0, json_schema_extra=ADVANCED)
     time_decay_lambda: float = Field(0.5, description=(
         "How fast older activity loses retrieval score, per day of age."),
         json_schema_extra=ADVANCED)
@@ -260,13 +260,13 @@ class PredictConfig(Section):
 class ControlConfig(Section):
     """How often devices and clients check in with the server."""
 
-    poll_seconds: float = Field(5.0, description=(
+    poll_seconds: float = Field(5.0, gt=0.0, description=(
         "Seconds between a recorder's reports to the server, each of which also tells it "
         "whether to record; the devices panel refreshes as often."), json_schema_extra=ADVANCED)
-    offline_seconds: float = Field(30.0, description=(
+    offline_seconds: float = Field(30.0, gt=0.0, description=(
         "Seconds without a report after which a device shows as offline."),
         json_schema_extra=ADVANCED)
-    live_seconds: float = Field(2.0, description=(
+    live_seconds: float = Field(2.0, gt=0.0, description=(
         "Seconds between a client's checks of what changed in the timeline (GET /changes)."),
         json_schema_extra=ADVANCED)
 
@@ -298,11 +298,11 @@ class CaptureConfig(Section):
     upload: bool = Field(True, description=(
         "Whether the recorder uploads each aggregation to the server, which annotates it, "
         "and asks the server whether to record. Off: it records here only, always."))
-    fps: int = 5
+    fps: int = Field(5, ge=1)
     screenshots: bool = Field(True, description="Whether screenshot files are written.")
-    scale: Optional[float] = Field(None, description=(
+    scale: Optional[float] = Field(None, gt=0.0, le=1.0, description=(
         "Scale factor for screenshots (0.0-1.0); overrides dpi. On a 4K screen 0.5 is much lighter."))
-    dpi: int = Field(100, description="Target DPI for saved screenshots.")
+    dpi: int = Field(100, ge=1, description="Target DPI for saved screenshots.")
     buffer_seconds: int = Field(120, description="Seconds of frames to keep in memory.",
                                 json_schema_extra=ADVANCED)
     max_res: Optional[tuple[int, int]] = Field(None, description=(
