@@ -41,7 +41,8 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | The calendar's days | the week holding the day shown, from the locale's first weekday; one day; or the six weeks of the month, pressed to open that week |
 | A session's blocks | `GET /sessions?since=&until=` over the days shown, every page: one block per day the session touches, from and to as fractions of that day; "now" as its end while `GET /control` reports a device recording it |
 | An index's curve | `GET /indices?since=&until=` over the days shown, the index picked above the calendar (`agent` when there is one, else the first in `names`); the bucket means averaged over three buckets, broken where a bucket is missing or has no value, drawn as an area from the block's left edge |
-| A moment's pin | each of a session's `moments` on its day, in its type's colour; the chips above the calendar hide a type everywhere |
+| A moment's pin | a session's `moments` on their day; moments closer than a pin's height share one pin (ringed), in the colour most of them have, pressed to open the first; the chips above the calendar hide a type everywhere |
+| The ribbon's pins | the same, a hundredth of the day apart, pressed to open the moment's action; the rest of the ribbon goes back to the calendar |
 | The ribbon | the open action's day: the blocks and pins of the sessions listed that touch it, now, and a mark at the action |
 | A replay | the action's inputs folded into items (`src/renderer/activity.mjs`), one stop per item at its offset from the screenshot; a click or scroll is drawn where it happened, in the screenshot's own pixels, keys as a bubble; play steps through them |
 | The frames | the events of the action's sequence and of one sequence either side, a divider between sequences, the open one marked; a frame opens its action, the arrow keys step through the session's events |
