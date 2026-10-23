@@ -1,5 +1,27 @@
 # Status
 
+## 2026-10-22: Timeline routes read only what they need
+
+| Piece | State |
+|---|---|
+| `FileEvents.rows` keeps each session's parsed rows, parsed again when the size or modification time of its `event_rows.jsonl` changes | done; tested (a row uploaded after a read is in every later read) |
+| `/events`, `/indices` and `/sessions` build only the sessions with a row between `since` and `until` (`sessions_between`) | done; tested |
+| `/events/activity` counts from rows and edits, without building events (`stored_timestamps`) | done; tested |
+| The first request after a start parses every rows file (1.7 s on the snapshot) | not warmed at startup |
+| The parsed rows stay in memory: about 470 MB at peak for the snapshot's 27,709 rows (80.6 MB of `.jsonl`) | grows with the store |
+
+Against the baseline (`--label rows-cache-range`, same snapshot and day, 1 cold and 5 warm passes), in ms:
+
+| Request | Baseline p50 | Now cold | Now p50 | Now p95 |
+|---|---|---|---|---|
+| calendar (`/events/activity`) | 3,965 | 1,738 | 18 | 20 |
+| day events (`/events?…&limit=100`) | 4,167 | 72 | 63 | 413 |
+| day indices (`/indices`) | 3,999 | 64 | 46 | 393 |
+| day events, next page (`after=`) | 3,930 | 97 | 62 | 73 |
+| day sessions (`/sessions`) | 4,181 | 72 | 44 | 45 |
+| open session (`/sessions/{id}`) | 57 | 32 | 22 | 24 |
+| open day (events and indices together) | 8,555 | 490 | 80 | 462 |
+
 ## 2026-10-22: Timeline route timings
 
 | Piece | State |

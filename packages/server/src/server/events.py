@@ -9,6 +9,10 @@
 - ``screenshots/<recorder's file name>``: the PNG a row names. The row stores
   its path relative to the session directory; ``rows`` hands it out absolute;
 - ``event_edits.json``: the user's captions and deletions, by row.
+
+``FileEvents`` keeps each session's parsed rows in memory with the size and
+modification time of its ``event_rows.jsonl``, and parses the file again
+only when either differs.
 """
 
 from __future__ import annotations
@@ -64,7 +68,10 @@ class Events(Protocol):
         """The stored sessions, of one device or of all, ordered by id."""
 
     def rows(self, session_id: str) -> list[Aggregation]:
-        """Every row of a session in upload order, screenshot paths absolute; empty if none."""
+        """Every row of a session in upload order, screenshot paths absolute; empty if none.
+
+        Callers share the list and its rows and must not change them.
+        """
 
     def row_count(self, session_id: str) -> int: ...
 
@@ -112,6 +119,8 @@ class FileEvents:
         # not interleave. An edit reads, changes and replaces the edits file.
         self._append_lock = threading.Lock()
         self._edit_lock = threading.Lock()
+        # By session id: (size, mtime_ns) of its rows file, and the rows parsed from it.
+        self._rows: dict[str, tuple[tuple[int, int], list[Aggregation]]] = {}
 
     def devices(self) -> list[str]:
         return sorted({session_id.split("-", 1)[0] for session_id in self.sessions()})
@@ -120,14 +129,26 @@ class FileEvents:
         return [session_id_of(directory) for directory in session_dirs(self.devices_dir, device_id)]
 
     def rows(self, session_id: str) -> list[Aggregation]:
-        return read_rows(session_dir(self.devices_dir, session_id))
+        directory = session_dir(self.devices_dir, session_id)
+        try:
+            stat = (directory / EVENT_ROWS_FILE).stat()
+        except FileNotFoundError:
+            self._rows.pop(session_id, None)
+            return []
+        key = (stat.st_size, stat.st_mtime_ns)
+        cached = self._rows.get(session_id)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        rows = read_rows(directory)
+        self._rows[session_id] = (key, rows)
+        return rows
 
     def row_count(self, session_id: str) -> int:
         return count_lines(session_dir(self.devices_dir, session_id) / EVENT_ROWS_FILE)
 
     def screenshot(self, session_id: str, row: int) -> Optional[Path]:
         directory = session_dir(self.devices_dir, session_id)
-        rows = read_rows(directory)
+        rows = self.rows(session_id)
         if not 0 <= row < len(rows) or rows[row].screenshot_path is None:
             return None
         path = Path(rows[row].screenshot_path).resolve()

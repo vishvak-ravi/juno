@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from starlette.datastructures import State
 
 from juno.sessions import SESSION_ID_PATTERN
-from server.routes.events import Event, session_events
+from server.routes.events import Event, session_events, sessions_between
 from server.routes.paging import DeviceFilter, Page, page_of
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -65,7 +65,8 @@ def list_sessions(
 ) -> Page[Session]:
     """Sessions with an event in the time range, newest first by default, without their events."""
     state = request.app.state
-    found = [session_of(session_id, state) for session_id in state.events.sessions(device)]
+    found = [session_of(session_id, state)
+             for session_id in sessions_between(state, device, since, until)]
     sessions = sorted((Session.model_validate(s.model_dump(exclude={"events"})) for s in found
                        if s is not None
                        and (since is None or s.end >= since)

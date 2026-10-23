@@ -163,10 +163,43 @@ def session_events(state: State, session_id: str,
     return events
 
 
-def stored_events(state: State, device: Optional[str] = None) -> list[Event]:
-    """Every event the user has not deleted, of one device or of all, in no particular order."""
-    return [event for session_id in state.events.sessions(device)
+def overlaps(aggregations: list[Aggregation], since: Optional[float],
+             until: Optional[float]) -> bool:
+    """Whether a session's rows have a timestamp in ``[since, until]``; None leaves that side open."""
+    if not aggregations:
+        return False
+    timestamps = [aggregation.timestamp for aggregation in aggregations]
+    return ((since is None or max(timestamps) >= since)
+            and (until is None or min(timestamps) <= until))
+
+
+def sessions_between(state: State, device: Optional[str], since: Optional[float],
+                     until: Optional[float]) -> list[str]:
+    """The stored sessions, of one device or of all, with a row in ``[since, until]``."""
+    return [session_id for session_id in state.events.sessions(device)
+            if overlaps(state.events.rows(session_id), since, until)]
+
+
+def stored_events(state: State, device: Optional[str] = None, since: Optional[float] = None,
+                  until: Optional[float] = None) -> list[Event]:
+    """The events the user has not deleted, of one device or of all, in no particular order.
+
+    Only sessions with a row in ``[since, until]`` are built; events of those
+    sessions outside it are left in, for the caller to filter.
+    """
+    return [event for session_id in sessions_between(state, device, since, until)
             for event in session_events(state, session_id).values()]
+
+
+def stored_timestamps(state: State, device: Optional[str] = None) -> list[float]:
+    """The timestamp of every event the user has not deleted, of one device or of all."""
+    timestamps = []
+    for session_id in state.events.sessions(device):
+        edits = state.events.edits(session_id).rows
+        timestamps += [aggregation.timestamp
+                       for row, aggregation in enumerate(state.events.rows(session_id))
+                       if not edits.get(row, EventEdit()).deleted]
+    return timestamps
 
 
 def locate(event_id: str) -> tuple[str, int]:
@@ -198,7 +231,7 @@ def list_events(
     after: Optional[str] = None,
 ) -> Page[Event]:
     """Events of every device, newest first by default, optionally of one device or time range."""
-    events = [event for event in stored_events(request.app.state, device)
+    events = [event for event in stored_events(request.app.state, device, since, until)
               if (since is None or event.timestamp >= since)
               and (until is None or event.timestamp <= until)]
     events.sort(key=sort_key, reverse=order == "desc")
@@ -256,7 +289,7 @@ def activity(
 ) -> Activity:
     """How many events fall in each span between consecutive edges, every device's or one device's."""
     bounds = parse_edges(edges)
-    timestamps = sorted(event.timestamp for event in stored_events(request.app.state, device))
+    timestamps = sorted(stored_timestamps(request.app.state, device))
     return Activity(edges=bounds, counts=count_between(timestamps, bounds))
 
 

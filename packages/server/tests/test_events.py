@@ -183,3 +183,31 @@ def test_activity_counts_the_events_between_each_pair_of_edges(tmp_path):
         assert client.get("/events/activity", params={"edges": "100"}).status_code == 400
         assert client.get("/events/activity", params={"edges": "200,100"}).status_code == 400
         assert client.get("/events/activity", params={"edges": "a,b"}).status_code == 400
+
+
+def test_a_row_uploaded_after_a_read_is_in_every_later_read(tmp_path):
+    with client_for(tmp_path) as client:
+        put(client, LAPTOP, 0, 1000.0)
+        assert [e["id"] for e in client.get("/events").json()["data"]] == [f"{LAPTOP}-000000"]
+        assert client.get("/events/activity", params={"edges": "0,5000"}).json()["counts"] == [1]
+
+        put(client, LAPTOP, 1, 3000.0)
+        assert [e["id"] for e in client.get("/events").json()["data"]] == [
+            f"{LAPTOP}-000001", f"{LAPTOP}-000000"]
+        assert client.get("/events/activity", params={"edges": "0,5000"}).json()["counts"] == [2]
+        later = client.get("/sessions", params={"since": 2000, "until": 4000}).json()["data"]
+        assert [(s["id"], s["event_count"]) for s in later] == [(LAPTOP, 2)]
+
+
+def test_a_time_range_lists_only_the_events_and_sessions_inside_it(tmp_path):
+    with client_for(tmp_path) as client:
+        put(client, LAPTOP, 0, 1000.0)
+        put(client, LAPTOP, 1, 1100.0)
+        put(client, DESKTOP, 0, 5000.0)
+
+        inside = client.get("/events", params={"since": 1050, "until": 6000}).json()["data"]
+        assert [e["id"] for e in inside] == [f"{DESKTOP}-000000", f"{LAPTOP}-000001"]
+        sessions = client.get("/sessions", params={"since": 4000, "until": 6000}).json()["data"]
+        assert [s["id"] for s in sessions] == [DESKTOP]
+        indices = client.get("/indices", params={"since": 4000, "until": 6000}).json()
+        assert sum(b["rows"] for b in indices["buckets"]) == 1

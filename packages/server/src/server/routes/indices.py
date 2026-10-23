@@ -62,7 +62,7 @@ def get_indices(
 ) -> Indices:
     state = request.app.state
     seconds = bucket_seconds or state.keypoints.bucket_seconds
-    events = [event for event in stored_events(state, device)
+    events = [event for event in stored_events(state, device, since, until)
               if (since is None or event.timestamp >= since)
               and (until is None or event.timestamp <= until)]
     names = list(state.questions.indices)
