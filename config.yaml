@@ -173,3 +173,9 @@ claude_hook:
   # Claude Code waits for the server before sending the prompt on anyway; read
   # when the hook is installed.
   timeout_seconds: 3
+
+client:
+  # The desktop client (apps/desktop), which reads this file through the
+  # checkout's Python when it starts. Actions either side of the open one whose
+  # screenshots are fetched ahead, so stepping to them shows each at once.
+  prefetch: 3

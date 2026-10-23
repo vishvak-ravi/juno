@@ -60,6 +60,10 @@ export function railLines(sessions) {
   return lines;
 }
 
+// The moment an action at `timestamp` belongs to: the latest of `moments`
+// (oldest first) starting at or before it; null before the first.
+export const momentAt = (moments, timestamp) => moments.findLast((moment) => moment.timestamp <= timestamp) ?? null;
+
 // Moments (oldest first) drawn as pins: those within `gap` seconds of a pin's
 // first moment share it, `{ timestamp, moments, type }`, `type` the one most of
 // its moments have (the first's on a tie).

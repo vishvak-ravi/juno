@@ -11,8 +11,8 @@ import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
   MOMENT_TYPES, actions, clock, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve,
-  inputLine, liveSessions, matches, modelName, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade, shownInputs,
-  weekOf, weekStart, weekdays,
+  inputLine, liveSessions, matches, modelName, momentAt, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade,
+  shownInputs, weekOf, weekStart, weekdays,
 } from "./rows.mjs";
 import { replaySteps } from "./activity.mjs";
 
@@ -176,6 +176,11 @@ function savedPitch() {
 }
 const savePitch = (pitch) => { try { localStorage.setItem(PITCH_KEY, String(pitch)); } catch { /* the zoom starts over next time */ } };
 
+// The checkout's config.yaml (`client`), read through the desktop app
+// (window.juno); null in a browser, where nothing is fetched ahead.
+let settings = null;
+window.juno?.config().then((read) => { settings = read; });
+
 // The keys of the open view: Escape back to the calendar, the arrows stepping
 // through the open session's events, while nothing is being typed.
 let keys = null;
@@ -201,10 +206,61 @@ export function timelinePane(pane, detail, control) {
   const list = el("div", { className: "scroll" });
   const groupList = el("div", { className: "groups" });
   const earlier = el("button", { className: "more", textContent: "Earlier" });
-  const rail = momentRail(list, (line) => openMoment(line));
+  const rail = momentRail(list, (line) => openMoment(line), () => momentHere());
   const nowButton = el("button", { className: "new", ariaLabel: "Now" }, icon("up", 14), "Now");
   pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }), nowButton),
                        el("div", { className: "body" }, rail.strip, list));
+
+  // The open action's parents, pinned at the list's top as it scrolls: its
+  // session's summary under the day heading, its sequence's under that (which
+  // only takes hold once the sequence outruns the list). Their heights, as
+  // --pin-* on the list, place the sticky summaries and keep what is scrolled
+  // into view clear of them.
+  const pins = { date: 0, session: 0, seq: 0 };
+  const measurePins = () => {
+    pins.date = groupList.querySelector(".date")?.offsetHeight ?? 0;
+    pins.session = groupList.querySelector('details.session[aria-current="true"] > summary')?.offsetHeight ?? 0;
+    pins.seq = groupList.querySelector('details.seq[aria-current="true"] > summary')?.offsetHeight ?? 0;
+    for (const [name, px] of Object.entries(pins)) list.style.setProperty(`--pin-${name}`, `${px}px`);
+  };
+  const markParents = (session, seq = null) => {
+    for (const node of groupList.querySelectorAll('details[aria-current="true"]')) node.removeAttribute("aria-current");
+    session?.setAttribute("aria-current", "true");
+    seq?.setAttribute("aria-current", "true");
+    measurePins();
+  };
+  new ResizeObserver(measurePins).observe(list);
+
+  // The moment the list is at, for the rail: the open action's while its row is
+  // on screen below the pins, else the first action's on screen; null with no
+  // action on screen or before its session's first moment.
+  const onScreen = (node) => {
+    const view = list.getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    return box.bottom > view.top + pins.date + pins.session + pins.seq && box.top < view.bottom;
+  };
+  function momentHere() {
+    let row = current?.classList.contains("event") && current.isConnected && onScreen(current) ? current : null;
+    row ??= [...groupList.querySelectorAll("details[open] > .session-body > details[open] > ul > li > .row.event")].find(onScreen);
+    if (!row) return null;
+    const id = row.closest("details.session").dataset.key;
+    const event = details.get(id)?.events.find((e) => e.id === row.dataset.key);
+    return event ? momentAt(shownMoments(sessions.get(id)), event.timestamp) : null;
+  }
+
+  // The screenshots of the actions either side of the open one (client.prefetch
+  // each way), fetched ahead so stepping to them shows each at once; an image
+  // is kept while its action stays within reach.
+  const warm = new Map();
+  function prefetch(events, at) {
+    const reach = settings?.client.prefetch ?? 0;
+    const near = events.slice(Math.max(0, at - reach), at + reach + 1);
+    for (const id of warm.keys()) if (!near.some((e) => e.id === id)) warm.delete(id);
+    for (const event of near) {
+      if (!event.screenshot_url || warm.has(event.id)) continue;
+      warm.set(event.id, Object.assign(new Image(), { fetchPriority: "low", src: url(event.screenshot_url) }));
+    }
+  }
   const live = () => liveSessions(control());
   const detailOf = async (id) => {
     if (!details.has(id)) details.set(id, await api(`/sessions/${encodeURIComponent(id)}`));
@@ -311,9 +367,8 @@ export function timelinePane(pane, detail, control) {
   async function showSession(session) {
     while (!sessions.has(session.id) && since > session.start) await loadEarlier();
     if (!sessions.has(session.id)) add([session]);
-    for (const node of groups.values()) node.removeAttribute("aria-current");
     const node = groups.get(session.id);
-    node.setAttribute("aria-current", "true");
+    markParents(node);
     node.open = true;
     node.scrollIntoView({ block: "start", behavior: smooth() });
     return detailOf(session.id);
@@ -521,12 +576,15 @@ export function timelinePane(pane, detail, control) {
       inputsFold(event));
     const scroller = el("div", { className: "scroll" }, ribbon(dayOf, event), page);
     detail.replaceChildren(crumbs, scroller);
+    prefetch(events, at);
     const row = groupList.querySelector(`[data-key="${CSS.escape(id)}"]`);
     if (row) {
       row.closest("details.seq").open = true;
       select(row);
+      markParents(row.closest("details.session"), row.closest("details.seq"));
       row.scrollIntoView({ block: "nearest" });
     }
+    rail.layout();
   }
   // The day of the open action: its sessions and moments on one line, the
   // action marked. A pin opens its moment's action; the rest of the ribbon
@@ -593,48 +651,43 @@ export function timelinePane(pane, detail, control) {
 }
 
 // The moment rail: one line per moment of the sessions listed, in the list's
-// order, a divider per day, down the left edge of `scroll`. The wheel over it
-// zooms, setting how many pixels a moment takes, the line under the pointer
-// staying where it is; past the pane's height the rail scrolls with the list.
-// The line nearest the pointer reads beside the rail and opens on a press
-// (`open(line)`). The band marks the lines whose sessions are in view.
-function momentRail(scroll, open) {
+// order, a divider per day, down the left edge of `scroll`. Past the pane's
+// height the rail scrolls with the list. The wheel over it zooms, setting how
+// many pixels a moment takes, the line under the pointer staying where it is
+// (the rail alone moves for that; the list stays put). The line nearest the
+// pointer reads beside the rail and opens on a press (`open(line)`). The line
+// of the moment `locate()` returns, the one the list is at, is ringed.
+function momentRail(scroll, open, locate) {
   const body = el("div", { className: "rail-body" });
-  const band = el("span", { className: "band", hidden: true });
   const tip = el("span", { className: "tip", hidden: true });
   const strip = el("nav", { className: "moments", ariaLabel: "Moments" }, body, tip);
   let lines = [];
   let nodes = [];
   let sizes = [];
   let tops = [];
-  let shift = 0;
+  let shift = 0;  // pixels of the rail above its top edge
   let pitch = savedPitch();
   let hovered = -1;
+  let here = -1;
   const total = () => sizes.reduce((a, b) => a + b, 0);
-  const layout = () => {
+  // Places the lines. `shift` follows the list's scroll unless the caller set it (a zoom).
+  const layout = (keepShift = false) => {
     const height = body.clientHeight;
     sizes = nodes.map((node, n) => (node.hidden ? 0 : lines[n].divider ? DIVIDER : pitch));
+    const overflow = Math.max(0, total() - height);
     const room = Math.max(1, scroll.scrollHeight - scroll.clientHeight);
-    shift = Math.max(0, total() - height) * Math.min(1, scroll.scrollTop / room);
+    if (!keepShift) shift = overflow * Math.min(1, scroll.scrollTop / room);
+    shift = Math.min(overflow, Math.max(0, shift));
     let y = 0;
     tops = sizes.map((size) => { const top = y; y += size; return top; });
     nodes.forEach((node, n) => {
       node.style.top = `${tops[n] - shift}px`;
       node.style.height = `${sizes[n]}px`;
     });
-    const view = scroll.getBoundingClientRect();
-    const inView = lines.map((line, n) => {
-      if (line.divider || nodes[n].hidden) return false;
-      const box = line.group?.()?.getBoundingClientRect();
-      return box && box.bottom > view.top && box.top < view.bottom;
-    });
-    const first = inView.indexOf(true);
-    band.hidden = first < 0;
-    if (first >= 0) {
-      const last = inView.lastIndexOf(true);
-      band.style.top = `${tops[first] - shift}px`;
-      band.style.height = `${tops[last] + sizes[last] - tops[first]}px`;
-    }
+    const moment = locate();
+    nodes[here]?.classList.remove("here");
+    here = moment ? lines.findIndex((line) => !line.divider && line.moment.event_id === moment.event_id && line.moment.type === moment.type) : -1;
+    nodes[here]?.classList.add("here");
   };
   // The moment's line nearest to `y` in the body, within half a pitch (at least a few pixels); -1 if none.
   const nearest = (y) => {
@@ -668,7 +721,7 @@ function momentRail(scroll, open) {
     const n = nearest(yOf(event));
     if (n >= 0) open(lines[n]);
   };
-  // Zooms around the pointer: the line there keeps its place, the list scrolled to what that needs.
+  // Zooms around the pointer: the line there keeps its place, the rail shifted to what that needs.
   strip.addEventListener("wheel", (event) => {
     event.preventDefault();
     const y = yOf(event);
@@ -676,11 +729,10 @@ function momentRail(scroll, open) {
     const before = anchor >= 0 ? tops[anchor] - shift : null;
     pitch = Math.max(PITCH.min, Math.min(PITCH.max, pitch + (event.deltaY < 0 ? 1 : -1)));
     savePitch(pitch);
-    layout();
-    const overflow = total() - body.clientHeight;
-    if (before != null && overflow > 0) {
-      scroll.scrollTop = Math.min(1, Math.max(0, (tops[anchor] - before) / overflow)) * (scroll.scrollHeight - scroll.clientHeight);
-      layout();
+    layout(true);
+    if (before != null) {
+      shift = tops[anchor] - before;
+      layout(true);
     }
     hover(nearest(y));
   }, { passive: false });
@@ -698,9 +750,8 @@ function momentRail(scroll, open) {
       lines = items;
       nodes = items.map((line) => {
         if (line.divider) return el("span", { className: "d" });
-        const { moment, session } = line;
+        const { moment } = line;
         const when = day(new Date(moment.timestamp * 1000)).start;
-        line.group = () => scroll.querySelector(`details[data-key="${CSS.escape(session.id)}"] > summary`);
         const node = el("button", { className: "m", hidden: hidden.has(moment.type),
                                     ariaLabel: `${momentText(moment)}, ${dayLabel(when)} ${clock(moment.timestamp)}` }, el("i"));
         node.style.setProperty("--c", momentTone(moment.type));
@@ -708,8 +759,9 @@ function momentRail(scroll, open) {
         return node;
       });
       hovered = -1;
+      here = -1;
       tip.hidden = true;
-      body.replaceChildren(band, ...nodes);
+      body.replaceChildren(...nodes);
       layout();
     },
   };

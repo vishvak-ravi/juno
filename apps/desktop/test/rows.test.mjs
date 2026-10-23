@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   actions, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve, inputLine,
-  liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, pinClusters, railLines, runTime, sequencesOf, shade,
+  liveSessions, matches, modelName, momentAt, momentText, monthGrid, offset, overallState, pinClusters, railLines, runTime, sequencesOf, shade,
   shownInputs, weekOf, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
@@ -31,6 +31,16 @@ test("the moment rail lists each session's moments newest first, with a divider 
   ]);
   const shape = lines.map((line) => (line.divider ? "|" : line.moment.timestamp));
   assert.deepEqual(shape, [at(22, 18.5), at(22, 18), at(22, 12), "|", "|", at(19, 21.5)]);
+});
+
+test("an action belongs to the latest moment starting at or before it", () => {
+  const moment = (timestamp) => ({ type: "code_landed", label: null, timestamp, event_id: "e" });
+  const moments = [moment(10), moment(20), moment(30)];
+  assert.equal(momentAt(moments, 5), null);
+  assert.equal(momentAt(moments, 10), moments[0]);
+  assert.equal(momentAt(moments, 25), moments[1]);
+  assert.equal(momentAt(moments, 99), moments[2]);
+  assert.equal(momentAt([], 99), null);
 });
 
 test("moments closer than a pin share one, in the colour most of them have", () => {

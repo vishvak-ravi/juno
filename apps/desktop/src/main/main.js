@@ -1,6 +1,7 @@
 const path = require("node:path");
 const { app, BrowserWindow } = require("electron");
 
+const { registerConfig } = require("./config");
 const { startCapture } = require("./recorder");
 const { startDictation } = require("./dictation");
 const { registerResume } = require("./resume");
@@ -49,6 +50,7 @@ function createWindow() {
 app.whenReady().then(() => {
   registerServerApi(registerSettings(DEFAULT_SERVER_URL));
   registerResume(REPO_DIR);
+  registerConfig(REPO_DIR);
   startCapture(REPO_DIR);
   if (PASSIVE_AGENT) startDictation();
   createWindow();
