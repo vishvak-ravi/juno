@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   actions, chips, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, indexLanes, inputLine,
-  liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, railItems, runTime, shade,
+  linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, railItems, runTime, shade,
   shownInputs, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
@@ -40,6 +40,13 @@ test("a moment is drawn as a divider above the event it starts at, below the hou
   ];
   const shape = (items) => items.map((i) => (i.hour != null ? "hour" : i.moment ? `moment ${i.event.timestamp}` : `${i.event.timestamp}`));
   assert.deepEqual(shape(railItems(rows)), ["hour", `moment ${at(16, 10)}`, `${at(16, 10)}`, `${at(16, 5)}`]);
+});
+
+test("the moment rail spaces its lines evenly, between a readable minimum and a loose maximum", () => {
+  assert.equal(linePitch(0, 500), 14);
+  assert.equal(linePitch(10, 500), 14);
+  assert.equal(linePitch(60, 496), 8);
+  assert.equal(linePitch(300, 500), 5);
 });
 
 test("a moment's divider names the assistant when one is known", () => {

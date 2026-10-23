@@ -15,6 +15,7 @@
 | Per-row Jev request, answers stored per chunk, scan worker under the annotate switch | done; tested with a fake Jev, the SDK request checked against a mock transport; not yet run against TypeSafe |
 | `indices` and `moments` on `GET /events` and `GET /sessions/{id}`; `GET /indices` | done; tested with a fake Jev |
 | Moment dividers in the linear timeline; Indices view with a lane per index | done; drawn with the page's example data only |
+| Moment rail down the linear timeline's left edge: lines by type, heading on hover, press to scroll to the divider | done; checked in a browser with the page's example data |
 | Image token cost per row | not yet measured |
 
 ## 2026-10-21: Desktop window, timeline details
