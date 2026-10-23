@@ -21,6 +21,8 @@ class Report(BaseModel):
 
 
 class Instruction(BaseModel):
-    """The answer to a report: whether the recorder should record."""
+    """The answer to a report: whether the recorder should record, and when to report next."""
 
     capture: bool
+    # Seconds until the next report (the server's ``control.poll_seconds``).
+    poll_seconds: float

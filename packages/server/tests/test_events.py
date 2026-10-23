@@ -10,7 +10,7 @@ from PIL import Image
 
 from annotate.label import Action, Annotation
 from annotate.store import FileActivityCaptions
-from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
+from juno.config import AnnotateConfig, ServerSettings, devices_dir
 from server.app import create_app
 from server.events import FileEvents
 
@@ -48,9 +48,8 @@ def client_for(tmp_path, actions=(), dense_caption=""):
     def annotate_request(request):
         return Annotation(actions=list(actions), dense_caption=dense_caption,
                           sanitization=request.sanitization)
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2))
-    return TestClient(create_app(config, annotate_request=annotate_request))
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2))
+    return TestClient(create_app(config, data_dir=tmp_path, annotate_request=annotate_request))
 
 
 def wait_for_annotation(data_dir, session, chunk):

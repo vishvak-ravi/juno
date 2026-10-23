@@ -3,7 +3,7 @@
 import time
 
 from annotate.store import FileActivityCaptions
-from juno.config import devices_dir
+from juno.config import ControlConfig, devices_dir
 from test_events import LAPTOP, client_for, put, wait_for_annotation
 
 
@@ -18,7 +18,8 @@ def test_a_device_appears_recording_when_it_first_reports(tmp_path):
     client = client_for(tmp_path)
     assert client.get("/control").json()["devices"] == {}
 
-    assert report(client, "laptop", session_id="laptop-session_20260101_120000") == {"capture": True}
+    answer = report(client, "laptop", session_id="laptop-session_20260101_120000")
+    assert answer == {"capture": True, "poll_seconds": ControlConfig().poll_seconds}
 
     device = client.get("/control").json()["devices"]["laptop"]
     assert device["capture"] is True
@@ -35,8 +36,8 @@ def test_turning_a_device_off_is_what_its_next_report_is_told(tmp_path):
     response = client.patch("/control/devices/laptop", json={"capture": False})
 
     assert response.json()["devices"]["laptop"]["capture"] is False
-    assert report(client, "laptop", capture="running") == {"capture": False}
-    assert report(client, "desktop") == {"capture": True}
+    assert report(client, "laptop", capture="running")["capture"] is False
+    assert report(client, "desktop")["capture"] is True
 
 
 def test_only_a_device_that_has_reported_can_be_switched(tmp_path):

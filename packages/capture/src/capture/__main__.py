@@ -1,11 +1,12 @@
 """Run the activity recorder: ``python -m capture``.
 
-Settings come from the ``capture`` section of the YAML config (see
-``juno.config``). With ``annotate.live`` set, each aggregation is uploaded to
-the server as it is written (see ``capture.upload``), which annotates it, and
-every ``control.poll_seconds`` the recorder reports to the server's
-``/control`` and records or not as the answer says (see ``server.control``).
-Turning recording off ends the session; turning it on again starts a new one.
+Settings come from the ``capture`` section of this computer's
+``<data_dir>/device.json`` (see ``juno.config.DeviceSettings``). With
+``capture.upload`` set, each aggregation is uploaded to the server at
+JUNO_SERVER_URL as it is written (see ``capture.upload``), which annotates it,
+and the recorder reports to the server's ``/control``, records or not as the
+answer says and reports again when it says (see ``server.control``). Turning
+recording off ends the session; turning it on again starts a new one.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import logging
 import signal
 import sys
 import threading
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -26,45 +28,46 @@ from juno.config import (
     CaptureConfig,
     ConfigError,
     ControlConfig,
-    load_config,
-    resolve_data_dir,
+    data_dir,
     resolve_device_id,
-    server_host,
+    server_url,
 )
 from juno.control import Instruction, Report
+from juno.settings import device_settings
 
 logger = logging.getLogger(__name__)
 
 
-def report(report_url: str, session_id: Optional[str], recording: bool,
-           timeout_seconds: float) -> bool:
-    """Tell the server whether a session is being recorded; returns whether one should be.
+def report(report_url: str, session_id: Optional[str],
+           timeout_seconds: float) -> Optional[Instruction]:
+    """Tell the server whether a session is being recorded; returns its answer.
 
-    If the server cannot be reached or refuses the report, the answer is ``recording``.
+    None if the server cannot be reached or refuses the report.
     """
     body = Report(capture="running" if session_id else "paused", session_id=session_id)
     try:
         response = httpx.put(report_url, json=body.model_dump(), timeout=timeout_seconds)
         response.raise_for_status()
-        return Instruction.model_validate(response.json()).capture
+        return Instruction.model_validate(response.json())
     except httpx.HTTPError as exc:
         logger.warning("could not report to %s: %s", report_url, exc)
-        return recording
+        return None
 
 
-def main(config: CaptureConfig, server_url: Optional[str] = None,
-         control: Optional[ControlConfig] = None) -> int:
+def main(config: CaptureConfig, base_dir: Path, server_url: Optional[str] = None) -> int:
     """
     Args:
+        base_dir: the base directory; sessions go under ``screen/sessions/``.
         server_url: the server the session is uploaded to and that says
-            whether to record; None records without either.
+            whether to record and when to ask again; None records without either.
     """
     logging.basicConfig(
         level=logging.DEBUG if config.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
-    control = control or ControlConfig()
+    # Until the server's first answer says otherwise.
+    poll_seconds = ControlConfig().poll_seconds
 
     try:
         backend = load_backend(config.backend, fps=config.fps)
@@ -84,7 +87,7 @@ def main(config: CaptureConfig, server_url: Optional[str] = None,
         nonlocal recorder, uploader
         recorder = Recorder(
             backend,
-            data_dir=resolve_data_dir(config),
+            data_dir=base_dir,
             fps=config.fps,
             buffer_seconds=config.buffer_seconds,
             target_dpi=config.dpi,
@@ -129,14 +132,16 @@ def main(config: CaptureConfig, server_url: Optional[str] = None,
             if server_url is None:
                 wanted = True
             else:
-                wanted = report(f"{server_url}/control/devices/{device_id}/report",
-                                uploader.session_id if uploader else None, recording,
-                                control.poll_seconds)
+                answer = report(f"{server_url}/control/devices/{device_id}/report",
+                                uploader.session_id if uploader else None, poll_seconds)
+                wanted = recording if answer is None else answer.capture
+                if answer is not None:
+                    poll_seconds = answer.poll_seconds
             if wanted and not recording:
                 start()
             elif recording and not wanted:
                 stop()
-            if done.wait(control.poll_seconds if server_url is not None else None):
+            if done.wait(poll_seconds if server_url is not None else None):
                 break
     finally:
         # A second Ctrl+C must not interrupt the flush.
@@ -154,18 +159,17 @@ def main(config: CaptureConfig, server_url: Optional[str] = None,
 
 
 def run() -> int:
-    # This device's settings may live in a .env file.
+    # This device's environment (data directory, server, device id) may live in a .env file.
     load_dotenv(find_dotenv(usecwd=True))
     try:
-        config = load_config()
+        base_dir = data_dir()
+        config = device_settings(base_dir).read().capture
+        url = server_url() if config.upload else None
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     start_parent_watch()
-    if not config.annotate.live:
-        return main(config.capture)
-    return main(config.capture, server_url=f"http://{server_host()}:{config.server.port}",
-                control=config.control)
+    return main(config, base_dir, server_url=url)
 
 
 if __name__ == "__main__":

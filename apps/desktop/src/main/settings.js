@@ -1,10 +1,11 @@
-// The desktop app's own settings, set in the window's settings panel and kept
-// in settings.json in Electron's userData directory, outside the checkout. The
-// one setting is serverUrl, the app server the window reads from; the recorder
-// uploads to the server named in the checkout's .env either way.
+// The desktop app's own settings (prefs.js), kept in settings.json in Electron's
+// userData directory, outside the checkout: read once at startup and on every
+// change, written only here.
 const fs = require("node:fs");
 const path = require("node:path");
 const { app, ipcMain } = require("electron");
+
+const { defaultsOf, describe, patched, valuesOf } = require("./prefs");
 
 const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
 
@@ -26,37 +27,30 @@ function writeSettings(settings) {
   fs.writeFileSync(settingsFile(), `${JSON.stringify(settings, null, 2)}\n`);
 }
 
-// An http(s) address without its trailing slash; throws with a message for the user otherwise.
-function serverUrlOf(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${value || "An empty address"} is not an address`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("The address must start with http:// or https://");
-  return url.href.replace(/\/$/, "");
-}
-
-// Registers the settings IPC and returns a getter of the server URL: the saved
-// one, else defaultUrl. The preload reads it synchronously, so a reloaded page
-// starts on the address just saved.
-function registerSettings(defaultUrl) {
-  let serverUrl = readSettings().serverUrl ?? defaultUrl;
-  ipcMain.on("settings:server-url", (event) => { event.returnValue = serverUrl; });
-  // Resolves to {url} once saved, or {error} saying why the address was refused.
-  ipcMain.handle("settings:set-server-url", (_event, value) => {
-    let url;
-    try {
-      url = serverUrlOf(String(value).trim());
-    } catch (error) {
-      return { error: error.message };
-    }
-    writeSettings({ ...readSettings(), serverUrl: url });
-    serverUrl = url;
-    return { url };
+// Registers the settings IPC; returns a getter of the current values.
+// `onServerUrl(url)` is called after a change of the server address.
+function registerSettings(defaultServerUrl, onServerUrl) {
+  const defaults = defaultsOf(defaultServerUrl);
+  let values = valuesOf(readSettings(), defaults);
+  // The preload reads them synchronously, so a reloaded page starts on what was just saved.
+  ipcMain.on("prefs:values", (event) => { event.returnValue = values; });
+  ipcMain.handle("prefs:describe", () => describe(values, defaults));
+  // Resolves to {description} once saved, or {errors} by dotted path.
+  ipcMain.handle("prefs:patch", (_event, change) => {
+    const result = patched(readSettings(), defaults, change ?? {});
+    if (result.errors) return { errors: result.errors };
+    writeSettings(result.saved);
+    const before = values;
+    values = valuesOf(result.saved, defaults);
+    if (values.serverUrl !== before.serverUrl) onServerUrl(values.serverUrl);
+    return { description: describe(values, defaults) };
   });
-  return () => serverUrl;
+  // Quits (once the recorder has saved its session) and starts again, for what applies at startup.
+  ipcMain.handle("app:relaunch", () => {
+    app.relaunch();
+    app.quit();
+  });
+  return () => values;
 }
 
 module.exports = { registerSettings };

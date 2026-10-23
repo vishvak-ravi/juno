@@ -10,8 +10,10 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
     # The settings models (`juno.config`) and the shared row and report models.
     "pydantic",
-    # The YAML config (`juno.config`).
+    # Values typed on the settings command line (`juno.settings`).
     "pyyaml",
+    # This computer's .env, read by the settings command line (`juno.settings`).
+    "python-dotenv",
 ]
 
 [tool.hatch.build.targets.wheel]

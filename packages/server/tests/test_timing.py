@@ -5,14 +5,14 @@ import re
 
 from fastapi.testclient import TestClient
 
-from juno.config import CaptureConfig, Config
+from juno.config import ServerSettings
 from server.app import create_app
 
 SERVER_TIMING = re.compile(r"^app;dur=(\d+\.\d)$")
 
 
 def client_for(tmp_path):
-    return TestClient(create_app(Config(capture=CaptureConfig(data_dir=tmp_path))))
+    return TestClient(create_app(ServerSettings(), data_dir=tmp_path))
 
 
 def test_a_response_carries_the_milliseconds_the_server_spent_on_it(tmp_path):

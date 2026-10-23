@@ -2,10 +2,12 @@
 // app's bridge (window.juno, whose requests its main process makes) when there is
 // one, else by fetch against the address the page was opened at.
 
+// `detail` is the route's own: a message, or for a refused PATCH /settings the reason by dotted path.
 export class ApiError extends Error {
   constructor(status, detail) {
-    super(`${status} ${detail}`);
+    super(`${status} ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -22,8 +24,7 @@ export const useExamples = (byPath) => { examples = byPath; };
 
 const detailOf = (text) => {
   try {
-    const detail = JSON.parse(text).detail ?? text;
-    return typeof detail === "string" ? detail : JSON.stringify(detail);
+    return JSON.parse(text).detail ?? text;
   } catch {
     return text;
   }

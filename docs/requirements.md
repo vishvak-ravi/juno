@@ -97,7 +97,6 @@ K1 is the only one to optimize. K2–K4 are pass/fail gates for the MVP.
 | Chat detail view with tool calls for agent sessions | ChatGPT/Codex app already shows the session (N4) |
 | PR review UI | GitHub app (N4) |
 | Choosing *where* context is stored and *where* agents work, per device | One server + one workspace first **(proposed)** |
-| Model selection UI | Config file is enough for one user **(proposed)** |
 | Event timeline view | Debug tool, not part of the loop **(proposed)** |
 | Dashboard beyond the feed | Feed + device list cover K2 **(proposed)** |
 | Super easy setup | N9 |

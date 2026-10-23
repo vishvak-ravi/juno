@@ -13,7 +13,7 @@ from PIL import Image
 from annotate.label import Action, Annotation
 from annotate.store import FileActivityCaptions
 from capture.upload import AggregationUploader, copy_sessions
-from juno.config import AnnotateConfig, CaptureConfig, Config, devices_dir
+from juno.config import AnnotateConfig, ControlConfig, ServerSettings, devices_dir
 from server.app import create_app
 from server.events import FileEvents
 
@@ -46,9 +46,9 @@ def annotate_request(request):
 
 
 def app_for(tmp_path):
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2))
-    return create_app(config, annotate_request=annotate_request)
+    # Recorders report every 0.2 s, so a switch flipped in a test reaches them at once.
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2), control=ControlConfig(poll_seconds=0.2))
+    return create_app(config, data_dir=tmp_path, annotate_request=annotate_request)
 
 
 def put(client, session, index):

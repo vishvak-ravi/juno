@@ -3,7 +3,7 @@
 ``install`` adds to Claude Code's user settings (``settings.json`` in
 CLAUDE_CONFIG_DIR, default ``~/.claude``) an ``http`` hook on UserPromptSubmit
 that posts each prompt's hook input to the server this device's recorder
-uploads to (JUNO_SERVER_HOST, ``server.port``), under this device's id; see
+uploads to (JUNO_SERVER_URL), under this device's id; see
 ``juno.claude_hook``. Installing again replaces the hook, so a changed address,
 device id or ``claude_hook.timeout_seconds`` is picked up. ``uninstall``
 removes it. Every other setting is kept as it is.
@@ -21,7 +21,8 @@ from typing import Any, Optional
 from dotenv import find_dotenv, load_dotenv
 
 from juno.claude_hook import HEADER_VARIABLES, HOOK_PATH
-from juno.config import ConfigError, load_config, resolve_device_id, server_host
+from juno.config import ConfigError, resolve_device_id, server_url
+from juno.settings import device_settings
 
 CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
 EVENT = "UserPromptSubmit"
@@ -94,7 +95,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                      description="Report each Claude Code prompt to the Juno server.")
     parser.add_argument("action", choices=["install", "uninstall"])
     args = parser.parse_args(argv)
-    # This device's settings may live in a .env file.
+    # This device's environment (server, device id) may live in a .env file.
     load_dotenv(find_dotenv(usecwd=True))
     path = settings_path()
     try:
@@ -103,8 +104,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             write_settings(path, without_hook(settings))
             print(f"removed the Juno prompt hook from {path}")
             return 0
-        config = load_config()
-        url = f"http://{server_host()}:{config.server.port}{HOOK_PATH}?device={resolve_device_id()}"
+        config = device_settings().read()
+        url = f"{server_url()}{HOOK_PATH}?device={resolve_device_id()}"
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -7,7 +7,7 @@ Every chunk of the session is annotated, or only chunk ``--chunk``. Each request
 is built and sanitized as the server builds it (``annotate.request``,
 ``annotate.sanitize``) and sent with ``annotate.label.completion_params``, one
 call at a time. ``--model`` and ``--api-base`` default to ``annotate.model`` and
-``annotate.api_base`` in the config.
+``annotate.api_base`` of the server's settings (``juno.settings``).
 
 The session directory is only read. Results go to ``--out``, by default
 ``data/annotations/<session id>/<model with / as _>/`` under the checkout:
@@ -46,7 +46,8 @@ from annotate.label import (AnnotationError, completion_params, parse_completion
 from annotate.request import AnnotationRequest, chunk_request
 from annotate.sanitize import sanitize
 from annotate.store import covers, new_caption, read_caption_file, write_caption_file
-from juno.config import AnnotateConfig, ConfigError, load_config
+from juno.config import AnnotateConfig, ConfigError
+from juno.settings import server_settings
 from juno.sessions import Aggregation, read_aggregations, session_id_of
 from server.events import EVENT_ROWS_FILE, read_rows
 
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv(find_dotenv(usecwd=True))
     try:
-        config = load_config().annotate
+        config = server_settings().read().annotate
         server_copy = (args.session_dir / EVENT_ROWS_FILE).is_file()
         aggregations = (read_rows(args.session_dir) if server_copy
                         else read_aggregations(args.session_dir))

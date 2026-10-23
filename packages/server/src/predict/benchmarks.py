@@ -46,7 +46,7 @@ class PredictorSettings(Section):
 
 
 class GraderSettings(Section):
-    # The judge model (``grade``); its default is ``grade.model`` in the config.
+    # The judge model (``grade``); its default is the server's ``grade.model``.
     model: str
     api_base: Optional[str] = None
 

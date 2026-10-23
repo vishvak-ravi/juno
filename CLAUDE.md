@@ -12,7 +12,7 @@ Note these down as critical rules that are to be followed in this repository at 
 
 ### CRITICAL: No Development History in Code
 
-**Comments, docstrings, error messages, test names and `config.yaml` comments describe the code as it is now, never how it got there.** Banned: "deprecated", "legacy", "used to", "no longer", "was renamed/removed/moved", "replaces the old X", "kept for compatibility", "for now", "not yet", "so far", dates, and any mention of a route, field or type that no longer exists.
+**Comments, docstrings, error messages, test names and setting descriptions describe the code as it is now, never how it got there.** Banned: "deprecated", "legacy", "used to", "no longer", "was renamed/removed/moved", "replaces the old X", "kept for compatibility", "for now", "not yet", "so far", dates, and any mention of a route, field or type that no longer exists.
 
 - Bad: `# this route was removed; clients read sessions through events instead`
 - Good: nothing here; document the events route where it is defined
@@ -82,7 +82,7 @@ Keeping existing docs accurate is not creating docs: when a change makes `README
    - Search for the feature across the entire codebase to confirm understanding
    - Don't assume a config file or single location is exhaustive
 
-**Bad:** Find `annotate.model` in `config.yaml` → assume that's all model usage
+**Bad:** Find `annotate.model` in `juno.config` → assume that's all model usage
 
 **Good:** Understand the flow from recorder to prediction → see that models are called for annotation (`annotate.model`), chat (`llm.base_url`), prediction (`predict`), benchmarks (`scripts/benchmark_prediction.py` predictor) and the judge (`grade.model`: `scripts/grade_action_captions.py`, `predict.reward`) → search for every model call → trace actual usage
 
@@ -122,14 +122,18 @@ existing pattern instead.
 
 In this repo:
 
-- **Models and knobs shared by every device**: add a key to the matching
-  section of `config.yaml` (with a comment saying what it does) and the
-  field to the settings model in `packages/core/src/juno/config.py`, the same way
-  `annotate.model` and `predict.past_len` are defined.
-- **Values that differ per device** (server host, device id, API keys): read
-  from `.env`, listed in `.env.example`.
+- **Models and knobs the server or its scripts read**: add a field to the
+  matching section of `ServerSettings` in `packages/core/src/juno/config.py`,
+  with its default and a `description` saying what it does (the client shows
+  it; mark tuning `ADVANCED`), the same way `annotate.model` and
+  `predict.past_len` are defined. The client's Settings view picks it up.
+- **What one computer's recorder or hook reads**: a field of `DeviceSettings`
+  in the same file.
+- **What must be known before a settings file can be read** (data directory,
+  server host, port and URL, device id) **and API keys**: read from `.env`,
+  listed in `ENVIRONMENT` in `juno.config` and in `.env.example`.
 - **Per-request knobs**: a request body or query field with a default taken
-  from `config.yaml`, never a literal in the function body.
+  from the settings, never a literal in the function body.
 
 Hardcoded models / thresholds defeat the configuration system and turn
 every model swap into a code change.
@@ -231,15 +235,15 @@ The failure looks like this: each intermediate fetch/hydration step renders its 
 Commands and the per-platform support matrix are in [README.md](README.md);
 requirements, decisions, status and design notes are in [docs/](docs/).
 
-- `packages/core/src/juno`: what the server and the recorder share: `juno.config` loads `config.yaml`; `juno.sessions` is the session id and row format; `juno.events` the event ids; `juno.control` the recorder's report
+- `packages/core/src/juno`: what the server and the recorder share: `juno.config` every setting and its default, `juno.settings` the files that hold what differs from them; `juno.sessions` is the session id and row format; `juno.events` the event ids; `juno.control` the recorder's report
 - `packages/capture/src/capture`: the recorder (`python -m capture`); platform sources in `capture/sources/`; `capture.parent_watch` stops it when the client that started it dies
-- `packages/server/src/server`: FastAPI API server (`python -m server`, `server.port` in `config.yaml`); routes in `routes/`; the chat model, its tools and MCP in `agent/` (`llm.base_url`, `agent/tools.py`, `agent/mcp.py`)
+- `packages/server/src/server`: FastAPI API server (`python -m server`, `JUNO_SERVER_PORT`); routes in `routes/`; the chat model, its tools and MCP in `agent/` (`llm.base_url`, `agent/tools.py`, `agent/mcp.py`)
 - `packages/server/src/annotate`: annotation of recorded chunks with `annotate.model`
 - `packages/server/src/predict`: next-action predictor and benchmark rows
 - `apps/desktop/`: Electron desktop client (`src/main`, `src/preload`, `src/renderer`); it starts the recorder
-- `apps/web/`: the phone page (`index.html`), the drawing page (`draw.html`) and, in `src/`, the modules the phone page and the desktop browser page share (`api.js`, `views.js`, `markdown.js`); the server serves them as they are. The desktop window is `apps/desktop/src/renderer/index.html`
+- `apps/web/`: the phone page (`index.html`), the drawing page (`draw.html`) and, in `src/`, the modules the phone page and the desktop browser page share (`api.js`, `views.js`, `markdown.js`, `settings.js`); the server serves them as they are. The desktop window is `apps/desktop/src/renderer/index.html`
 - `scripts/`: install scripts, dataset and benchmark CLIs
-- Settings: `config.yaml` (shared by every device), `.env` (this device: `JUNO_SERVER_HOST`, `JUNO_DEVICE_ID`, `GEMINI_API_KEY`), both at the checkout root
+- Settings: the server's in `<data_dir>/settings.json` (`GET`/`PATCH /settings`), each computer's recorder's in `<data_dir>/device.json`, both changed in the client's Settings view or with `python -m juno.settings`; `.env` at the checkout root for the data directory, server address, device id and API keys
 
 The API server, the recorder and the model server (vLLM at `llm.base_url`) are
 separate processes that usually run on different machines.

@@ -12,7 +12,7 @@ from annotate.label import Action, Annotation
 from annotate.request import build_request
 from annotate.sanitize import sanitize
 from annotate.store import new_caption, write_caption_file
-from juno.config import AnnotateConfig, CaptureConfig, Config, KeypointsConfig, devices_dir
+from juno.config import AnnotateConfig, KeypointsConfig, ServerSettings, devices_dir
 from juno.sessions import session_dir
 from keypoints.derive import session_moments
 from keypoints.questions import load_questions
@@ -126,10 +126,9 @@ class FakeJev:
 
 
 def client_for(tmp_path, jev):
-    config = Config(capture=CaptureConfig(data_dir=tmp_path),
-                    annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
-                    keypoints=KeypointsConfig(moment_on=ON, moment_off=OFF, bucket_seconds=2))
-    return TestClient(create_app(config, annotate_request=lambda r: None, ask=jev))
+    config = ServerSettings(annotate=AnnotateConfig(chunk_size=2, scan_interval_seconds=0.05),
+                            keypoints=KeypointsConfig(moment_on=ON, moment_off=OFF, bucket_seconds=2))
+    return TestClient(create_app(config, data_dir=tmp_path, annotate_request=lambda r: None, ask=jev))
 
 
 def wait_for_answers(tmp_path, chunks):

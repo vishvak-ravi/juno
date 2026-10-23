@@ -246,11 +246,6 @@
   .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--deck-ink); transition: transform .15s; }
   .sw:checked { background: var(--green); }
   .sw:checked::after { transform: translateX(12px); }
-  #panel label.field { display: block; font-size: 12px; color: var(--deck-dim); margin-bottom: 6px; }
-  #panel form { display: flex; gap: 8px; }
-  #panel form input { flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--deck-field-line); border-radius: 6px;
-                      background: var(--deck-field); color: var(--deck-ink); font-size: 13px; }
-  #panel form button { height: 34px; padding: 0 14px; border: 0; border-radius: 6px; background: var(--deck-ink); color: var(--deck); font-size: 13px; font-weight: 500; }
   #panel .note { display: flex; align-items: center; gap: 7px; margin: 10px 0 12px; }
   #bar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; }
   #bar .spacer { flex: 1 1 auto; }
@@ -291,6 +286,38 @@
   /* An action: the ribbon of its day pinned above it (pressed to go back to the calendar), the action,
      its parent sequence, the screenshot with the inputs replayed over it, the frames around it. */
   #detail > .scroll:has(.ribbon) { padding: 0; }
+
+  /* The settings view: sources and their sections on the left, one section's form in the detail pane. */
+  .group-head { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; padding: 16px 12px 6px; }
+  .group-head:first-child { padding-top: 4px; }
+  small.restart { display: block; padding: 0 12px 6px; color: var(--amber); font-size: 12px; }
+  .settings-page { max-width: 680px; }
+  .settings-page .page-head h2 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+  .settings-page .lede { color: var(--dim); margin: 8px 0 24px; max-width: 66ch; }
+  #detail form.settings { display: block; padding: 0; max-width: none; }
+  .setting { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--line); }
+  .setting label { display: flex; align-items: baseline; gap: 10px; }
+  .setting label b { font-weight: 500; }
+  .setting label code { font: 11px ui-monospace, monospace; color: var(--faint); }
+  #detail form.settings input:not([type="checkbox"]), form.settings select {
+    height: 34px; padding: 0 10px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; max-width: 420px; width: 100%; }
+  #detail form.settings input.sw { flex: none; width: 30px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: var(--field); }
+  #detail form.settings input.sw:checked { background: var(--green); }
+  .setting small { font-size: 12px; }
+  .setting small.help { max-width: 66ch; }
+  .setting small.error { color: var(--amber); }
+  #detail button.link { height: auto; border: 0; border-radius: 0; padding: 0; background: none; color: var(--ink); text-decoration: underline;
+                        font-size: 12px; font-weight: 400; }
+  details.advanced { margin-top: 12px; border-top: 1px solid var(--line); }
+  details.advanced > summary { padding: 14px 0; font-size: 13px; color: var(--dim); }
+  details.advanced > summary:hover { color: var(--ink); }
+  /* Pinned to the pane's bottom edge, over the scroll's bottom padding (#detail > .scroll). */
+  #detail form.settings footer { display: flex; align-items: center; gap: 12px; padding: 16px 0 32px; margin-bottom: -32px; position: sticky; bottom: -32px;
+                                 background: var(--bg); border-top: 1px solid var(--line); }
+  #detail form.settings button.save { height: 34px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--ink); color: var(--bg); font-weight: 500; }
+  .environment li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 0 10px; padding: 12px 0; border-top: 1px solid var(--line); align-items: baseline; }
+  .environment b { font: 500 13px ui-monospace, monospace; }
+  .environment small { display: block; font-size: 12px; overflow-wrap: anywhere; }
   #detail > .scroll:has(.ribbon) .page { padding: 24px 40px 32px; }
   .ribbon { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 8px 16px 6px;
             border-bottom: 1px solid var(--line); background: var(--bg); cursor: pointer; }
@@ -424,6 +451,7 @@
     </section>
     <section class="pane" id="timeline-pane" hidden></section>
     <section class="pane" id="predictions-pane" hidden></section>
+    <section class="pane" id="settings-pane" hidden></section>
 
     <section id="deck">
       <div id="panel" hidden></div>
@@ -442,7 +470,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           <span class="light offline" id="devices-light"></span>
         </button>
-        <button class="tab" data-panel="settings" aria-expanded="false" aria-label="Settings" title="Settings">
+        <button class="tab" data-view="settings" aria-pressed="false" aria-label="Settings" title="Settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
@@ -470,8 +498,8 @@
 </div>
 
 <script type="module">
-  // The desktop browser: chats, the timeline and predictions in the left pane,
-  // one at a time, with what is open in the detail pane; devices and settings in
+  // The desktop browser: chats, the timeline, predictions or settings in the left
+  // pane, one at a time, with what is open in the detail pane; the devices panel in
   // the deck below. It draws with the modules in apps/web/src that the phone page
   // shares. Data comes from the Electron bridge (window.juno) or, opened in a
   // browser, from the server on this computer, else from the examples below.
@@ -480,6 +508,7 @@
   import { deviceNote, el, load, messageOf, paged, queueNote, status, switchBox, time } from "../../../web/src/views.js";
   import { icon, predictionsPane, select, timelinePane } from "./browse.js";
   import { deviceState, overallState } from "./rows.mjs";
+  import { settingsPane } from "./settings.js";
 
   // Stand-in responses, in the server's shapes, for viewing this page without a server.
   const EXAMPLE = {
@@ -650,7 +679,7 @@
 
   const panel = document.getElementById("panel");
   const light = document.getElementById("devices-light");
-  let open = null;  // the panel shown: "devices", "settings" or null
+  let open = null;  // the panel shown: "devices" or null
 
   const head = (title) => el("header", {}, el("b", { textContent: title }),
     el("button", { className: "close", ariaLabel: `Close ${title.toLowerCase()}`, onclick: () => showPanel(null) }, icon("down")));
@@ -680,53 +709,19 @@
       ...(ids.length ? [] : [el("p", { className: "note", textContent: "No device has reported yet." })])];
   }
 
-  const connection = () => {
-    const n = control ? Object.keys(control.devices).length : 0;
-    return [el("span", { className: `light ${control ? "recording" : "offline"}` }),
-            control ? `Connected · ${n} device${n === 1 ? " has" : "s have"} reported` : unreachable()];
-  };
-  // The address is kept by the desktop app (window.juno.setServerUrl); a page the
-  // server serves can only show the one it was opened at.
-  function settingsPanel() {
-    const input = el("input", { id: "server", type: "url", value: BASE || location.origin, spellcheck: false, required: true });
-    const save = el("button", { textContent: "Save", hidden: !window.juno?.setServerUrl });
-    input.readOnly = save.hidden;
-    const note = el("p", { className: "note", id: "connection" }, ...connection());
-    const form = el("form", {}, input, save);
-    form.onsubmit = async (event) => {
-      event.preventDefault();
-      save.disabled = true;
-      let saved;
-      try {
-        saved = await window.juno.setServerUrl(input.value.trim());
-      } catch (error) {
-        saved = { error: messageOf(error) };
-      }
-      if (saved.error) {
-        note.replaceChildren(el("span", { className: "light changing" }), saved.error);
-        save.disabled = false;
-        return;
-      }
-      location.reload();  // every view is read again from the new address
-    };
-    return [head("Settings"), el("label", { className: "field", htmlFor: "server", textContent: "Server address" }), form, note];
-  }
-
   function showPanel(name) {
     open = name;
     panel.hidden = !open;
     for (const tab of document.querySelectorAll("[data-panel]")) tab.setAttribute("aria-expanded", String(tab.dataset.panel === open));
-    panel.replaceChildren(...(open === "devices" ? devicesPanel() : open === "settings" ? settingsPanel() : []));
+    panel.replaceChildren(...(open === "devices" ? devicesPanel() : []));
   }
   // Redraws what shows /control without a loading state: the light always, the
-  // devices panel unless a switch is waiting for the server, the settings
-  // panel's connection line only, so a half-typed address stays.
+  // devices panel unless a switch is waiting for the server.
   function drawDeck() {
     const state = overallState(control, recorder);
     light.className = `light ${state}`;
     document.querySelector('[data-panel="devices"]').ariaLabel = `Devices: ${state}`;
     if (open === "devices" && !panel.querySelector("input:disabled")) panel.replaceChildren(...devicesPanel());
-    if (open === "settings") document.getElementById("connection")?.replaceChildren(...connection());
   }
   async function poll() {
     const [next, local] = await Promise.allSettled([api("/control"), recorderStatus()]);
@@ -741,7 +736,7 @@
 
   // The view buttons: each shows its pane, read anew; pressing the shown one goes back to the chats.
   const panes = { chats: document.getElementById("chats-pane"), timeline: document.getElementById("timeline-pane"),
-                  predictions: document.getElementById("predictions-pane") };
+                  predictions: document.getElementById("predictions-pane"), settings: document.getElementById("settings-pane") };
   let view = "chats";
   let timeline = null;  // the timeline pane, made once and kept: it stays caught up and shows again what it had
   function showView(next) {
@@ -753,6 +748,7 @@
       timeline.show();
     }
     if (view === "predictions") predictionsPane(panes.predictions, detail);
+    if (view === "settings") settingsPane(panes.settings, detail);
   }
   for (const tab of document.querySelectorAll("[data-view]")) tab.onclick = () => showView(tab.dataset.view);
   for (const tab of document.querySelectorAll("[data-panel]")) tab.onclick = () => showPanel(open === tab.dataset.panel ? null : tab.dataset.panel);

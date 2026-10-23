@@ -3,6 +3,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import APIRouter, FastAPI, Request
@@ -11,9 +12,10 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from annotate.label import Annotation, annotate_async
 from annotate.request import AnnotationRequest
-from juno.config import (Config, claude_results_dir, control_file, devices_dir,
-                         draw_sessions_dir, load_config, resolve_data_dir, server_host,
-                         workspace_dir)
+from juno.config import (DeviceSettings, ServerSettings, claude_results_dir, control_file,
+                         data_dir as default_data_dir, devices_dir, draw_sessions_dir,
+                         server_host, workspace_dir)
+from juno.settings import device_settings, server_settings
 from annotate.store import FileActivityCaptions
 from keypoints.ask import Ask, JevAsk, QuestionWorker
 from keypoints.questions import load_questions
@@ -32,6 +34,7 @@ from server.routes.hooks import router as hooks_router
 from server.routes.indices import router as indices_router
 from server.routes.predictions import router as predictions_router
 from server.routes.sessions import router as sessions_router
+from server.routes.settings import router as settings_router
 from server.routes.web import WEB_DIR
 from server.routes.web import router as web_router
 from server.timing import TimingMiddleware
@@ -75,29 +78,37 @@ def log_store_report(report: StoreReport) -> None:
                        issue.subject, issue.detail)
 
 
-def create_app(config: Optional[Config] = None,
+def create_app(config: Optional[ServerSettings] = None,
+               data_dir: Optional[Path] = None,
+               device: Optional[DeviceSettings] = None,
                annotate_request: Optional[AnnotateRequest] = None,
                ask: Optional[Ask] = None,
                ) -> FastAPI:
     """
     Args:
-        config: the app settings; read from the YAML config file if None.
-            Chats are stored under ``chats/`` in the capture data directory,
-            uploaded sessions under ``screen/devices/``.
+        config: the server's settings; read from ``<data_dir>/settings.json`` if None.
+        data_dir: the base directory (default ``juno.config.data_dir()``): chats
+            under ``chats/``, uploaded sessions under ``screen/devices/``, the
+            settings file at its root.
+        device: this machine's capture settings, which the /draw page is recorded
+            with; read from ``<data_dir>/device.json`` if None.
         annotate_request: the model call for one sanitized annotation request;
             by default ``annotate.label.annotate`` with the configured model.
         ask: the Jev call for one row; by default ``keypoints.ask.JevAsk``
             with ``keypoints.model``, which needs TYPESAFE_API_KEY.
     """
+    data_dir = data_dir or default_data_dir()
+    settings_file = server_settings(data_dir)
     if config is None:
-        config = load_config()
+        config = settings_file.read()
+    if device is None:
+        device = device_settings(data_dir).read()
     if annotate_request is None:
         async def annotate_request(request: AnnotationRequest) -> Annotation:
             return await annotate_async(request, model=config.annotate.model,
                                         max_tokens=config.annotate.max_tokens,
                                         api_base=config.annotate.api_base)
 
-    data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"
     predictor = Predictor(config.predict)
     events = FileEvents(devices_dir(data_dir))
@@ -128,6 +139,9 @@ def create_app(config: Optional[Config] = None,
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.add_middleware(TimingMiddleware)
+    # The settings file, and the settings this process started with: a change applies on restart.
+    app.state.settings_file = settings_file
+    app.state.settings = config
     app.state.chats_dir = chats_dir
     app.state.devices_dir = devices_dir(data_dir)
     app.state.llm = config.llm
@@ -140,7 +154,7 @@ def create_app(config: Optional[Config] = None,
     app.state.answers = answers
     app.state.control = control
     app.state.control_config = config.control
-    app.state.capture = config.capture
+    app.state.capture = device.capture
     app.state.draw = config.draw
     app.state.draw_sessions_dir = draw_sessions_dir(data_dir)
     annotating = control.read().server.annotate
@@ -169,6 +183,7 @@ def create_app(config: Optional[Config] = None,
     app.include_router(indices_router)
     app.include_router(predictions_router)
     app.include_router(sessions_router)
+    app.include_router(settings_router)
     # The modules the web pages import, at the path the pages name them by.
     app.mount("/src", StaticFiles(directory=WEB_DIR / "src"), name="web-src")
     # After the routes: the MCP app answers MCP_PATH and nothing else.

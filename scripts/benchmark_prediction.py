@@ -24,22 +24,21 @@ The config (YAML):
       api_base: http://localhost:8000/v1        # optional
       max_tokens: 2048
       temperature: 1.0
-    grader:                     # optional; default: the grade section of config.yaml
+    grader:                     # optional; default: the server's grade settings
       model: gemini/gemini-3.1-flash-lite
     limit: null                 # predict only the first N samples
     max_attempts: 5             # predictor calls while the provider is busy
     retry_seconds: 60           # wait between them when the provider names none
 
 Keys come from the environment or ``.env`` (GEMINI_API_KEY for gemini/).
-Where sessions are stored comes from ``capture.data_dir`` in ``config.yaml``
-(or JUNO_CONFIG_PATH).
+Sessions are read from the store under JUNO_DATA_DIR; the default grader is
+the server's ``grade`` settings (``juno.settings``).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -51,7 +50,8 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from grade.call import CallFailed, complete, judge_for
-from juno.config import ConfigError, Section, devices_dir, load_config, resolve_data_dir
+from juno.config import ConfigError, Section, data_dir, devices_dir
+from juno.settings import server_settings
 from juno.sessions import session_dir
 from predict.benchmarks import (RUN_FORMAT, GradedRow, GraderSettings, PredictorSettings,
                                 run_file)
@@ -97,13 +97,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = BenchmarkConfig.model_validate(yaml.safe_load(args.config.read_text()) or {})
         lines = config.dataset.read_text().splitlines()
-        app_config = load_config(None if os.environ.get("JUNO_CONFIG_PATH")
-                                 else ROOT_DIR / "config.yaml")
+        app_config = server_settings().read()
     except (OSError, yaml.YAMLError, ValidationError, ConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     samples = [json.loads(line) for line in lines if line.strip()][:config.limit]
-    store = devices_dir(resolve_data_dir(app_config.capture))
+    store = devices_dir(data_dir())
     run = time.strftime(RUN_FORMAT)
 
     grade_config = app_config.grade
