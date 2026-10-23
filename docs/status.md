@@ -8,6 +8,13 @@
 | `get_event` returns the screenshot as an MCP image | done over MCP; Juno's chat model is told an image exists but not shown it |
 | Each call reads every stored session (about 3 s over 3,000 events) | not optimized |
 | Tablet captions: new prompt and chunking | not started |
+## 2026-10-21: Activity view
+
+| Piece | State |
+|---|---|
+| Inputs folded into typed text, shortcuts, key runs, clicks and scrolls, in the client (`activity.mjs`) | done; unit tested, and run over a recorded session of 16k inputs (700 items) |
+| Activity view, the timeline's default: newest first, a colour per kind | done; not yet seen drawn, Electron did not start from the agent's shell |
+| Folding behind an API route | not yet; its gaps (`GAPS`) move to `config.yaml` then |
 
 ## 2026-10-21: Jev keypoints
 

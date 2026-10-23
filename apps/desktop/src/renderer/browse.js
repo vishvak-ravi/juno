@@ -1,6 +1,7 @@
 // The timeline and predictions panes of the desktop browser, coarse to fine: the
-// left pane lists one day's events on one line, newest first, or that day's
-// sessions, each fetched whole when opened (or the graded runs, a run opening to
+// left pane lists one day's activity, newest first (what the user typed, pressed,
+// clicked and scrolled, read from the events' inputs), or its events on one line,
+// or that day's sessions, each fetched whole when opened (or the graded runs, a run opening to
 // its predictions), and one event or prediction opens in full in the detail pane.
 // A screenshot is requested only when its event is opened; a prediction's prompts
 // and the predictor's screenshots only when it is opened and their section expanded.
@@ -11,6 +12,7 @@ import {
   inputLine, linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, railItems, shade, shownInputs,
   weekStart, weekdays,
 } from "./rows.mjs";
+import { activityRail, describe } from "./activity.mjs";
 
 // The routes' largest page.
 const PAGE = 100;
@@ -128,21 +130,21 @@ const shortScore = (value) => score(value).replace(/^0\./, ".");
 // Timeline
 
 // The views of the timeline pane, the one shown remembered on this computer.
-const VIEWS = [["linear", "Linear"], ["sessions", "Sessions"], ["indices", "Indices"]];
+const VIEWS = [["activity", "Activity"], ["linear", "Linear"], ["sessions", "Sessions"], ["indices", "Indices"]];
 const VIEW_KEY = "juno.timeline.view";
 function savedView() {
   try {
     const saved = localStorage.getItem(VIEW_KEY);
-    return VIEWS.some(([value]) => value === saved) ? saved : "linear";
+    return VIEWS.some(([value]) => value === saved) ? saved : "activity";
   } catch {
-    return "linear";
+    return "activity";
   }
 }
 function saveView(view) {
   try {
     localStorage.setItem(VIEW_KEY, view);
   } catch {
-    // Not remembered; the linear view shows next time.
+    // Not remembered; the activity view shows next time.
   }
 }
 
@@ -250,6 +252,7 @@ export function timelinePane(pane, detail, control) {
     rail.clear();
     rail.strip.hidden = view !== "linear";
     const views = {
+      activity: () => activityView(since, until, detail),
       linear: () => linearView(since, until, detail, tone, rail),
       sessions: () => sessionsView(since, until, detail, liveSessions(control()), tone),
       indices: () => indicesView(since, until),
@@ -291,6 +294,52 @@ function pager(path, add, label) {
     if (entry.isIntersecting && !more.hidden && !more.disabled) more.click();
   }).observe(more);
   return { more, next };
+}
+
+// The activity view: what the user did through the day, newest first, read from
+// the inputs of the events fetched (activity.mjs) and drawn anew as each earlier
+// page arrives, since an item can go on into the page before. A row opens the
+// event its item began in; the step bar steps through the events fetched.
+async function activityView(since, until, detail) {
+  const path = `/events?since=${since}&until=${until}&order=desc&limit=${PAGE}`;
+  const rows = [];  // newest first
+  const rail = el("ol", { className: "rail activity" });
+  const sequence = { events: () => rows.toReversed(), note: () => null,
+                     row: (id) => rail.querySelector(`[data-events~="${CSS.escape(id)}"]`) };
+  const { more, next } = pager(path, (page) => {
+    rows.push(...page.data);
+    const drawn = activityRail(rows).map((entry) =>
+      (entry.hour != null ? hourMark(entry.hour) : entry.moment ? momentMark(entry) : activityRow(entry, sequence, detail)));
+    rail.replaceChildren(...drawn);
+    reselect(rail);
+  }, "Earlier activity");
+  const first = await api(path);
+  if (!first.data.length) return [status("Nothing recorded this day.")];
+  next(first);
+  return [rail, more];
+}
+
+// One item: its time, a dot in its kind's colour, what was done and with what.
+function activityRow({ item, named }, sequence, detail) {
+  const words = describe(item);
+  const button = el("button", { className: `row tick act ${item.kind}` },
+    el("span", { className: "when", textContent: clock(item.start, true) }),
+    el("span", { className: "node" }),
+    el("span", { className: "body" },
+      ...(named ? [el("span", { className: "device", textContent: item.device_id })] : []),
+      el("span", { className: "line" },
+        el("span", { className: "what", textContent: words.what }),
+        ...(words.keys ? [el("span", { className: "keys" }, ...words.keys.map((key) => el("kbd", { textContent: key })))] : []),
+        ...(words.detail ? [el("span", { className: "detail", textContent: words.detail })] : [])),
+      ...(words.text == null ? [] : [el("span", { className: "typed" }, el("span", { textContent: words.text }),
+        ...(words.submitted ? [el("span", { className: "enter", textContent: "⏎", title: "Ended with Enter" })] : []))])));
+  button.dataset.key = `${item.device_id}:${item.start}`;
+  button.dataset.events = item.events.join(" ");
+  button.onclick = () => {
+    showEvent(sequence, item.events[0], detail);
+    select(button);
+  };
+  return el("li", {}, button);
 }
 
 // The linear view: every event of the day on one line, newest first, an hour
@@ -539,7 +588,7 @@ function stepBar(sequence, detail) {
   return bar;
 }
 function showEvent(sequence, id, detail) {
-  const button = document.querySelector(`[data-key="${CSS.escape(id)}"]`);
+  const button = sequence.row?.(id) ?? document.querySelector(`[data-key="${CSS.escape(id)}"]`);
   if (button) {
     reveal(button);
     select(button);
