@@ -24,6 +24,7 @@
 | `indices` and `moments` on `GET /events` and `GET /sessions/{id}`; `GET /indices` | done; tested with a fake Jev |
 | Moment dividers in the linear timeline; Indices view with a lane per index | done; drawn with the page's example data only |
 | Moment rail down the linear timeline's left edge: lines by type, heading on hover, press to scroll to the divider | done; checked in a browser with the page's example data |
+| Index minimap down the linear timeline's right edge, press to jump; the linear view fetched around a time and paged both ways | done; checked in a browser with the page's example data |
 | Image token cost per row | not yet measured |
 
 ## 2026-10-21: Desktop window, timeline details

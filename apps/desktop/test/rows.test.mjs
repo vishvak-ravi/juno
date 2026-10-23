@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, chips, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, indexLanes, inputLine,
-  linePitch, liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, railItems, runTime, shade,
-  shownInputs, weekStart, weekdays,
+  actions, bucketAt, chips, day, dayLabel, duration, foldedNote, gridEdges, groupRuns, hourOf, indexCells, indexLanes,
+  inputLine, linePitch, liveSessions, matches, mergeEvents, modelName, momentText, monthGrid, nearestEvent, offset,
+  overallState, railItems, runTime, shade, shownInputs, timeDown, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
 const event = (session, row, timestamp, fields = {}) => ({
@@ -65,6 +65,27 @@ test("an index's line breaks where a bucket is missing or has no value", () => {
   assert.equal(lane.name, "agent");
   assert.deepEqual(lane.runs.map((run) => run.map((p) => p.value)), [[0.2, 0.4], [0.6], [0.1]]);
   assert.deepEqual(lane.runs[0].map((p) => p.x), [0.05, 0.15]);
+});
+
+test("the minimap draws each answered bucket as a cell, the day's end at the top", () => {
+  const bucket = (start, value) => ({ start, rows: 1, detected: value == null ? 0 : 1, values: { agent: value } });
+  const indices = { names: ["agent"], bucket_seconds: 100, buckets: [bucket(0, 0.2), bucket(300, null), bucket(900, 0.6)] };
+  const [column] = indexCells(indices, 0, 1000);
+  assert.equal(column.name, "agent");
+  assert.deepEqual(column.cells.map((c) => [c.top, c.height, c.value]), [[0.9, 0.1, 0.2], [0, 0.1, 0.6]]);
+  assert.equal(bucketAt(indices, 950).start, 900);
+  assert.equal(bucketAt(indices, 500), null);
+  assert.equal(timeDown(0.25, 0, 1000), 750);
+});
+
+test("pages fetched in either direction merge into one run of rows, newest first", () => {
+  const a = event("laptop-session_20261021_152109", 1, 100);
+  const b = event("laptop-session_20261021_152109", 2, 200);
+  const c = event("laptop-session_20261021_152109", 3, 300);
+  const merged = mergeEvents([b, a], [b, c]);
+  assert.deepEqual(merged.map((e) => e.timestamp), [300, 200, 100]);
+  assert.equal(nearestEvent(merged, 240).timestamp, 200);
+  assert.equal(nearestEvent([], 240), null);
 });
 
 test("chips count what the user did and leave out releases and pointer moves", () => {
