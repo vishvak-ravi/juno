@@ -60,6 +60,24 @@ export function railLines(sessions) {
   return lines;
 }
 
+// Moments (oldest first) drawn as pins: those within `gap` seconds of a pin's
+// first moment share it, `{ timestamp, moments, type }`, `type` the one most of
+// its moments have (the first's on a tie).
+export function pinClusters(moments, gap) {
+  const pins = [];
+  for (const moment of moments) {
+    const last = pins.at(-1);
+    if (last && moment.timestamp - last.timestamp <= gap) last.moments.push(moment);
+    else pins.push({ timestamp: moment.timestamp, moments: [moment], type: moment.type });
+  }
+  for (const pin of pins) {
+    const counts = new Map();
+    for (const { type } of pin.moments) counts.set(type, (counts.get(type) ?? 0) + 1);
+    pin.type = [...counts].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
+  }
+  return pins;
+}
+
 // The local day holding `date`, as GET /events' since and until.
 export function day(date) {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());

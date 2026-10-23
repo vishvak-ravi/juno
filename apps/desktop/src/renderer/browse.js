@@ -11,7 +11,7 @@ import { api } from "../../../web/src/api.js";
 import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
 import {
   MOMENT_TYPES, actions, clock, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve,
-  inputLine, liveSessions, matches, modelName, momentText, monthGrid, offset, railLines, sequencesOf, shade, shownInputs,
+  inputLine, liveSessions, matches, modelName, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade, shownInputs,
   weekOf, weekStart, weekdays,
 } from "./rows.mjs";
 import { replaySteps } from "./activity.mjs";
@@ -32,6 +32,9 @@ const PITCH_KEY = "juno.timeline.pitch";
 const DAY_HEIGHT = 1320;
 const BLOCK_SHORT = 36;
 const BLOCK_TINY = 18;
+// Moments closer than this share a pin: a pin's height down a column, a hundredth of the ribbon across.
+const PIN_GAP = 86400 * 9 / DAY_HEIGHT;
+const RIBBON_GAP = 86400 / 100;
 // The sequences shown either side of the open action's in the frames strip.
 const SEQUENCES_AROUND = 1;
 // Milliseconds between the steps of a replay.
@@ -293,11 +296,16 @@ export function timelinePane(pane, detail, control) {
     button.onclick = () => openEvent(whole, event.id);
     return button;
   }
-  // Moments of a hidden type leave the list, the rail and the calendar.
+  // Moments of a hidden type leave the list, the rail and the calendar, whose pins are drawn again.
   const applyHidden = () => {
-    for (const node of document.querySelectorAll("[data-type]")) node.hidden = hidden.has(node.dataset.type);
+    for (const node of groupList.querySelectorAll("[data-type]")) node.hidden = hidden.has(node.dataset.type);
     rail.set(railLines(ordered()), hidden);
+    if (drawn && !calBody.hidden && calBody.isConnected) calBody.replaceChildren(...columns(drawn));
   };
+  const shownMoments = (session) => session.moments.filter((moment) => !hidden.has(moment.type));
+  // What a pin says: its moment, or how many it holds and which.
+  const pinWords = (pin) => (pin.moments.length === 1 ? `${momentText(pin.moments[0])} · ${clock(pin.timestamp)}`
+    : `${plural(pin.moments.length, "moment")} from ${clock(pin.timestamp)}: ${pin.moments.map(momentText).join(", ")}`);
 
   // Opens a session's group in the list, loading earlier weeks until it is there.
   async function showSession(session) {
@@ -356,6 +364,7 @@ export function timelinePane(pane, detail, control) {
   const calBody = el("div", { className: "scroll cal" });
   const calendarNodes = [crumbs, calBody];
   let shown = 0;  // which showCalendar() the body is filled by; an older one's result is dropped
+  let drawn = null;  // what the columns show: { days, rows, indices }
   const shift = (by) => {
     const d = anchor;
     anchor = mode === "month" ? new Date(d.getFullYear(), d.getMonth() + by, 1) : new Date(d.getFullYear(), d.getMonth(), d.getDate() + by * (mode === "week" ? 7 : 1));
@@ -373,6 +382,7 @@ export function timelinePane(pane, detail, control) {
     select(null);
     back.hidden = true;
     for (const node of [previous, next, today, modes]) node.hidden = false;
+    picker.hidden = !picker.options.length;
     for (const button of modes.children) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
     detail.replaceChildren(...calendarNodes);
     const days = mode === "month" ? monthGrid(anchor.getFullYear(), anchor.getMonth(), ws)
@@ -414,6 +424,18 @@ export function timelinePane(pane, detail, control) {
     picker.replaceChildren(...names.map((name) => el("option", { value: name, textContent: indexName(name) })));
     if (!names.includes(index)) index = names.includes("agent") ? "agent" : names[0] ?? null;
     picker.value = index ?? "";
+    drawn = { days, rows, indices };
+    const nodes = columns(drawn);
+    const now = Date.now() / 1000;
+    const todayStart = day(new Date()).since;
+    // Opens on the hour before now when today is shown, else on the morning.
+    const at = days.some((date) => day(date).since === todayStart) ? (now - todayStart) / 86400 - 1 / 24 : 8 / 24;
+    requestAnimationFrame(() => { calBody.scrollTop = Math.max(0, at) * DAY_HEIGHT; });
+    return nodes;
+  }
+  function columns({ days, rows, indices }) {
+    const since = day(days[0]).since;
+    const until = day(days.at(-1)).until;
     const curve = index ? indexCurve(indices, index, since, until).flat() : [];
     const todayStart = day(new Date()).since;
     const now = Date.now() / 1000;
@@ -443,16 +465,15 @@ export function timelinePane(pane, detail, control) {
         button.onclick = () => showSession(session);
         columns[block.day].append(button);
       }
-      for (const moment of session.moments) {
-        const n = days.findIndex((date) => moment.timestamp >= day(date).since && moment.timestamp <= day(date).until);
+      for (const pin of pinClusters(shownMoments(session), PIN_GAP)) {
+        const n = days.findIndex((date) => pin.timestamp >= day(date).since && pin.timestamp <= day(date).until);
         if (n < 0) continue;
-        const pin = el("button", { className: "pin", style: `top: ${pct((moment.timestamp - day(days[n]).since) / 86400)}`,
-                                   ariaLabel: `${momentText(moment)}, ${clock(moment.timestamp)}`, title: `${momentText(moment)} · ${clock(moment.timestamp)}` });
-        pin.style.setProperty("--c", momentTone(moment.type));
-        pin.dataset.type = moment.type;
-        pin.hidden = hidden.has(moment.type);
-        pin.onclick = async () => openEvent(await showSession(session), moment.event_id);
-        columns[n].append(pin);
+        const words = pinWords(pin);
+        const node = el("button", { className: pin.moments.length > 1 ? "pin many" : "pin", title: words, ariaLabel: words,
+                                    style: `top: ${pct((pin.timestamp - day(days[n]).since) / 86400)}` });
+        node.style.setProperty("--c", momentTone(pin.type));
+        node.onclick = async () => openEvent(await showSession(session), pin.moments[0].event_id);
+        columns[n].append(node);
       }
     }
     days.forEach((date, n) => {
@@ -460,9 +481,6 @@ export function timelinePane(pane, detail, control) {
       if (day(date).since === todayStart) columns[n].append(el("span", { className: "now", style: `top: ${pct((now - todayStart) / 86400)}` }));
     });
     grid.append(...columns);
-    // Opens on the hour before now when today is shown, else on the morning.
-    const at = days.some((date) => day(date).since === todayStart) ? (now - todayStart) / 86400 - 1 / 24 : 8 / 24;
-    requestAnimationFrame(() => { calBody.scrollTop = Math.max(0, at) * grid.querySelector(".col").clientHeight; });
     return [grid];
   }
   // The index through one block, as an area from its left edge, in a unit box.
@@ -488,7 +506,7 @@ export function timelinePane(pane, detail, control) {
     const n = sequences.findIndex((s) => s.index === event.sequence);
     keys = { escape: showCalendar, step: (by) => events[at + by] && openEvent(whole, events[at + by].id) };
     back.hidden = false;
-    for (const node of [previous, next, today, modes]) node.hidden = true;
+    for (const node of [previous, next, today, modes, picker]) node.hidden = true;
     const dayOf = day(new Date(event.timestamp * 1000));
     title.textContent = `${dayLabel(dayOf.start)} · ${clock(event.timestamp, true)} · ${event.device_id}`;
     const steps = replaySteps(event);
@@ -510,7 +528,9 @@ export function timelinePane(pane, detail, control) {
       row.scrollIntoView({ block: "nearest" });
     }
   }
-  // The day of the open action: its sessions and moments on one line, the action marked.
+  // The day of the open action: its sessions and moments on one line, the
+  // action marked. A pin opens its moment's action; the rest of the ribbon
+  // goes back to the calendar.
   function ribbon(dayOf, event) {
     const days = [dayOf.start];
     const track = el("div", { className: "track" });
@@ -518,21 +538,27 @@ export function timelinePane(pane, detail, control) {
       for (const block of dayBlocks(session, days)) {
         track.append(el("i", { className: "blk", style: `left: ${pct(block.from)}; width: ${pct(block.to - block.from)}` }));
       }
-      for (const moment of session.moments) {
-        if (moment.timestamp < dayOf.since || moment.timestamp > dayOf.until || hidden.has(moment.type)) continue;
-        const pin = el("i", { className: "pin", style: `left: ${pct((moment.timestamp - dayOf.since) / 86400)}` });
-        pin.style.setProperty("--c", momentTone(moment.type));
-        track.append(pin);
+      const inDay = shownMoments(session).filter((moment) => moment.timestamp >= dayOf.since && moment.timestamp <= dayOf.until);
+      for (const pin of pinClusters(inDay, RIBBON_GAP)) {
+        const words = pinWords(pin);
+        const node = el("button", { className: pin.moments.length > 1 ? "pin many" : "pin", title: words, ariaLabel: words,
+                                    style: `left: ${pct((pin.timestamp - dayOf.since) / 86400)}` });
+        node.style.setProperty("--c", momentTone(pin.type));
+        node.onclick = async (click) => {
+          click.stopPropagation();
+          openEvent(await showSession(session), pin.moments[0].event_id);
+        };
+        track.append(node);
       }
     }
     const now = Date.now() / 1000;
     if (now >= dayOf.since && now <= dayOf.until) track.append(el("i", { className: "now", style: `left: ${pct((now - dayOf.since) / 86400)}` }));
     track.append(el("i", { className: "at", style: `left: ${pct((event.timestamp - dayOf.since) / 86400)}` }));
-    const button = el("button", { className: "ribbon", title: "Back to the calendar", ariaLabel: `Back to the calendar, ${dayLabel(dayOf.start)}` },
+    const strip = el("div", { className: "ribbon", title: "Back to the calendar" },
       el("span", { className: "lbl", textContent: dayOf.start.toLocaleDateString(undefined, { month: "short", day: "numeric" }) }),
       el("span", {}, track, el("span", { className: "hrs" }, ...[0, 6, 12, 18, 24].map((h) => el("span", { textContent: h })))));
-    button.onclick = () => showCalendar();
-    return button;
+    strip.onclick = () => showCalendar();
+    return strip;
   }
   // The frames: each sequence's actions in a row, a divider between sequences, the open one lit.
   function framesStrip(sequences, whole, id) {

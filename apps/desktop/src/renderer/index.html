@@ -109,15 +109,16 @@
   .group.session > summary { border-radius: 0; border-left: 3px solid transparent; padding-left: 9px; scroll-margin-top: 30px; }
   .group.session[aria-current="true"] > summary { background: var(--current); border-left-color: var(--ink); }
   .group.seq { margin: 0; }
-  .group.seq > summary { grid-template-columns: 56px minmax(0, 1fr) auto; padding: 6px 10px; }
+  .group.seq > summary { grid-template-columns: 76px minmax(0, 1fr) auto; padding: 6px 10px 6px 10px; }
   .group.seq > summary .when { font-size: 12px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; padding-top: 2px; }
   .group.seq > summary b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal;
                            font-weight: 400; font-size: 13px; }
   .group.seq[open] > summary b { -webkit-line-clamp: unset; }
-  .session-body ul.rows { margin-left: 22px; }
+  /* A sequence's actions keep their sequence's time column; a thread beside their captions marks them as its. */
+  .session-body ul.rows { margin: 0 0 6px; padding-left: 0; border-left: 0; }
   .row.event { grid-template-columns: 76px minmax(0, 1fr); padding: 5px 10px 5px 7px; border-radius: 0; border-left: 3px solid transparent; }
   .row.event .when { text-align: right; }
-  .row.event .caption { font-size: 13px; }
+  .row.event .caption { font-size: 13px; padding-left: 10px; border-left: 1px solid var(--line); }
   .row.event[aria-current="true"] { border-left-color: var(--ink); }
   /* A moment: a divider across the rows above the action it starts at, in its type's colour (--c); lit for
      a while after its line on the rail is pressed. */
@@ -193,6 +194,9 @@
   .pin { position: absolute; left: 1px; width: 9px; height: 9px; margin-top: -4px; padding: 0; border: 0; border-radius: 2px; transform: rotate(45deg);
          background: var(--c); z-index: 1; }
   .pin:hover, .pin:focus-visible { box-shadow: 0 0 0 2px var(--ink); outline: none; }
+  /* A pin holding several moments wears a ring. */
+  .pin.many { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--c); }
+  .pin.many:hover, .pin.many:focus-visible { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--ink); }
   .col .now { position: absolute; left: 0; right: 0; height: 2px; background: var(--now); z-index: 1; pointer-events: none; }
   .col .now::before { content: "now"; position: absolute; right: 4px; top: -14px; font-size: 10px; font-weight: 600; color: var(--now); }
   .month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 16px; }
@@ -253,7 +257,7 @@
   #detail { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   #detail > .status { padding: 40px 48px; }
   #detail > .scroll { padding: 40px 48px 32px; }
-  .page { max-width: 880px; }
+  .page { max-width: 960px; }
   .page .meta { font-size: 13px; color: var(--faint); margin-bottom: 6px; }
   .page .resume { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 16px; }
   .page .resume > span { display: inline-flex; align-items: center; gap: 8px; }
@@ -279,14 +283,14 @@
      its parent sequence, the screenshot with the inputs replayed over it, the frames around it. */
   #detail > .scroll:has(.ribbon) { padding: 0; }
   #detail > .scroll:has(.ribbon) .page { padding: 24px 40px 32px; }
-  button.ribbon { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; width: 100%; padding: 8px 16px 6px;
-                  border: 0; border-bottom: 1px solid var(--line); background: var(--bg); color: inherit; text-align: left; }
+  .ribbon { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 8px 16px 6px;
+            border-bottom: 1px solid var(--line); background: var(--bg); cursor: pointer; }
   .ribbon .lbl { font-size: 11px; color: var(--dim); align-self: center; }
   .ribbon .track { position: relative; display: block; height: 26px; border-radius: 5px; background: var(--raw); }
   .ribbon:hover .track { box-shadow: 0 0 0 1px var(--dim); }
   .ribbon .track i { position: absolute; }
   .ribbon .blk { top: 4px; bottom: 4px; background: var(--field); border-radius: 2px; }
-  .ribbon .pin { top: 50%; width: 7px; height: 7px; margin: -4px 0 0 -4px; transform: rotate(45deg); border-radius: 1px; background: var(--c); }
+  .ribbon .pin { top: 50%; width: 9px; height: 9px; margin: -4px 0 0 -4px; z-index: 2; }
   .ribbon .at { top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); }
   .ribbon .now { top: -3px; bottom: -3px; width: 2px; background: var(--now); }
   .ribbon .hrs { display: flex; justify-content: space-between; font-size: 9px; color: var(--faint); margin-top: 2px; }

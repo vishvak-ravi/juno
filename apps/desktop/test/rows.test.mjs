@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   actions, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve, inputLine,
-  liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, railLines, runTime, sequencesOf, shade,
+  liveSessions, matches, modelName, momentText, monthGrid, offset, overallState, pinClusters, railLines, runTime, sequencesOf, shade,
   shownInputs, weekOf, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
@@ -31,6 +31,15 @@ test("the moment rail lists each session's moments newest first, with a divider 
   ]);
   const shape = lines.map((line) => (line.divider ? "|" : line.moment.timestamp));
   assert.deepEqual(shape, [at(22, 18.5), at(22, 18), at(22, 12), "|", "|", at(19, 21.5)]);
+});
+
+test("moments closer than a pin share one, in the colour most of them have", () => {
+  const moment = (timestamp, type) => ({ type, label: null, timestamp, event_id: "e" });
+  const pins = pinClusters([moment(0, "code_landed"), moment(20, "message_sent"), moment(30, "message_sent"),
+                            moment(200, "web_search_submitted"), moment(260, "web_search_submitted")], 60);
+  assert.deepEqual(pins.map((p) => [p.timestamp, p.moments.length, p.type]),
+                   [[0, 3, "message_sent"], [200, 2, "web_search_submitted"]]);
+  assert.deepEqual(pinClusters([], 60), []);
 });
 
 test("a moment's divider names the assistant when one is known", () => {
