@@ -10,6 +10,8 @@ export const el = (tag, props = {}, ...children) => {
 };
 export const time = (seconds) => (seconds == null ? "" : new Date(seconds * 1000).toLocaleString());
 export const status = (text) => el("p", { className: "status", textContent: text });
+// What is on its way, as shimmering lines in its place.
+export const pending = () => el("div", { className: "pending", role: "status", ariaLabel: "Loading" }, el("i"), el("i"), el("i"));
 export const messageOf = (error) => String(error.message || error);
 // A URL the server gave, made loadable from this page.
 export const url = (path) => (path.startsWith("/") ? BASE + path : path);
@@ -18,14 +20,14 @@ export const url = (path) => (path.startsWith("/") ? BASE + path : path);
 // when the wait is long enough to notice. `current()` turning false means the
 // user has moved on, and the result is dropped.
 export async function load(target, work, current = () => true) {
-  const pending = setTimeout(() => current() && target.replaceChildren(status("Loading…")), 300);
+  const wait = setTimeout(() => current() && target.replaceChildren(pending()), 300);
   try {
     const nodes = await work();
     if (current()) target.replaceChildren(...nodes);
   } catch (error) {
     if (current()) target.replaceChildren(status(messageOf(error)));
   } finally {
-    clearTimeout(pending);
+    clearTimeout(wait);
   }
 }
 

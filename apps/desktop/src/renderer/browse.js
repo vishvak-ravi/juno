@@ -28,6 +28,10 @@ const WEEK = 7 * 86400;
 const PITCH = { min: 2, max: 14, start: 8 };
 const DIVIDER = 6;
 const PITCH_KEY = "juno.timeline.pitch";
+// Pixels a day takes in the calendar's columns, and the block heights below which its text is dropped.
+const DAY_HEIGHT = 1320;
+const BLOCK_SHORT = 36;
+const BLOCK_TINY = 18;
 // The sequences shown either side of the open action's in the frames strip.
 const SEQUENCES_AROUND = 1;
 // Milliseconds between the steps of a replay.
@@ -40,8 +44,6 @@ const ICONS = {
   left: '<polyline points="15 18 9 12 15 6"/>',
   right: '<polyline points="9 18 15 12 9 6"/>',
   up: '<polyline points="18 15 12 9 6 15"/>',
-  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-  minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
 };
 export function icon(paths, size = 16) {
@@ -372,7 +374,7 @@ export function timelinePane(pane, detail, control) {
     back.hidden = true;
     for (const node of [previous, next, today, modes]) node.hidden = false;
     for (const button of modes.children) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
-    if (detail.firstChild !== crumbs) detail.replaceChildren(...calendarNodes);
+    detail.replaceChildren(...calendarNodes);
     const days = mode === "month" ? monthGrid(anchor.getFullYear(), anchor.getMonth(), ws)
       : daysFrom(mode === "week" ? weekOf(anchor, ws) : day(anchor).start, mode === "week" ? 7 : 1);
     const range = { month: { month: "long", year: "numeric" }, week: { month: "short", day: "numeric" }, day: { weekday: "long", month: "long", day: "numeric" } }[mode];
@@ -417,6 +419,7 @@ export function timelinePane(pane, detail, control) {
     const now = Date.now() / 1000;
     const grid = el("div", { className: "columns" });
     grid.style.setProperty("--days", days.length);
+    grid.style.setProperty("--dayh", `${DAY_HEIGHT}px`);
     grid.append(el("span", { className: "corner" }), ...days.map((date) => el("span", { className: `head${day(date).since === todayStart ? " today" : ""}` },
       el("b", { textContent: date.getDate() }), date.toLocaleDateString(undefined, { weekday: "short" }))));
     grid.append(el("span", { className: "hours" }, ...Array.from({ length: 24 }, (_, h) =>
@@ -427,12 +430,16 @@ export function timelinePane(pane, detail, control) {
         const { since: dayStart } = day(days[block.day]);
         const from = dayStart + block.from * 86400;
         const to = dayStart + block.to * 86400;
-        const button = el("button", { className: "block", style: `top: ${pct(block.from)}; height: ${pct(Math.max(0.004, block.to - block.from))}` },
-          el("b", { textContent: session.device_id }),
-          el("small", { textContent: `${clock(from)} – ${live().has(session.id) && block.to >= (now - dayStart) / 86400 - 0.001 ? "now" : clock(to)}` }),
+        const span = `${clock(from)} – ${live().has(session.id) && block.to >= (now - dayStart) / 86400 - 0.001 ? "now" : clock(to)}`;
+        const height = (block.to - block.from) * DAY_HEIGHT;
+        // A block too short for its text keeps the text in its title, the shortest only its outline.
+        const button = el("button", { className: `block${height < BLOCK_TINY ? " tiny" : height < BLOCK_SHORT ? " short" : ""}`,
+                                      style: `top: ${pct(block.from)}; height: ${pct(Math.max(0.004, block.to - block.from))}`,
+                                      title: `${session.device_id} · ${span}` },
+          el("b", { textContent: session.device_id }), el("small", { textContent: span }),
           curvePlot(curve.filter((p) => { const t = since + p.x * (until - since); return t >= from && t <= to; }), from, to, since, until));
         button.dataset.key = session.id;
-        button.ariaLabel = `${session.device_id}, ${clock(from)} to ${clock(to)}; open its sequences`;
+        button.ariaLabel = `${session.device_id}, ${span}; open its sequences`;
         button.onclick = () => showSession(session);
         columns[block.day].append(button);
       }
@@ -560,27 +567,31 @@ export function timelinePane(pane, detail, control) {
 }
 
 // The moment rail: one line per moment of the sessions listed, in the list's
-// order, a divider per day, down the left edge of `scroll`. The zoom sets how
-// many pixels a moment takes; past the pane's height the rail scrolls with the
-// list. A line reads on hover; pressing it calls `open(line)`. The band marks
-// the lines whose sessions are in view.
+// order, a divider per day, down the left edge of `scroll`. The wheel over it
+// zooms, setting how many pixels a moment takes, the line under the pointer
+// staying where it is; past the pane's height the rail scrolls with the list.
+// The line nearest the pointer reads beside the rail and opens on a press
+// (`open(line)`). The band marks the lines whose sessions are in view.
 function momentRail(scroll, open) {
   const body = el("div", { className: "rail-body" });
   const band = el("span", { className: "band", hidden: true });
-  const zoomIn = el("button", { ariaLabel: "More room per moment" }, icon("plus", 12));
-  const zoomOut = el("button", { ariaLabel: "Less room per moment" }, icon("minus", 12));
-  const strip = el("nav", { className: "moments", ariaLabel: "Moments" }, el("span", { className: "zoom" }, zoomIn, zoomOut), body);
+  const tip = el("span", { className: "tip", hidden: true });
+  const strip = el("nav", { className: "moments", ariaLabel: "Moments" }, body, tip);
   let lines = [];
   let nodes = [];
+  let sizes = [];
+  let tops = [];
+  let shift = 0;
   let pitch = savedPitch();
+  let hovered = -1;
+  const total = () => sizes.reduce((a, b) => a + b, 0);
   const layout = () => {
     const height = body.clientHeight;
-    const sizes = nodes.map((node, n) => (node.hidden ? 0 : lines[n].divider ? DIVIDER : pitch));
-    const total = sizes.reduce((a, b) => a + b, 0);
+    sizes = nodes.map((node, n) => (node.hidden ? 0 : lines[n].divider ? DIVIDER : pitch));
     const room = Math.max(1, scroll.scrollHeight - scroll.clientHeight);
-    const shift = Math.max(0, total - height) * Math.min(1, scroll.scrollTop / room);
+    shift = Math.max(0, total() - height) * Math.min(1, scroll.scrollTop / room);
     let y = 0;
-    const tops = sizes.map((size) => { const top = y; y += size; return top; });
+    tops = sizes.map((size) => { const top = y; y += size; return top; });
     nodes.forEach((node, n) => {
       node.style.top = `${tops[n] - shift}px`;
       node.style.height = `${sizes[n]}px`;
@@ -598,21 +609,54 @@ function momentRail(scroll, open) {
       band.style.top = `${tops[first] - shift}px`;
       band.style.height = `${tops[last] + sizes[last] - tops[first]}px`;
     }
-    zoomIn.disabled = pitch >= PITCH.max;
-    zoomOut.disabled = pitch <= PITCH.min;
   };
-  const zoom = (by) => {
-    pitch = Math.max(PITCH.min, Math.min(PITCH.max, pitch + by));
+  // The moment's line nearest to `y` in the body, within half a pitch (at least a few pixels); -1 if none.
+  const nearest = (y) => {
+    let best = -1;
+    let distance = Math.max(4, pitch);
+    lines.forEach((line, n) => {
+      if (line.divider || nodes[n].hidden) return;
+      const d = Math.abs(tops[n] - shift + sizes[n] / 2 - y);
+      if (d < distance) {
+        distance = d;
+        best = n;
+      }
+    });
+    return best;
+  };
+  const hover = (n) => {
+    nodes[hovered]?.classList.remove("hover");
+    hovered = n;
+    tip.hidden = n < 0;
+    if (n < 0) return;
+    const { moment } = lines[n];
+    nodes[n].classList.add("hover");
+    tip.replaceChildren(el("b", { textContent: momentText(moment) }),
+                        el("small", { textContent: `${dayLabel(day(new Date(moment.timestamp * 1000)).start)} · ${clock(moment.timestamp)}` }));
+    tip.style.top = `${body.offsetTop + tops[n] - shift + sizes[n] / 2}px`;
+  };
+  const yOf = (event) => event.clientY - body.getBoundingClientRect().top;
+  body.onpointermove = (event) => hover(nearest(yOf(event)));
+  body.onpointerleave = () => hover(-1);
+  body.onclick = (event) => {
+    const n = nearest(yOf(event));
+    if (n >= 0) open(lines[n]);
+  };
+  // Zooms around the pointer: the line there keeps its place, the list scrolled to what that needs.
+  strip.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const y = yOf(event);
+    const anchor = tops.findIndex((top, n) => top - shift + sizes[n] > y);
+    const before = anchor >= 0 ? tops[anchor] - shift : null;
+    pitch = Math.max(PITCH.min, Math.min(PITCH.max, pitch + (event.deltaY < 0 ? 1 : -1)));
     savePitch(pitch);
     layout();
-  };
-  zoomIn.onclick = () => zoom(2);
-  zoomOut.onclick = () => zoom(-2);
-  strip.addEventListener("wheel", (event) => {
-    if (event.ctrlKey || event.metaKey) {
-      event.preventDefault();
-      zoom(event.deltaY < 0 ? 1 : -1);
-    } else scroll.scrollTop += event.deltaY;
+    const overflow = total() - body.clientHeight;
+    if (before != null && overflow > 0) {
+      scroll.scrollTop = Math.min(1, Math.max(0, (tops[anchor] - before) / overflow)) * (scroll.scrollHeight - scroll.clientHeight);
+      layout();
+    }
+    hover(nearest(y));
   }, { passive: false });
   let queued = false;
   scroll.addEventListener("scroll", () => {
@@ -631,13 +675,14 @@ function momentRail(scroll, open) {
         const { moment, session } = line;
         const when = day(new Date(moment.timestamp * 1000)).start;
         line.group = () => scroll.querySelector(`details[data-key="${CSS.escape(session.id)}"] > summary`);
-        const node = el("button", { className: "m", hidden: hidden.has(moment.type), ariaLabel: `${momentText(moment)}, ${dayLabel(when)} ${clock(moment.timestamp)}` },
-          el("i"), el("span", { className: "tip" }, el("b", { textContent: momentText(moment) }),
-                                                   el("small", { textContent: `${dayLabel(when)} · ${clock(moment.timestamp)}` })));
+        const node = el("button", { className: "m", hidden: hidden.has(moment.type),
+                                    ariaLabel: `${momentText(moment)}, ${dayLabel(when)} ${clock(moment.timestamp)}` }, el("i"));
         node.style.setProperty("--c", momentTone(moment.type));
         node.onclick = () => open(line);
         return node;
       });
+      hovered = -1;
+      tip.hidden = true;
       body.replaceChildren(band, ...nodes);
       layout();
     },
