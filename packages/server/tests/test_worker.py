@@ -15,6 +15,7 @@ from server.worker import AnnotationWorker, Priority, find_work
 
 OLD, NEW, OTHER = ("laptop-session_20260101_120000", "laptop-session_20260102_120000",
                    "desktop-session_20260101_180000")
+FULL = "laptop-session_20260103_120000"
 
 
 def write_session(tmp_path, session_id: str, rows: int, start: float):
@@ -73,6 +74,7 @@ def status_of(tmp_path, session_id, chunk):
 def test_work_is_every_chunk_without_a_finished_annotation_of_the_rows_it_holds(tmp_path):
     old = write_session(tmp_path, OLD, rows=12, start=1000.0)   # chunks 0-5 full
     write_session(tmp_path, NEW, rows=3, start=3000.0)          # chunk 0 full, chunk 1 a tail
+    write_session(tmp_path, FULL, rows=2, start=3001.0)         # chunk 0 full and last
     done = {"status": "done", "rows": 2}
     write_caption_file(old, new_caption(OLD, 0, "any").model_copy(update=done))
     write_caption_file(old, new_caption(OLD, 1, "any").model_copy(update={"status": "done"}))  # old record
@@ -89,9 +91,9 @@ def test_work_is_every_chunk_without_a_finished_annotation_of_the_rows_it_holds(
 
     assert found(now=3002.5, tail_idle_seconds=60) == [
         (OLD, 2), (OLD, 3), (OLD, 4), (NEW, 0)]
-    # The rows after the last full chunk count once the session has gone quiet.
+    # A session's last chunk, full or not, counts once the session has gone quiet.
     assert found(now=3100.0, tail_idle_seconds=60) == [
-        (OLD, 2), (OLD, 3), (OLD, 4), (NEW, 0), (NEW, 1)]
+        (OLD, 2), (OLD, 3), (OLD, 4), (NEW, 0), (NEW, 1), (FULL, 0)]
 
 
 def test_a_started_worker_annotates_the_whole_store_most_recent_first(tmp_path):
