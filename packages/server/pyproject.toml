@@ -31,6 +31,7 @@ dependencies = [
     "ddgs>=9",
     # The per-row judgments of Jev (`keypoints.detect`) and its key in .env.
     "typesafe-sdk>=0.7.5",
+    "voyageai>=0.5.0",
 ]
 
 [tool.uv.sources]
@@ -38,4 +39,4 @@ juno-core = { workspace = true }
 juno-capture = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/annotate", "src/grade", "src/keypoints", "src/predict", "src/server"]
+packages = ["src/annotate", "src/grade", "src/keypoints", "src/lattice", "src/predict", "src/server"]

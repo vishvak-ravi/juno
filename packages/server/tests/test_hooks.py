@@ -9,6 +9,7 @@ from keypoints.derive import Moment
 from server.hooks import merge_moments
 
 TERMINAL = {"X-Claude-Code-Entrypoint": "cli"}
+DESKTOP_APP = {"X-Claude-Code-Entrypoint": "claude-desktop", "X-Claude-Code-Host-Session": "local_app-1"}
 
 
 def prompt(client, device="laptop", headers=TERMINAL, **fields):
@@ -36,10 +37,23 @@ def test_a_prompt_typed_in_the_terminal_is_a_moment_on_the_event_it_was_sent_in(
     assert found[f"{LAPTOP}-000000"] == [{
         "type": "agent_prompt_submitted", "probability": 1.0, "detector": "claude_code_hook",
         "label": "claude_code",
-        "conversation": {"harness": "claude_code", "session_id": "conversation-1", "cwd": "/work/project"}}]
+        "conversation": {"harness": "claude_code", "session_id": "conversation-1", "cwd": "/work/project",
+                         "entrypoint": "cli", "host_session_id": None}}]
     assert found[f"{LAPTOP}-000001"] == []
     # Another device's event at the same time has no moment.
     assert found[f"{DESKTOP}-000000"] == []
+
+
+def test_a_prompt_typed_in_the_claude_desktop_app_is_a_moment_with_the_apps_session_id(tmp_path):
+    now = time.time()
+    with client_for(tmp_path) as client:
+        put(client, LAPTOP, 0, now - 5)
+        put(client, LAPTOP, 1, now + 60)
+        prompt(client, headers=DESKTOP_APP)
+        [moment] = moments(client)[f"{LAPTOP}-000000"]
+    assert moment["conversation"] == {"harness": "claude_code", "session_id": "conversation-1",
+                                      "cwd": "/work/project", "entrypoint": "claude-desktop",
+                                      "host_session_id": "local_app-1"}
 
 
 def test_a_prompt_while_nothing_was_recorded_is_on_no_event(tmp_path):
@@ -52,13 +66,17 @@ def test_a_prompt_while_nothing_was_recorded_is_on_no_event(tmp_path):
 
 @pytest.mark.parametrize("headers, fields", [
     ({"X-Claude-Code-Entrypoint": "cli", "X-Claude-Code-Remote": "true"}, {}),
+    ({**DESKTOP_APP, "X-Claude-Code-Remote": "true"}, {}),
     ({"X-Claude-Code-Entrypoint": "claude-desktop"}, {}),
+    ({"X-Claude-Code-Entrypoint": "claude-desktop", "X-Claude-Code-Host-Session": ""}, {}),
+    ({"X-Claude-Code-Entrypoint": "claude-vscode"}, {}),
     ({"X-Claude-Code-Entrypoint": "sdk-cli"}, {}),
     ({}, {}),
     (TERMINAL, {"agent_id": "subagent-1"}),
     (TERMINAL, {"hook_event_name": "Stop"}),
-], ids=["cloud", "desktop app", "claude -p", "no entrypoint", "subagent", "not a prompt"])
-def test_a_prompt_that_cannot_be_resumed_in_a_terminal_is_answered_but_not_kept(tmp_path, headers, fields):
+], ids=["cloud", "cloud from the desktop app", "desktop app without its session id", "desktop app with an empty one",
+        "IDE extension", "claude -p", "no entrypoint", "subagent", "not a prompt"])
+def test_a_prompt_the_device_cannot_reopen_is_answered_but_not_kept(tmp_path, headers, fields):
     now = time.time()
     with client_for(tmp_path) as client:
         put(client, LAPTOP, 0, now - 5)

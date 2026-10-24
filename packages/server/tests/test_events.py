@@ -37,9 +37,9 @@ def row(at: float, screenshot: bool = True) -> str:
         "monitor": MONITOR, "burst_id": 7, "scale_factor": 1.0})
 
 
-def put(client, session, index, at, screenshot=True):
+def put(client, session, index, at, screenshot=True, annotate=True):
     files = {"screenshot": (f"{at}.png", png(), "image/png")} if screenshot else None
-    response = client.put(f"/events/{session}-{index:06d}",
+    response = client.put(f"/events/{session}-{index:06d}", params={"annotate": annotate},
                           data={"aggregation": row(at, screenshot)}, files=files)
     assert response.status_code == 201, response.text
 

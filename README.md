@@ -15,6 +15,9 @@ Collects fine-grained signals across devices within a mesh network and centraliz
 | Start | `cd ~/juno && uv run python -m server` | `cd ~/juno/apps/desktop && npm start` |
 | Tests | `cd ~/juno && uv run pytest` | `cd ~/juno/apps/desktop && npm test` |
 | Move a store to the current layout (server stopped) | `cd ~/juno && uv run python scripts/migrate_store.py` | |
+| Import the conversations Claude Code kept on this computer into the store | `cd ~/juno && uv run python scripts/import_conversations.py` (`--source`, `--device`, `--since`, `--until`, `--dry-run`) | |
+| Build a behavior lattice over the stored events (captions and imported conversations) | `cd ~/juno && uv run python scripts/build_lattice.py` (`--device`, `--since`, `--until`, `--layer type[:value]`, `--events activity,message`); or `POST /lattice` on the server | |
+| Propose agent actions for one day, steered by the newest lattice (the server does this every morning at `proposals.propose_at`; the clients' Proposals view shows the result) | `cd ~/juno && uv run python scripts/propose_actions.py --day YYYY-MM-DD` (`--rerank llm` without a `VOYAGE_API_KEY`); or `POST /proposals/runs` on the server | |
 | Time the timeline's routes on a copy of the store | `cd ~/juno && uv run python scripts/bench_routes.py snapshot --out <dir on the store's disk>`, then `run --snapshot <dir> --label <name>` | Set `JUNO_TIMING_FILE` in `.env`: one line per GET the window makes |
 | Claude Code prompts as timeline moments | | `cd ~/juno && uv run python -m capture.claude_hook install` (`uninstall` to remove) |
 

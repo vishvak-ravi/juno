@@ -64,6 +64,15 @@ function registerServerApi(serverUrl) {
       body: JSON.stringify(body),
     }).then(checked),
   );
+
+  // POST a server route with a JSON body, for a proposal run started from the pane.
+  ipcMain.handle("api:post", (_event, route, body) =>
+    fetch(serverUrl() + route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(checked),
+  );
 }
 
 module.exports = { registerServerApi };

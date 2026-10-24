@@ -1,20 +1,27 @@
-// The timeline and predictions panes of the desktop browser. The timeline's
+// The timeline, proposals and lattice panes of the desktop browser. The timeline's
 // left pane lists sessions, newest first, each opening to its sequences and
 // their actions, with the moment rail down its edge; the detail pane shows a
 // calendar of sessions and moments until an action is opened, then that
 // action with a replay of its inputs and the frames of its sequence. The
-// predictions pane lists the graded runs, a run opening to its predictions, one
-// opening in full in the detail pane. A screenshot is requested only when its
-// event is opened; a prediction's prompts and the predictor's screenshots only
-// when it is opened and their section expanded.
-import { api } from "../../../web/src/api.js";
-import { el, load, messageOf, pres, predictorInput, problemsOf, score, status, time, url } from "../../../web/src/views.js";
+// proposals pane lists every proposal of every day as one feed, what moved
+// last first, one opening in full in the detail pane with its task a page of
+// its own; the ledger shows accepted over shown and every decision. A
+// screenshot is requested only when its event is opened. The lattice pane lists one
+// layer of the chosen build's lattice at a time, picked by the switch in its
+// header, each node under the day, week, range or session it was made in; the
+// detail pane shows the build's record until a node is opened, then that node
+// and the sessions it was drawn from, each action pressed to open it in the
+// timeline, and following a node it rests on or supports moves the switch.
+import { api, patch, post } from "../../../web/src/api.js";
+import { el, insightRow, load, messageOf, proposalPage, reconcile, score, status, url } from "../../../web/src/views.js";
+import { BUCKETS, dayName, feedLine, groupByDay, groupByTask, inBucket, lightOf, rateLine, runLine, shortDay, sortNewest, stateWords, taskPlace } from "../../../web/src/proposals.js";
 import {
-  MOMENT_TYPES, actions, clock, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve,
-  inputLine, liveSessions, matches, modelName, momentAt, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade,
-  shownInputs, weekOf, weekStart, weekdays,
+  MOMENT_TYPES, assistantText, clock, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, indexCurve,
+  inputLine, liveSessions, momentAt, momentText, monthGrid, offset, pinClusters, railLines, sequencesOf, shade,
+  shownInputs, surfaceText, weekOf, weekStart, weekdays,
 } from "./rows.mjs";
 import { replaySteps } from "./activity.mjs";
+import { groupLabel, layerGroups, layerName, layerNames, layerNodes, layerPlural, minutes, monthDay, rangeLabel, stageRows } from "./lattice.mjs";
 
 // The routes' largest page.
 const PAGE = 100;
@@ -49,10 +56,18 @@ const ICONS = {
   up: '<polyline points="18 15 12 9 6 15"/>',
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
 };
-export function icon(paths, size = 16) {
+// The assistants' marks, by harness: filled shapes, unlike the stroked ICONS. Claude's is Anthropic's
+// logo as Simple Icons traces it (simpleicons.org/?q=claude).
+const MARKS = {
+  claude_code: '<path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/>',
+};
+// An icon of ICONS (stroked), or a mark of MARKS when `filled` (painted in currentColor).
+export function icon(paths, size = 16, filled = false) {
   const template = document.createElement("template");
-  template.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
-    + `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[paths] ?? paths}</svg>`;
+  const paint = filled ? 'fill="currentColor"'
+    : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+  template.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" ${paint} aria-hidden="true">`
+    + `${(filled ? MARKS : ICONS)[paths] ?? paths}</svg>`;
   return template.content.firstChild;
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -90,56 +105,6 @@ function group(key, summary, body) {
   details.dataset.key = key;
   return details;
 }
-
-// The groups of a paged route: every row fetched so far, grouped by `groupRows`
-// and each drawn by `draw`. "Load more" fetches the next page and draws the
-// groups again, keeping open the ones that were; the first is open to begin with.
-async function groupedPages(path, groupRows, draw, empty) {
-  const rows = [];
-  const list = el("div", { className: "groups" });
-  const more = el("button", { className: "more", textContent: "Load more", hidden: true });
-  const add = (page) => {
-    const open = new Set([...list.querySelectorAll("details[open]")].map((d) => d.dataset.key));
-    const first = !rows.length;
-    rows.push(...page.data);
-    const groups = groupRows(rows);
-    const drawn = groups.map(draw);
-    drawn.forEach((d, n) => { d.open = first ? n === 0 : open.has(d.dataset.key); });
-    list.replaceChildren(...(drawn.length ? drawn : [status(empty)]));
-    reselect(list);
-    more.hidden = !page.has_more;
-    more.onclick = async () => {
-      more.disabled = true;
-      try {
-        add(await api(`${path}&after=${encodeURIComponent(page.last_id)}`));
-      } catch (error) {
-        list.append(status(messageOf(error)));
-      }
-      more.disabled = false;
-    };
-    return groups;
-  };
-  const groups = add(await api(path));
-  return { nodes: [list, more], groups };
-}
-
-// One lazily filled section of a detail page: `build()` runs the first time it is opened.
-function section(title, note, build) {
-  const body = el("div", { className: "section-body" });
-  const details = el("details", { className: "section" },
-    el("summary", {}, el("b", { textContent: title }), el("span", {}, note, icon("down"))));
-  details.ontoggle = () => {
-    if (!details.open || body.parentNode) return;
-    body.append(...build());
-    details.append(body);
-  };
-  return details;
-}
-
-// A horizontal bar for a score from 0 to 1.
-const bar = (value, className = "") => el("span", { className: `track ${className}` },
-  el("span", { style: `width: ${Math.round((value ?? 0) * 100)}%` }));
-const shortScore = (value) => score(value).replace(/^0\./, ".");
 
 const SVG = "http://www.w3.org/2000/svg";
 const svg = (tag, attributes = {}) => {
@@ -193,21 +158,33 @@ document.addEventListener("keydown", (event) => {
 });
 
 // The timeline pane and what it opens in the detail pane. `control()` is the
-// latest GET /control, for which sessions are being recorded.
+// latest GET /control, for which sessions are being recorded and how often to
+// ask what changed. Every `live_seconds` while the pane is shown, GET /changes
+// brings what changed since the last ask: sessions listed anew, the changed
+// events of the ones opened, the calendar drawn again; what was drawn stays,
+// so a row or session landing above pushes the rest down. Returns `show`, for
+// when the pane is shown again: the detail pane gets back what it had.
 export function timelinePane(pane, detail, control) {
   const sessions = new Map();  // every session fetched for the list, by id
   const details = new Map();   // a session's events, by id, once fetched
   const groups = new Map();    // a session's group in the list, by id, kept across redraws
+  const sequences = new Map(); // by session id: its sequence groups, by sequence index
+  const dates = new Map();     // a day's heading in the list, by the day's start
   const hidden = new Set();    // moment types not shown
   let since = weekOf(new Date(), weekStart(navigator.language)).getTime() / 1000;  // the list runs from here to now
   let index = null;            // the index drawn in the calendar's blocks
+  let shownDetail = [];        // what the detail pane shows for this pane
+  let cursor = null;           // where GET /changes left off
+  let railKey = "";            // the rail's lines, so hovering one survives a redraw that keeps them
 
   // The list of sessions, newest first, a heading where the day changes.
   const list = el("div", { className: "scroll" });
   const groupList = el("div", { className: "groups" });
+  const empty = status("Nothing recorded this week.");
   const earlier = el("button", { className: "more", textContent: "Earlier" });
   const rail = momentRail(list, (line) => openMoment(line), () => momentHere());
-  const nowButton = el("button", { className: "new", ariaLabel: "Now" }, icon("up", 14), "Now");
+  const unseen = el("small", { className: "num", hidden: true });
+  const nowButton = el("button", { className: "new", ariaLabel: "Now" }, icon("up", 14), "Now", unseen);
   pane.replaceChildren(el("header", {}, el("h2", { textContent: "Timeline" }), nowButton),
                        el("div", { className: "body" }, rail.strip, list));
 
@@ -262,26 +239,52 @@ export function timelinePane(pane, detail, control) {
     }
   }
   const live = () => liveSessions(control());
+  const showDetail = (nodes) => {
+    shownDetail = nodes;
+    detail.replaceChildren(...nodes);
+  };
   const detailOf = async (id) => {
     if (!details.has(id)) details.set(id, await api(`/sessions/${encodeURIComponent(id)}`));
     return details.get(id);
   };
   const ordered = () => [...sessions.values()].sort((a, b) => b.start - a.start);
+  // Sessions arriving above the view while it is scrolled down count on the Now button.
+  list.addEventListener("scroll", () => { if (list.scrollTop < 4) unseen.hidden = true; });
   const drawList = () => {
     const nodes = [];
     let lastDay = null;
     for (const session of ordered()) {
       const { since: dayStart, start } = day(new Date(session.start * 1000));
-      if (dayStart !== lastDay) nodes.push(el("p", { className: "date", textContent: dayLabel(start) }));
+      if (dayStart !== lastDay) {
+        if (!dates.has(dayStart)) dates.set(dayStart, el("p", { className: "date", textContent: dayLabel(start) }));
+        nodes.push(dates.get(dayStart));
+      }
       lastDay = dayStart;
       if (!groups.has(session.id)) groups.set(session.id, sessionGroup(session));
       nodes.push(groups.get(session.id));
     }
-    groupList.replaceChildren(...(nodes.length ? nodes : [status("Nothing recorded this week.")]));
-    rail.set(railLines(ordered()), hidden);
+    const added = reconcile(groupList, nodes.length ? nodes : [empty]);
+    const top = list.getBoundingClientRect().top;
+    const above = added.filter((node) => node.classList.contains("session") && node.getBoundingClientRect().bottom < top).length;
+    if (above && list.scrollTop >= 4) {
+      unseen.textContent = String(Number(unseen.hidden ? 0 : unseen.textContent) + above);
+      unseen.hidden = false;
+    }
+    const lines = railLines(ordered());
+    const key = lines.map((line) => (line.divider ? "|" : `${line.session.id}:${line.moment.event_id}:${line.moment.type}`)).join(" ");
+    if (key !== railKey) {
+      railKey = key;
+      rail.set(lines, hidden);
+    } else {
+      rail.layout();
+    }
   };
   const add = (rows) => {
-    for (const session of rows) sessions.set(session.id, session);
+    for (const session of rows) {
+      sessions.set(session.id, session);
+      const node = groups.get(session.id);
+      if (node) updateSession(node, session);
+    }
     drawList();
   };
   // Another week of sessions before the earliest loaded.
@@ -299,8 +302,11 @@ export function timelinePane(pane, detail, control) {
     }
     earlier.disabled = false;
   };
+  // The first list is the first ask for changes: everything in range, and where to go on from.
   load(list, async () => {
-    add(await allPages(sessionPath(since)));
+    const changes = await api(`/changes?since=${since}`);
+    cursor = changes.cursor;
+    add(changes.sessions);
     return [groupList, earlier];
   });
 
@@ -310,47 +316,93 @@ export function timelinePane(pane, detail, control) {
     const body = el("div", { className: "session-body" });
     const node = group(session.id, summary, body);
     node.classList.add("session");
+    node.when = when;
+    node.body = body;
     node.ontoggle = () => {
-      when.textContent = `${clock(session.start)} – ${live().has(session.id) ? "now" : clock(session.end)}`;
+      updateSession(node, sessions.get(session.id) ?? session);
       if (!node.open || body.dataset.filled) return;
       body.dataset.filled = "true";
       load(body, async () => {
-        const whole = await detailOf(session.id);
-        return sequencesOf(whole.events).toReversed().map((sequence) => sequenceGroup(sequence, whole));
+        await detailOf(session.id);
+        drawSequences(session.id);
+        return [...body.children];
       }).then(() => { reselect(body); applyHidden(); rail.layout(); });
     };
     node.ontoggle();
     return node;
   }
+  // The session's span, "now" while it is being recorded.
+  function updateSession(node, session) {
+    node.when.textContent = `${clock(session.start)} – ${live().has(session.id) ? "now" : clock(session.end)}`;
+  }
+  // The session's sequences, newest first, drawn from its events: a sequence
+  // already drawn is kept and its rows brought up to date.
+  function drawSequences(sessionId) {
+    const whole = details.get(sessionId);
+    const node = groups.get(sessionId);
+    if (!whole || !node || !node.body.dataset.filled) return;
+    if (!sequences.has(sessionId)) sequences.set(sessionId, new Map());
+    const drawn = sequences.get(sessionId);
+    const nodes = sequencesOf(whole.events).toReversed().map((sequence) => {
+      if (!drawn.has(sequence.index)) drawn.set(sequence.index, sequenceGroup(sequence, sessionId));
+      const seq = drawn.get(sequence.index);
+      updateSequence(seq, sequence, sessionId);
+      return seq;
+    });
+    reconcile(node.body, nodes);
+  }
 
   // One sequence: its caption, opening to its actions newest first, a moment's
   // divider above the action it starts at.
-  function sequenceGroup(sequence, whole) {
+  function sequenceGroup(sequence, sessionId) {
     const first = sequence.events[0];
-    const summary = [el("span", { className: "when", textContent: clock(first.timestamp) }),
-                     el("span", { className: "label" }, el("b", { className: sequence.caption == null ? "none" : "",
-                                                                 textContent: sequence.caption ?? "No caption yet" }))];
-    const rows = sequence.events.toReversed().flatMap((event) => [
-      ...(event.moments ?? []).map((moment) => momentMark(moment, event)),
-      el("li", {}, actionRow(event, whole))]);
-    const node = group(`${whole.id}:${sequence.index}`, summary, el("ul", { className: "rows" }, ...rows));
+    const caption = el("b");
+    const summary = [el("span", { className: "when", textContent: clock(first.timestamp) }), el("span", { className: "label" }, caption)];
+    const rows = el("ul", { className: "rows" });
+    const node = group(`${sessionId}:${sequence.index}`, summary, rows);
     node.classList.add("seq");
+    node.caption = caption;
+    node.rows = rows;
+    node.items = new Map();  // an action's row or a moment's divider, by key
     return node;
+  }
+  function updateSequence(node, sequence, sessionId) {
+    node.caption.className = sequence.caption == null ? "none" : "";
+    node.caption.textContent = sequence.caption ?? "No caption yet";
+    const items = sequence.events.toReversed().flatMap((event) => [
+      ...(event.moments ?? []).map((moment) => {
+        const key = `m:${event.id}:${moment.type}`;
+        if (!node.items.has(key)) node.items.set(key, momentMark(moment, event));
+        return node.items.get(key);
+      }),
+      (() => {
+        if (!node.items.has(event.id)) node.items.set(event.id, el("li", {}, actionRow(event, sessionId)));
+        const row = node.items.get(event.id);
+        updateAction(row.firstChild, event);
+        return row;
+      })()]);
+    reconcile(node.rows, items);
   }
   function momentMark(moment, event) {
     const mark = el("li", { className: "moment" }, el("span"), el("span", { className: "what", textContent: momentText(moment) }));
     mark.style.setProperty("--c", momentTone(moment.type));
     mark.dataset.type = moment.type;
     mark.dataset.event = event.id;
+    mark.hidden = hidden.has(moment.type);
     return mark;
   }
-  function actionRow(event, whole) {
+  function actionRow(event, sessionId) {
     const button = el("button", { className: "row event" },
       el("span", { className: "when", textContent: clock(event.timestamp, true) }),
-      el("span", { className: event.caption == null ? "caption none" : "caption", textContent: event.caption ?? "No caption yet" }));
+      el("span", { className: "caption" }));
     button.dataset.key = event.id;
-    button.onclick = () => openEvent(whole, event.id);
+    button.onclick = () => openEvent(sessionId, event.id);
     return button;
+  }
+  function updateAction(button, event) {
+    const caption = button.lastChild;
+    caption.className = event.caption == null ? "caption none" : "caption";
+    caption.textContent = event.caption ?? "No caption yet";
   }
   // Moments of a hidden type leave the list, the rail and the calendar, whose pins are drawn again.
   const applyHidden = () => {
@@ -374,8 +426,8 @@ export function timelinePane(pane, detail, control) {
     return detailOf(session.id);
   }
   async function openMoment({ moment, session }) {
-    const whole = await showSession(session);
-    openEvent(whole, moment.event_id);
+    await showSession(session);
+    openEvent(session.id, moment.event_id);
     requestAnimationFrame(() => {
       const mark = groupList.querySelector(`.moment[data-event="${CSS.escape(moment.event_id)}"]`);
       if (!mark) return;
@@ -384,6 +436,44 @@ export function timelinePane(pane, detail, control) {
       mark.classList.add("lit");
       setTimeout(() => mark.classList.remove("lit"), LIT_MS);
     });
+  }
+
+  // What changed since the last ask, applied to the list, the opened sessions,
+  // the open action and the calendar. The sessions' events the pane holds are
+  // merged by id, so only the events that changed travel.
+  let ticking = false;
+  async function tick() {
+    if (pane.hidden || ticking) return;
+    ticking = true;
+    try {
+      const from = Math.min(since, drawn ? day(drawn.days[0]).since : since);
+      const held = [...details.keys()].map(encodeURIComponent).join(",");
+      const query = `cursor=${encodeURIComponent(cursor ?? "")}&since=${from}${held ? `&events=${held}` : ""}`;
+      const changes = await api(`/changes?${query}`);
+      cursor = changes.cursor;
+      if (changes.sessions.length) apply(changes.sessions);
+      for (const [id, node] of groups) updateSession(node, sessions.get(id));
+    } catch {
+      // The next tick asks again.
+    }
+    ticking = false;
+  }
+  function apply(changed) {
+    for (const change of changed) {
+      const { events, removed, whole, ...session } = change;
+      if (events && details.has(session.id)) {
+        const held = details.get(session.id);
+        const byId = new Map(whole ? [] : held.events.map((event) => [event.id, event]));
+        for (const event of events) byId.set(event.id, event);
+        for (const id of removed) byId.delete(id);
+        held.events = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp || (a.id < b.id ? -1 : 1));
+        Object.assign(held, session);
+        drawSequences(session.id);
+      }
+    }
+    add(changed.filter((session) => session.start >= since).map(({ events, removed, whole, ...session }) => session));
+    refreshOpen();
+    refreshCalendar(changed);
   }
 
   // The calendar: a week, a day or a month of sessions, in the detail pane.
@@ -439,7 +529,7 @@ export function timelinePane(pane, detail, control) {
     for (const node of [previous, next, today, modes]) node.hidden = false;
     picker.hidden = !picker.options.length;
     for (const button of modes.children) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
-    detail.replaceChildren(...calendarNodes);
+    showDetail(calendarNodes);
     const days = mode === "month" ? monthGrid(anchor.getFullYear(), anchor.getMonth(), ws)
       : daysFrom(mode === "week" ? weekOf(anchor, ws) : day(anchor).start, mode === "week" ? 7 : 1);
     const range = { month: { month: "long", year: "numeric" }, week: { month: "short", day: "numeric" }, day: { weekday: "long", month: "long", day: "numeric" } }[mode];
@@ -527,7 +617,7 @@ export function timelinePane(pane, detail, control) {
         const node = el("button", { className: pin.moments.length > 1 ? "pin many" : "pin", title: words, ariaLabel: words,
                                     style: `top: ${pct((pin.timestamp - day(days[n]).since) / 86400)}` });
         node.style.setProperty("--c", momentTone(pin.type));
-        node.onclick = async () => openEvent(await showSession(session), pin.moments[0].event_id);
+        node.onclick = async () => { await showSession(session); openEvent(session.id, pin.moments[0].event_id); };
         columns[n].append(node);
       }
     }
@@ -552,14 +642,20 @@ export function timelinePane(pane, detail, control) {
   // the top (pressed to go back), the action, its parent sequence's caption,
   // the screenshot with the inputs replayed over it, and the frames of its
   // sequence and the ones around it.
-  function openEvent(whole, id) {
-    const events = whole.events;
+  let opened = null;  // { sessionId, id, page } while an action is shown
+  function openEvent(sessionId, id) {
+    const whole = details.get(sessionId);
+    const events = whole?.events ?? [];
     const at = events.findIndex((e) => e.id === id);
     const event = events[at];
     if (!event) return;
     const sequences = sequencesOf(events);
     const n = sequences.findIndex((s) => s.index === event.sequence);
-    keys = { escape: showCalendar, step: (by) => events[at + by] && openEvent(whole, events[at + by].id) };
+    keys = { escape: showCalendar, step: (by) => {
+      const again = details.get(sessionId).events;
+      const here = again.findIndex((e) => e.id === id);
+      if (again[here + by]) openEvent(sessionId, again[here + by].id);
+    } };
     back.hidden = false;
     for (const node of [previous, next, today, modes, picker]) node.hidden = true;
     const dayOf = day(new Date(event.timestamp * 1000));
@@ -572,10 +668,11 @@ export function timelinePane(pane, detail, control) {
       ...conversationLinks(event),
       event.screenshot_url ? screenshot(event, steps) : status("No screenshot with this event."),
       ...(steps.length ? [replayBar(steps)] : []),
-      framesStrip(sequences.slice(Math.max(0, n - SEQUENCES_AROUND), n + SEQUENCES_AROUND + 1), whole, id),
+      framesStrip(sequences.slice(Math.max(0, n - SEQUENCES_AROUND), n + SEQUENCES_AROUND + 1), sessionId, id),
       inputsFold(event));
     const scroller = el("div", { className: "scroll" }, ribbon(dayOf, event), page);
-    detail.replaceChildren(crumbs, scroller);
+    opened = { sessionId, id, page };
+    showDetail([crumbs, scroller]);
     prefetch(events, at);
     const row = groupList.querySelector(`[data-key="${CSS.escape(id)}"]`);
     if (row) {
@@ -604,7 +701,8 @@ export function timelinePane(pane, detail, control) {
         node.style.setProperty("--c", momentTone(pin.type));
         node.onclick = async (click) => {
           click.stopPropagation();
-          openEvent(await showSession(session), pin.moments[0].event_id);
+          await showSession(session);
+          openEvent(session.id, pin.moments[0].event_id);
         };
         track.append(node);
       }
@@ -619,7 +717,7 @@ export function timelinePane(pane, detail, control) {
     return strip;
   }
   // The frames: each sequence's actions in a row, a divider between sequences, the open one lit.
-  function framesStrip(sequences, whole, id) {
+  function framesStrip(sequences, sessionId, id) {
     const strip = el("ul", { className: "frames" }, ...sequences.flatMap((sequence, n) => [
       ...(n ? [el("li", { className: "sep" })] : []),
       ...sequence.events.map((event) => {
@@ -631,7 +729,7 @@ export function timelinePane(pane, detail, control) {
           mark.style.setProperty("--c", momentTone(event.moments[0].type));
           frame.append(mark);
         }
-        frame.onclick = () => openEvent(whole, event.id);
+        frame.onclick = () => openEvent(sessionId, event.id);
         return el("li", {}, frame);
       })]));
     requestAnimationFrame(() => strip.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" }));
@@ -647,7 +745,60 @@ export function timelinePane(pane, detail, control) {
       ...(folded ? [el("p", { className: "meta", textContent: folded }), inputGrid(event.inputs.filter((input) => !shown.includes(input)), event)] : []));
   }
 
+  // The open action's captions, once the tick brings new ones.
+  function refreshOpen() {
+    if (!opened || !opened.page.isConnected) return;
+    const event = details.get(opened.sessionId)?.events.find((e) => e.id === opened.id);
+    if (!event) return;
+    const heading = opened.page.querySelector("h1");
+    heading.className = event.caption == null ? "none" : "";
+    heading.textContent = event.caption ?? "No caption yet";
+    const parent = opened.page.querySelector(".parent span");
+    parent.className = event.sequence_caption == null ? "none" : "";
+    parent.textContent = event.sequence_caption ?? "No caption yet";
+  }
+  // The calendar, once a tick brings sessions on its days: the month's counts
+  // read again; the columns' blocks and pins drawn again with the sessions
+  // changed and the indices read again, the scroll kept.
+  async function refreshCalendar(changed) {
+    if (calBody.hidden || !calBody.isConnected) return;
+    if (mode === "month") {
+      showCalendar();
+      return;
+    }
+    if (!drawn) return;
+    const from = day(drawn.days[0]).since;
+    const to = day(drawn.days.at(-1)).until;
+    const inRange = changed.filter((session) => session.end >= from && session.start <= to);
+    if (!inRange.length) return;
+    const rows = new Map(drawn.rows.map((session) => [session.id, session]));
+    for (const { events, removed, whole, ...session } of inRange) rows.set(session.id, session);
+    const mine = shown;
+    const indices = await api(`/indices?since=${from}&until=${to}`);
+    if (shown !== mine || !calBody.isConnected) return;
+    drawn = { days: drawn.days, rows: [...rows.values()], indices };
+    const top = calBody.scrollTop;
+    calBody.replaceChildren(...columns(drawn));
+    calBody.scrollTop = top;
+  }
+
   showCalendar();
+  (async function live() {
+    await tick();
+    setTimeout(live, (control()?.live_seconds ?? 2) * 1000);
+  })();
+  return {
+    show() {
+      detail.replaceChildren(...shownDetail);
+      tick();
+    },
+    // Opens the action with this event id: its session is listed and opened first.
+    async open(eventId) {
+      const id = eventId.slice(0, eventId.lastIndexOf("-"));
+      await showSession(sessions.get(id) ?? await detailOf(id));
+      openEvent(id, eventId);
+    },
+  };
 }
 
 // The moment rail: one line per moment of the sessions listed, in the list's
@@ -848,114 +999,407 @@ const inputGrid = (inputs, event) => el("div", { className: "inputs" }, ...input
 let here = null;
 window.juno?.deviceId().then((id) => { here = id; });
 
-// A button per conversation the event's moments carry, opening it again in a
-// terminal; on another computer's event, where it is instead.
+// A chip per conversation the event's moments carry: the assistant's mark and
+// name, and where the conversation ran (its terminal, or the Claude desktop
+// app); pressed, it opens the conversation there again. On another computer's
+// event, a line saying where it is instead.
 function conversationLinks(event) {
   const conversations = conversationsOf(event);
   if (!conversations.length || !window.juno) return [];
-  if (event.device_id !== here) return [status(`The Claude Code conversation of this prompt is on ${event.device_id}.`)];
+  if (event.device_id !== here) {
+    return [status(`The ${assistantText(conversations[0])} conversation of this prompt is on ${event.device_id}.`)];
+  }
   return [el("div", { className: "resume" }, ...conversations.map((conversation) => {
-    const button = el("button", { className: "primary", title: conversation.cwd }, "Resume in Claude Code");
+    const where = surfaceText(conversation);
+    const chip = el("button", { className: "conversation", title: `Open again in the ${where} · ${conversation.cwd}` },
+      ...(MARKS[conversation.harness] ? [icon(conversation.harness, 13, true)] : []),
+      el("span", { textContent: assistantText(conversation) }), el("small", { textContent: where }));
     const said = el("span", { className: "dim" });
-    button.onclick = async () => {
-      button.disabled = true;
+    chip.onclick = async () => {
+      chip.disabled = true;
       const { error } = await window.juno.resume(event.device_id, conversation);
       said.textContent = error ?? "";
-      button.disabled = false;
+      chip.disabled = false;
     };
-    return el("span", {}, button, said);
+    return el("span", {}, chip, said);
   }))];
 }
 
-// Predictions
+// Proposals
 
-const runLabel = (run) => (run.time ? run.time.toLocaleString(undefined,
-  { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : run.run);
+// What the proposals pane calls itself in a trail.
+const WHERE = "desktop";
+// Seconds between looks at a run started from the pane.
+const RUN_POLL_MS = 2000;
+const localDay = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
-// The predictions pane: the graded runs, most recently graded first.
-export function predictionsPane(pane, detail) {
-  keys = null;
-  const count = el("small");
+// The proposals pane: one feed of every proposal across days, what moved last first under a
+// heading per day, the lists shown chosen by the chips in the header; the detail pane opens
+// on the ledger until a proposal is opened, then that proposal, its task a page of its own.
+export function proposalsPane(pane, detail, openSession) {
+  const chips = el("div", { className: "chips", role: "group", ariaLabel: "Lists shown" });
+  const ledgerButton = el("button", { className: "new", textContent: "Ledger", title: "Accepted over shown, and every decision" });
+  const todayButton = el("button", { className: "new", title: "Propose for today from its action captions" }, icon("plus", 14), "Today");
   const list = el("div", { className: "scroll" });
-  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Predictions" }), count), list);
-  load(list, async () => {
-    const { nodes, groups } = await groupedPages(`/predictions?limit=${PAGE}`, groupRuns,
-      (run) => runGroup(run, detail), "No graded predictions yet.");
-    count.textContent = groups.length ? plural(groups.length, "run") : "";
-    return nodes;
-  });
-}
-
-function runGroup(run, detail) {
-  const spark = el("span", { className: "spark", role: "img", ariaLabel: `Rewards of ${plural(run.rows.length, "prediction")}` },
-    ...run.rows.map((g) => el("span", { className: g.error ? "failed" : "",
-                                       style: `height: ${g.error ? 3 : Math.max(2, Math.round((g.reward ?? 0) * 14))}px` })));
-  const stats = [plural(run.rows.length, "prediction"), `mean reward ${score(run.mean)}`,
-                 ...(run.failed ? [`${run.failed} failed`] : [])].join(" · ");
-  const summary = [el("span", { className: "label" },
-    el("b", { textContent: runLabel(run) }),
-    el("small", { textContent: `${run.predictor}, judged by ${run.grader}` }),
-    el("span", { className: "spark-line" }, spark, el("small", { textContent: stats })))];
-  const rows = run.rows.map((g) => {
-    const first = actions(g.prediction)[0];
-    const button = el("button", { className: "row prediction" },
-      el("span", { className: "when", textContent: g.index }),
-      el("span", { className: first ? "caption" : "caption none", textContent: first ?? "No prediction" }),
-      g.error
-        ? el("span", { className: "reward" }, el("span", { className: "light changing" }), el("small", { textContent: "failed" }))
-        : el("span", { className: "reward" }, bar(g.reward), el("span", { className: "num", textContent: shortScore(g.reward) })));
-    button.dataset.key = g.id;
-    button.onclick = () => {
-      select(button);
-      load(detail, async () => [el("div", { className: "scroll" }, predictionPage(await api(`/predictions/${g.id}`), run))],
-        () => current === button);
+  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Proposals" }), el("span", { className: "tools" }, ledgerButton, todayButton), chips), list);
+  const on = new Set(BUCKETS.map(([key]) => key));
+  let rows = [];        // every proposal fetched, as GET /proposals lists them
+  let shown = [];       // what the detail pane shows for this pane
+  let openId = null;    // the proposal open in the detail pane
+  let openedAt = null;  // when it was opened, for the dwell sent when it is left
+  const showDetail = (nodes) => { shown = nodes; detail.replaceChildren(...nodes); };
+  for (const [key, label, colour] of BUCKETS) {
+    const chip = el("button", { className: "chip", textContent: label, style: `--c: ${colour}` });
+    chip.setAttribute("aria-pressed", "true");
+    chip.onclick = () => {
+      if (on.has(key)) on.delete(key); else on.add(key);
+      chip.setAttribute("aria-pressed", String(on.has(key)));
+      drawList();
     };
-    return el("li", {}, button);
-  });
-  return group(run.run, summary, rowList(rows, (more) => `${more} more`));
+    chips.append(chip);
+  }
+
+  function proposalRow(p) {
+    const line = feedLine(p.state);
+    const row = el("button", { className: "row proposal" }, el("span", { className: `light ${lightOf(p.state)}` }),
+      el("span", {}, el("b", { textContent: p.title }), ...(line ? [el("span", { className: "trail", textContent: line })] : [])));
+    row.dataset.key = p.id;
+    row.onclick = () => { select(row); open(p.id); };
+    return row;
+  }
+  // A day's rows under their task, the task's words once above its actions.
+  const taskRows = (g) => [el("div", { className: "task-line", textContent: g.task.task }), ...g.rows.map(proposalRow)];
+  function drawList() {
+    const groups = groupByDay(sortNewest(inBucket(rows, on)));
+    list.replaceChildren(...(groups.length
+      ? groups.flatMap((g) => [el("div", { className: "date", textContent: dayName(g.day) }), ...groupByTask(g.rows).flatMap(taskRows)])
+      : [status(rows.length ? "Nothing in the lists shown." : "No proposals yet. Press Today, or wait for the morning's run.")]));
+    reselect(list);
+  }
+  async function fetchRows() {
+    await load(list, async () => {
+      rows = await allPages(`/proposals?limit=${PAGE}`);
+      drawList();
+      return [...list.children];
+    });
+  }
+  // A proposal as a decision left it, back in the feed.
+  const replaceRow = (next) => {
+    rows = rows.map((r) => (r.id === next.id ? { ...r, state: next.state, bucket: next.bucket } : r));
+    drawList();
+  };
+  // Leaving an open proposal sends how long it was read.
+  function leave() {
+    if (!openId || !openedAt) return;
+    const id = openId;
+    const dwell = (Date.now() - openedAt) / 1000;
+    openId = openedAt = null;
+    patch(`/proposals/${id}`, { event: "opened", where: WHERE, dwell }).then(replaceRow).catch(() => {});
+  }
+
+  function open(id) {
+    leave();
+    openId = id;
+    openedAt = Date.now();
+    const scroller = el("div", { className: "scroll" });
+    showDetail([scroller]);
+    load(scroller, async () => [page(await api(`/proposals/${id}`))], () => shown[0] === scroller && openId === id);
+  }
+  function page(p) {
+    return proposalPage(p, {
+      where: WHERE, openSession, openTask: (task) => taskPage(p, task),
+      decide: async (event, detail, { quiet } = {}) => {
+        try {
+          const next = await patch(`/proposals/${p.id}`, { event, where: WHERE, detail });
+          replaceRow(next);
+          if (!quiet && openId === p.id) showDetail([el("div", { className: "scroll" }, page(next))]);
+        } catch (error) {
+          if (openId === p.id) shown[0]?.prepend(status(messageOf(error)));
+        }
+      },
+    });
+  }
+  // The task a proposal came from: its score against the line, why it was induced and why personal
+  // help matters, every insight ranked for it, its proposals; a task under the line can be proposed for.
+  function taskPage(p, task) {
+    const { run } = p;
+    const back = el("button", { className: "crumb" }, icon("left", 14), p.title);
+    back.onclick = () => showDetail([el("div", { className: "scroll" }, page(p))]);
+    const body = el("div", { className: "page" });
+    const place = taskPlace(task, run);
+    body.append(el("p", { className: "meta", textContent: `Task · ${dayName(p.day)} · ${place}` }),
+      el("h1", { textContent: task.task }),
+      el("div", { className: "scores" }, el("span", { textContent: "Utility" }),
+        el("span", { className: "track thresh", style: `--t: ${run.utility_threshold}` }, el("span", { style: `width: ${(task.score ?? 0) * 100}%` })),
+        el("span", { className: "num", textContent: `${score(task.score)} / ${run.utility_threshold}` })));
+    if (!task.asked && task.score != null) {
+      const ask = el("button", { className: "quiet", textContent: "Propose anyway", title: "Run the proposer for this task" });
+      ask.onclick = async () => {
+        ask.disabled = true;
+        try {
+          await post(`/proposals/runs/${run.id}/tasks/${task.index}`, {});
+          await fetchRows();
+          showDetail([el("div", { className: "scroll" }, page(await api(`/proposals/${p.id}`)))]);
+        } catch (error) {
+          ask.disabled = false;
+          body.prepend(status(messageOf(error)));
+        }
+      };
+      body.append(el("div", { className: "decide" }, ask));
+    }
+    body.append(el("p", { className: "parent" }, el("b", { textContent: "Why a task" }), el("span", { textContent: task.reasoning || "—" })),
+      el("p", { className: "parent" }, el("b", { textContent: "Why personal help" }), el("span", { textContent: task.utility_reasoning || "—" })));
+    const byId = new Map(p.insights.map((i) => [i.id, i]));
+    const ranked = task.ranked.filter((r) => byId.has(r.id));
+    const best = Math.max(0.01, ...ranked.map((r) => r.score ?? 0));
+    body.append(el("h2", { className: "sec" }, "Insights ranked for it", el("small", { textContent: `the first ${run.insights_per_task} go to the proposer` })),
+      ...ranked.map((r) => insightRow(byId.get(r.id), r, r.given ? "given" : "not given", best)));
+    const mine = rows.filter((r) => r.run_id === run.id && r.task.index === task.index);
+    if (mine.length) body.append(el("h2", { className: "sec", textContent: "Proposals" }), ...mine.map(proposalRow));
+    showDetail([el("div", { className: "scroll" }, el("div", { className: "crumbs" }, back, el("span", { className: "here", textContent: "Task" })), body)]);
+  }
+
+  // The ledger: accepted over shown, the runs with what each came to, and every decision made.
+  async function ledger() {
+    leave();
+    select(null);
+    const scroller = el("div", { className: "scroll" });
+    showDetail([scroller]);
+    await load(scroller, async () => {
+      const [rate, runs] = await Promise.all([api("/proposals/rate"), api("/proposals/runs")]);
+      const body = el("div", { className: "page" });
+      body.append(el("p", { className: "meta", textContent: "Ledger" }),
+        el("h1", { textContent: rateLine(rate) }),
+        el("p", { className: "tagline", textContent: `${rate.open} open · ${rate.almost} almost` }));
+      const proposed = runs.filter((run) => run.proposals);
+      body.append(el("h2", { className: "sec", textContent: "By run" }), el("div", { className: "scores" }, ...proposed.flatMap((run) => [
+        el("span", { textContent: `${shortDay(run.day)}` }),
+        el("span", { className: "track" }, el("span", { style: `width: ${run.proposals ? (run.accepted / run.proposals) * 100 : 0}%` })),
+        el("span", { className: "num", textContent: `${run.accepted} / ${run.proposals}` })])));
+      const decided = sortNewest(rows.filter((r) => r.state.decided));
+      body.append(el("h2", { className: "sec" }, "Decisions", el("small", { textContent: "newest first; a no after reading or editing is an almost" })),
+        decided.length ? el("ul", { className: "trail-list" }, ...decided.map((r) => {
+          const title = el("button", { className: "link", textContent: r.title });
+          title.onclick = () => { reselect(list, r.id); open(r.id); };
+          return el("li", { className: r.state.almost ? "almost" : "" },
+            el("span", { className: "when", textContent: `${monthDay(r.state.decided.at)}, ${clock(r.state.decided.at)}` }),
+            el("span", { className: `light ${lightOf(r.state)}` }),
+            el("span", {}, el("b", { textContent: stateWords(r.state) }), " · ", title, ` · ${r.state.decided.where}`));
+        })) : status("None yet."));
+      body.append(el("h2", { className: "sec", textContent: "Runs" }), el("div", { className: "build" }, ...runs.flatMap((run) => [
+        el("span", { textContent: shortDay(run.day) }),
+        el("span", {}, el("span", { className: run.status === "failed" ? "clamp" : "", title: run.status === "failed" ? run.error : "",
+                                    textContent: run.status === "done" ? runLine(run) : run.status === "failed" ? `failed: ${run.error}` : "running" }),
+          el("small", { textContent: `proposed ${monthDay(run.created_at)}, ${clock(run.created_at)}` }))])));
+      return [body];
+    }, () => shown[0] === scroller);
+  }
+  ledgerButton.onclick = ledger;
+  // Today: a run over today's captions; the feed is read again once it is done.
+  todayButton.onclick = async () => {
+    todayButton.disabled = true;
+    try {
+      const run = await post("/proposals/runs", { day: localDay() });
+      const wait = async () => {
+        const now = await api(`/proposals/runs/${run.id}`);
+        if (now.status === "running") { setTimeout(wait, RUN_POLL_MS); return; }
+        todayButton.disabled = false;
+        await fetchRows();
+        if (now.status === "failed") list.prepend(status(`Today's run failed: ${now.error}`));
+      };
+      setTimeout(wait, RUN_POLL_MS);
+    } catch (error) {
+      todayButton.disabled = false;
+      list.prepend(status(messageOf(error)));
+    }
+  };
+
+  return {
+    async show() {
+      detail.replaceChildren(...shown);
+      if (rows.length) return;
+      await fetchRows();
+      ledger();
+    },
+    leave,
+  };
 }
 
-// An ordered action list beside the other one: a green light where both hold
-// the same action at that position, amber where they differ.
-function actionList(title, list, same, raw, className) {
-  return el("div", {},
-    el("h2", { textContent: title }),
-    list.length
-      ? el("ol", { className: `actions ${className}` }, ...list.map((action, n) =>
-        el("li", {}, el("span", { className: "dim", textContent: n + 1 }),
-           el("span", { className: `light ${same[n] ? "recording" : "changing"}` }), el("span", { textContent: action }))))
-      : pres(raw ?? "No prediction."));
-}
+export function latticePane(pane, detail, openInTimeline) {
+  const picker = el("select", { className: "pick", ariaLabel: "Build" });
+  const views = el("div", { className: "views", role: "group", ariaLabel: "Layer", hidden: true });
+  const list = el("div", { className: "scroll" });
+  pane.replaceChildren(el("header", {}, el("h2", { textContent: "Lattice" }), picker, views), list);
+  let builds = [];
+  let build = null;    // the chosen build's summary
+  let lattice = null;  // its lattice, once fetched
+  let names = [];      // its layers' names, layer 0 first
+  let layerShown = 0;
+  let shown = [];      // what the detail pane shows for this pane
+  const showDetail = (nodes) => { shown = nodes; detail.replaceChildren(...nodes); };
 
-const judge = (prompt, reply) => [el("h3", { textContent: "Prompt" }), pres(prompt), el("h3", { textContent: "Reply" }), pres(reply)];
+  picker.onchange = () => choose(builds.find((b) => b.id === picker.value));
+  async function choose(next) {
+    build = next;
+    select(null);
+    lattice = null;
+    views.hidden = true;
+    if (!build) { list.replaceChildren(); showDetail([status("No lattice built yet.")]); return; }
+    const at = build.finished_at ?? build.created_at;
+    const record = el("div", { className: "scroll" }, el("div", { className: "page" },
+      el("p", { className: "meta", textContent: `Build · ${build.status === "done" ? "finished" : build.status} ${monthDay(at)}, ${clock(at)}` }),
+      el("h1", { textContent: `${rangeLabel(build.since, build.until)} on ${build.device_id ?? "every device"}` }), ...buildPage(build).children));
+    showDetail([record]);
+    if (build.status !== "done") {
+      list.replaceChildren(status(build.status === "failed" ? "This build failed; its record is on the right." : "This build is still running."));
+      return;
+    }
+    const wanted = build.id;
+    await load(list, async () => {
+      const whole = await api(`/lattice/${encodeURIComponent(wanted)}/lattice`);
+      if (build?.id !== wanted) return [];
+      lattice = whole;
+      names = layerNames(lattice);
+      views.replaceChildren(...[null, ...lattice.layers.map((l) => l.spec)].map((spec, layer) => {
+        const button = el("button", { textContent: layerPlural(spec) });
+        button.dataset.layer = layer;
+        button.onclick = () => showLayer(layer);
+        return button;
+      }).reverse());
+      views.hidden = false;
+      const nodes = layerList(lattice.layers.length);
+      const top = layerNodes(lattice, lattice.layers.length)[0];
+      if (shown[0] === record && top) open(lattice.layers.length, top.id, nodes);
+      return nodes;
+    }, () => build?.id === wanted);
+  }
 
-function predictionPage(g, run) {
-  const { predictor: p, grader } = g;
-  const predicted = actions(g.prediction);
-  const actual = actions(g.ground_truth);
-  const shots = g.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
-    .filter((part) => part.type === "image_url").length;
-  const scores = [["Reward", g.reward, ""], ["Accuracy", g.accuracy, "dim"], ["Formatting", g.formatting, "dim"]];
-  return el("div", { className: "page" },
-    el("p", { className: "meta", textContent: `Run ${runLabel(run)} · prediction ${g.index} · ${g.device_id} · cut off at ${time(g.cutoff_ts)}` }),
-    el("h1", { textContent: `Next ${plural(g.future_len, "action")}` }),
-    ...problemsOf(g).map(status),
-    el("div", { className: "scores" }, ...scores.flatMap(([name, value, className]) => [
-      el("span", { className, textContent: name }), bar(value, className),
-      el("span", { className: `num ${className}`, textContent: score(value) })])),
-    el("div", { className: "compare" },
-      actionList("Predicted", predicted, matches(predicted, actual), g.prediction, ""),
-      actionList("Actually next", actual, matches(actual, predicted), g.ground_truth, "truth")),
-    el("div", { className: "sections" },
-      section("What the predictor saw",
-        `${shots ? `${plural(shots, "screenshot")} and the prompt` : "the prompt"} · ${modelName(p.model)} · ${p.max_tokens} tokens`,
-        () => [el("p", { className: "meta", textContent: `${p.model}${p.api_base ? ` at ${p.api_base}` : ""} · temperature ${p.temperature}` }),
-               ...predictorInput(g.messages)]),
-      ...(g.accuracy_prompt == null ? [] : [section("Accuracy judge", `${modelName(grader.model)} · ${score(g.accuracy)}`,
-        () => judge(g.accuracy_prompt, g.accuracy_reply))]),
-      ...(g.formatting_prompt == null ? [] : [section("Formatting judge", `${modelName(grader.model)} · ${score(g.formatting)}`,
-        () => judge(g.formatting_prompt, g.formatting_reply))]),
-      section("Sample", `${g.dataset} · future ${g.future_len}`,
-        () => [pres(JSON.stringify({ id: g.id, session_id: g.session_id, run: g.run, index: g.index, dataset: g.dataset,
-                                     cutoff: time(g.cutoff_ts), future_len: g.future_len }, null, 2))])));
+  // The nodes of one layer, each under the group it was made in; the switch marks the layer.
+  function layerList(layer) {
+    layerShown = layer;
+    for (const button of views.children) button.setAttribute("aria-pressed", String(Number(button.dataset.layer) === layer));
+    return layerGroups(lattice, layer).flatMap((group) => [
+      el("div", { className: "date", textContent: group.label }),
+      ...group.nodes.map((node) => (layer === 0 ? observationRow(node) : insightRow(layer, node)))]);
+  }
+  function showLayer(layer) {
+    list.replaceChildren(...layerList(layer));
+    reselect(list);
+  }
+  function insightRow(layer, node) {
+    const row = el("button", { className: "row" }, el("b", { textContent: node.title }), el("small", { textContent: node.tagline }));
+    row.dataset.key = `${layer}-${node.id}`;
+    row.onclick = () => open(layer, node.id);
+    return row;
+  }
+  function observationRow(node) {
+    const row = el("button", { className: "row obs", title: node.observation },
+      el("span", { className: "conf", style: `--p: ${node.confidence / 10}` }, el("i")), el("span", { className: "text", textContent: node.observation }));
+    row.dataset.key = `0-${node.id}`;
+    row.onclick = () => open(0, node.id);
+    return row;
+  }
+
+  // One node in the detail pane, from GET /lattice/{build}/nodes/{layer}/{id}; its layer shown
+  // on the left and its row made current.
+  function open(layer, id, rows = null) {
+    if (layer !== layerShown) list.replaceChildren(...layerList(layer));
+    const row = (rows ? rows.find((node) => node.dataset?.key === `${layer}-${id}`) : null) ?? list.querySelector(`[data-key="${CSS.escape(`${layer}-${id}`)}"]`);
+    if (row) {
+      select(row);
+      row.scrollIntoView({ block: "nearest" });
+    }
+    const scroller = el("div", { className: "scroll" });
+    showDetail([scroller]);
+    load(scroller, async () => [nodePage(await api(`/lattice/${encodeURIComponent(build.id)}/nodes/${layer}/${id}`))],
+      () => shown[0] === scroller);
+  }
+  const sec = (text) => el("h2", { className: "sec", textContent: text });
+  const nodeRow = (layer, node) => {
+    const row = el("button", { className: "row node" }, el("span", { className: "lay", textContent: names[layer] }));
+    if (layer === 0) row.append(el("span", {}, el("span", { className: "conf", style: `--p: ${node.confidence / 10}` }, el("i")), el("b", { textContent: node.observation })));
+    else row.append(el("span", {}, el("b", { textContent: node.title }), el("small", { textContent: node.tagline })));
+    row.onclick = () => open(layer, node.id);
+    return row;
+  };
+  // A session the node was drawn from: its actions, the first SHOWN_ROWS shown, each pressed to
+  // open its first event in the timeline.
+  function sessionGroup(session, isOpen) {
+    const rows = session.interactions.map((i) => {
+      const row = el("button", { className: "row event", disabled: !i.event_ids.length,
+                                 title: i.event_ids.length ? "Open this action in the timeline" : "This action's events are not in the store" },
+        el("span", { className: "when", textContent: clock(i.time) }), el("span", { className: "caption", textContent: i.caption ?? "No caption" }),
+        el("span", { className: "go", textContent: "Timeline" }), icon("right", 12));
+      row.onclick = () => openInTimeline(i.event_ids[0]);
+      return el("li", {}, row);
+    });
+    const group = el("details", { className: "group" },
+      el("summary", {}, el("span", { className: "label" },
+        el("b", { textContent: `${dayLabel(new Date(session.start * 1000))} · ${clock(session.start)} – ${clock(session.end)}` }),
+        el("small", { textContent: build.device_id ?? "every device" })), icon("down")),
+      rowList(rows, (more) => `${more} more actions`));
+    group.open = isOpen;
+    return group;
+  }
+  function nodePage({ layer, node, parents, children, sources }) {
+    const page = el("div", { className: "page" });
+    const spec = layer ? lattice.layers[layer - 1].spec : null;
+    if (layer === 0) {
+      page.append(el("p", { className: "meta", textContent: `Observation · ${groupLabel(spec, node, build)}` }),
+        el("h1", { textContent: node.observation }),
+        el("div", { className: "scores" }, el("span", { textContent: "Confidence" }),
+          el("span", { className: "track dim" }, el("span", { style: `width: ${node.confidence * 10}%` })), el("span", { className: "num", textContent: `${node.confidence} / 10` })));
+    } else {
+      page.append(el("p", { className: "meta", textContent: `${names[layer]} insight · ${groupLabel(spec, node, build)}` }),
+        el("h1", { textContent: node.title }), el("p", { className: "tagline", textContent: node.tagline }),
+        el("div", { className: "body" }, el("p", { textContent: node.insight })),
+        el("p", { className: "parent" }, el("b", { textContent: "Applies when" }), el("span", { textContent: node.context })),
+        sec("Evidence"), el("ul", { className: "evidence" }, ...node.supporting_evidence.map((e) => el("li", {}, el("span", { textContent: e })))),
+        sec("Rests on"), ...children.map((c) => nodeRow(layer - 1, c)));
+    }
+    if (parents.length) page.append(sec("Supports"), ...parents.map((p) => nodeRow(layer + 1, p)));
+    page.append(sec("From"), ...sources.map((s, i) => sessionGroup(s, i === 0)));
+    page.append(el("div", { className: "sections" }, buildFold()));
+    return page;
+  }
+  // The build's record, folded under a node: when it ran, each stage's nodes and time, and what it read.
+  function buildFold() {
+    const b = build;
+    const at = b.finished_at ?? b.created_at;
+    return el("details", { className: "section" },
+      el("summary", {}, el("b", { textContent: "This build" }), el("span", { textContent: `${rangeLabel(b.since, b.until)} · ${b.status === "done" ? "finished" : b.status} ${monthDay(at)}, ${clock(at)}` })),
+      el("div", { className: "section-body" }, ...buildPage(b).children));
+  }
+
+  // The build's record: when it ran, over what, its top insight once the lattice is read, each
+  // stage's nodes and time, and what it read.
+  function buildPage(b) {
+    const page = el("div", { className: "page" });
+    if (b.error) page.append(el("p", { className: "parent" }, el("b", { textContent: "Failed" }), el("span", { textContent: b.error })));
+    const stageNames = ["Observe", ...b.params.layers.map((spec) => (spec.type === "all" ? "Overall" : `${layerName(spec)}s`))];
+    page.append(sec("Stages"), el("div", { className: "stages" }, ...stageRows(b, stageNames).flatMap((s) => [
+      el("span", { textContent: s.name }), el("span", { className: "num", textContent: s.nodes == null ? "—" : plural(s.nodes, "node") }),
+      el("span", { className: "track" }, el("span", { style: `width: ${s.share * 100}%` })),
+      el("span", { className: "num", textContent: [s.seconds == null ? null : minutes(s.seconds), s.failures ? `${s.failures} failed` : null].filter(Boolean).join(" · ") || "—" })])));
+    const { params: p } = b;
+    page.append(sec("Read"), el("div", { className: "build" },
+      el("span", { textContent: "Captions" }), el("span", { textContent: `${b.captions} activity captions in ${plural(b.sessions, "session")}, cut at ${p.session_gap_hours} h gaps` }),
+      el("span", { textContent: "Windows" }), el("span", { textContent: `${p.window_size} actions each, two observations per window` }),
+      el("span", { textContent: "Layers" }), el("span", { textContent: `${p.layers.map((spec) => (spec.type === "all" ? "everything" : spec.type === "time" ? `by ${spec.value}` : `${spec.value} per ${spec.type}`)).join(", then ")}; at least ${p.min_insights} insights per group` })));
+    return page;
+  }
+
+  return {
+    async show() {
+      detail.replaceChildren(...shown);
+      if (builds.length) return;
+      await load(list, async () => {
+        builds = await api("/lattice");
+        picker.replaceChildren(...builds.map((b) => el("option", { value: b.id, textContent: `${rangeLabel(b.since, b.until)} · ${b.device_id ?? "every device"}` })));
+        picker.hidden = !builds.length;
+        choose(builds[0]);
+        return [];
+      });
+    },
+  };
 }

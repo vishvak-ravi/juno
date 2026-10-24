@@ -8,18 +8,21 @@ draws with too; each page keeps its own shell and chat flow.
 
 ## Window
 
-The left pane shows one of three lists, picked by the buttons in the bar
+The left pane shows one of four lists, picked by the buttons in the bar
 pinned below it; the detail pane on the right shows what is open in it. The
 divider between them drags to set the left pane's width, remembered on the
 computer (`juno.aside`). What takes long enough to notice to arrive shows as
 shimmering lines in its place. On
-startup the chats list is shown with the most recently changed chat open.
+startup the chats list is shown with the most recently changed chat open. The
+timeline pane is made once and kept: shown again, it shows what it had, then
+asks what changed.
 
 | Button | Left pane | Detail pane |
 |---|---|---|
 | Chats | `GET /chats`, newest first | the chat (`GET /chats/{id}`) and its composer |
 | Timeline | sessions, newest first, from the start of this week, with a heading where the day changes and "Earlier" adding a week; a session opens to its **sequences** (the rows captioned together), newest first, each to its actions with a divider where a moment starts; the open action's session and sequence summaries stay pinned under the day heading as the list scrolls (the sequence's once it outruns the list), pressed to fold them; the **moment rail** down the pane's left edge, every moment of the sessions listed in the list's order with a divider per day, the wheel over it zooming, the moment under the pointer staying put; **Now** scrolls to the top and the calendar to today | the **calendar**: a week (or a day, or a month) of sessions as blocks on their days, each with one index curving down its right side and its moments pinned on its left, the moment types shown chosen by the chips above it, now marked in red; a block opens its session on the left, a pin opens its action. An **action** opens in the calendar's place: the ribbon of its day across the top (its sessions and moments, the action marked; pressed, or Escape, to go back), the action's caption, its parent sequence's caption, a button per Claude Code conversation its moments carry, the screenshot with the inputs replayed over it, the frames of its sequence and the sequences around it (the arrow keys step through them), and its inputs folded |
-| Predictions | the graded runs; a run opens to its predictions | one graded prediction (`GET /predictions/{id}`) |
+| Proposals | one feed of every proposal of every day (`GET /proposals`), what moved last first under a heading per day and, within a day, under the task it came from (its words once, its actions below it); each row its state as a light (hollow: new; white: seen; green: accepted; grey: dismissed; amber: almost, a no after reading or editing; hollow amber: later), its title and, once decided, its decision and when; the chips under the header hide a list (open, accepted, almost, dismissed); **Ledger** and **Today** (`POST /proposals/runs` for today, the feed read again once the run is done) | the **ledger** until a proposal is opened: accepted over shown (`GET /proposals/rate`), each run's accepted over its proposals (`GET /proposals/runs`), every decision newest first, the runs; a **proposal** (`GET /proposals/{id}`): its state and the decision bar (Accept, Dismiss, Later, Edit; Reopen once decided), the action, why it helps, its task (asked, asked by you, just under the line, or under the line) pressed to open the task's page, the reframings, the insights it rests on, each with its rank as a meter against the task's best and whether the action cited it, its trail, and the folds (what else was considered, the day it came from with each session pressed to open it in the Timeline, the model calls with the proposer's prompt and reply); a **task**: its utility against the line, why it was induced and why personal help matters, every insight ranked for it, its proposals, and Propose anyway for a task under the line (`POST /proposals/runs/{run}/tasks/{n}`) |
+| Lattice | the build picked in the header (`GET /lattice`, newest first) and, under it, the **layer switch**: the top layer first (Overall), then each layer down to the observations, named after the layers' specs; the list shows the chosen layer's nodes (`GET /lattice/{id}/lattice`) under a heading per day, week or range they were made in, observations under their session's day and span, each led by its confidence | the build's first top-layer insight, opened as soon as the lattice is read (its record, with its stages, their nodes, time and failures, and what it read, while the lattice loads and for a build not yet done); a node (`GET /lattice/{id}/nodes/{layer}/{node}`): the unit and where it was made, the title, tagline, insight and when it applies, its evidence, the nodes it rests on and supports (pressed to open, which moves the switch to their layer), the sessions it was drawn from, each action pressed to open it in the Timeline view, and the build's record folded under **This build**; an observation shows its text and confidence instead. The picker changes the build |
 | Devices | opens a panel above the bar: this computer's recorder, the annotation switch and each device's recording switch (`GET /control`, polled every `poll_seconds`) | |
 | Settings | opens a panel above the bar: the server address (see below) | |
 
@@ -28,13 +31,14 @@ while this computer's recorder has exited or a device has not yet done what
 its switch asks, grey when nothing records, hollow when the server cannot be
 reached.
 
-The timeline and predictions views are drawn from the routes as they are; what
+The timeline, proposals and lattice views are drawn from the routes as they are; what
 the client computes from the rows (`src/renderer/rows.mjs`):
 
 | Shown | From |
 |---|---|
 | A day's tint in the month | `GET /events/activity?edges=` with the local midnights of the six weeks shown; the square root of the day's count over the busiest day in view |
-| The sessions list | `GET /sessions?since=&until=&order=desc&limit=100`, every page, from the local start of this week with no `until`; "Earlier" fetches the week before the earliest loaded |
+| The sessions list | `GET /changes?since=` from the local start of this week, every session in range and the cursor to go on from; "Earlier" fetches the week before the earliest loaded, `GET /sessions?since=&until=&order=desc&limit=100`, every page |
+| What changed | every `live_seconds` of `GET /control` while the pane is shown, `GET /changes?cursor=&since=&events=`, `events` the ids of the sessions whose events the pane holds: each session listed is put in the list anew, its changed events merged by id into the ones held (`removed` taken out; `whole` replacing them), its open sequences drawn again, the open action's captions set again, and the calendar's blocks and pins drawn again with `GET /indices` read again when a changed session is on its days. What was drawn stays where it is: a session or action landing above slides the rest down, unless motion is reduced; scrolled down, the list keeps its place and the Now button counts the sessions that landed above the view |
 | A session's sequences | `GET /sessions/{id}`, the first time the session is opened (or a block, a pin or a rail line opens it); its events grouped by their `sequence`, each sequence's caption its events' `sequence_caption` |
 | A moment's divider | above the action it starts at, under its sequence; its text from the moment's `type` and the assistant in its `label`, its diamond in the type's colour; hidden with its type |
 | The moment rail | one line per moment of the sessions listed, from the sessions' `moments`, in the list's order, coloured by `type`, with a divider where the day changes; a line's reading (its text, day and time) shows beside it on hover. Lines are `juno.timeline.pitch` px apart, 2 to 14, remembered on the computer; the wheel over the rail changes it, the line under the pointer keeping its place (the rail alone shifts for that; the list stays put); when the lines outrun the rail it scrolls with the list. The line nearest the pointer, within half a pitch, is the one read and pressed. The line of the moment the list is at is ringed: the open action's moment (the session's latest moment starting at or before it) while its row is on screen, else the first action's on screen. Pressing a line opens its session, scrolls the list to its divider, lit for 1.5s, and opens its action |
@@ -46,18 +50,18 @@ the client computes from the rows (`src/renderer/rows.mjs`):
 | The ribbon | the open action's day: the blocks and pins of the sessions listed that touch it, now, and a mark at the action |
 | A replay | the action's inputs folded into items (`src/renderer/activity.mjs`), one stop per item at its offset from the screenshot; a click or scroll is drawn where it happened, in the screenshot's own pixels, keys as a bubble; play steps through them |
 | The frames | the events of the action's sequence and of one sequence either side, a divider between sequences, the open one marked; a frame opens its action, the arrow keys step through the session's events |
-| A conversation's button | each distinct `conversation` among the event's `moments`, drawn when the event's `device_id` is this computer's (`resolve_device_id`, asked of the checkout's Python at startup); on another device's event, a line naming that device. Pressing it runs `claude --resume <session_id>` in a new Ghostty window in `cwd` (`src/main/terminal.js`), without the variables of a Claude Code the app was started from |
+| A conversation's chip | one per distinct `conversation` among the event's `moments`, drawn when the event's `device_id` is this computer's (`resolve_device_id`, asked of the checkout's Python at startup); on another device's event, a line naming that device. The chip is the assistant's mark (Claude's, in `--claude`), its name (`harness`) and where the conversation ran (`entrypoint`: `cli` reads "terminal", `claude-desktop` "desktop app"); its tooltip has `cwd`. Pressing a terminal's runs `claude --resume <session_id>` in a new Ghostty window in `cwd` (`src/main/terminal.js`), without the variables of a Claude Code the app was started from; pressing the desktop app's opens `claude://code/continue?session=<host_session_id>`, the Claude app's link to the session by the id the app gave it, through `xdg-open` (macOS: `open`) |
 | An input's time | its `timestamp` minus its event's `timestamp` |
-| A run | `GET /predictions?limit=100` rows grouped by `run`; its time read from the run's name (`YYYYMMDD_HHMMSS`); mean reward over the rows with a reward; failed rows are those with an `error` |
+| The feed | every page of `GET /proposals?limit=100`, kept while the pane lives; ordered by each proposal's last decision, else its run's time; grouped by the run's day (`apps/web/src/proposals.js`) |
+| A proposal's reading | `PATCH /proposals/{id}` with `opened` and the seconds since it was opened, sent when another proposal, the ledger or another view takes its place; `expanded` with the fold's title when a fold is opened; `edited` with the draft when the amended action loses focus; the decision pressed. Every decision's answer replaces the row's state in the feed |
 | Model names | `predictor.model` and `grader.model` without the provider before the first `/` |
-| Action lists | the `<action>` elements of `prediction` and `ground_truth`; green where both hold the same text at the same position |
 
 A screenshot is requested only when its event is opened, and then the screenshots
 of the `client.prefetch` actions either side of it (`config.yaml`, read through the
 checkout's Python when the app starts) are fetched ahead, so stepping to them shows
-each at once; a prediction's
-prompts and the predictor's screenshots (`GET /predictions/{id}`) only when the
-prediction is opened, the screenshots only when their section is expanded.
+each at once. A proposal's page is read whole when it is opened; the phone page
+(`#/proposals`, `#/proposals/<id>`) draws the same page with `proposalPage` in
+`apps/web/src/views.js` and sends its decisions as the phone's.
 With `JUNO_TIMING_FILE` set, the main process (`src/main/server.js`) appends one JSON line per GET to that file: the route, milliseconds to the headers and to the parsed body, the server's `Server-Timing` milliseconds and the bytes.
 Setup and run commands are in the [README](../README.md).
 

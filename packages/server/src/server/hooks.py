@@ -11,11 +11,13 @@ that row it stands in for Jev's moment of the same type.
 import logging
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Hashable, Optional
 
 from pydantic import BaseModel, ValidationError
 
-from juno.sessions import Aggregation
+from juno.claude_hook import TERMINAL
+from juno.conversations import CLAUDE_CODE
+from juno.sessions import Aggregation, file_stamp
 from keypoints.derive import Conversation, Moment
 
 logger = logging.getLogger(__name__)
@@ -24,10 +26,13 @@ HOOKS_DIR = "hooks"
 CLAUDE_CODE_FILE = "claude_code.jsonl"
 DETECTOR = "claude_code_hook"
 # The ``agent_harness`` option of ``questions.json`` that names Claude Code.
-HARNESS = "claude_code"
+HARNESS = CLAUDE_CODE
 MOMENT_TYPE = "agent_prompt_submitted"
 
 append_lock = threading.Lock()
+# By prompts file: its stamp and the prompts read from it.
+prompts_cache: dict[Path, tuple[Optional[tuple[int, int]], list["Prompt"]]] = {}
+prompts_cache_lock = threading.Lock()
 
 
 class Prompt(BaseModel):
@@ -38,6 +43,12 @@ class Prompt(BaseModel):
     cwd: str
     # Claude Code's id of the prompt; None from versions that send none.
     prompt_id: Optional[str] = None
+    # Claude Code's CLAUDE_CODE_ENTRYPOINT, as the hook's header sent it: ``cli`` in a terminal,
+    # ``claude-desktop`` in the Claude desktop app. A line without one is a terminal's.
+    entrypoint: str = TERMINAL
+    # The Claude desktop app's own id of the session, from its CLAUDE_CODE_HOST_SESSION_ID; None for
+    # a terminal's.
+    host_session_id: Optional[str] = None
 
 
 def prompts_file(device_dir: Path) -> Path:
@@ -54,9 +65,31 @@ def append_prompt(device_dir: Path, prompt: Prompt) -> None:
 
 
 def read_prompts(device_dir: Path) -> list[Prompt]:
-    """The device's prompts in the order they arrived; a line that is not a prompt is skipped."""
+    """The device's prompts in the order they arrived; a line that is not a prompt is skipped.
+
+    The file is read again only once its size or modification time has changed.
+    Callers share the list and must not change it.
+    """
+    path = prompts_file(device_dir)
+    stamp = file_stamp(path)
+    with prompts_cache_lock:
+        cached = prompts_cache.get(path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        prompts = parse_prompts(path)
+        prompts_cache[path] = (stamp, prompts)
+        return prompts
+
+
+def prompts_version(device_dir: Path, since: float, until: float) -> Hashable:
+    """A value that differs whenever the prompts between ``since`` and ``until`` do."""
+    return tuple(prompt.timestamp for prompt in read_prompts(device_dir)
+                 if since <= prompt.timestamp <= until)
+
+
+def parse_prompts(path: Path) -> list[Prompt]:
     try:
-        lines = prompts_file(device_dir).read_text().splitlines()
+        lines = path.read_text().splitlines()
     except FileNotFoundError:
         return []
     prompts = []
@@ -66,7 +99,7 @@ def read_prompts(device_dir: Path) -> list[Prompt]:
         try:
             prompts.append(Prompt.model_validate_json(line))
         except ValidationError as exc:
-            logger.warning("skipping a line of %s: %s", prompts_file(device_dir), exc)
+            logger.warning("skipping a line of %s: %s", path, exc)
     return prompts
 
 
@@ -99,7 +132,8 @@ def prompt_moments(aggregations: list[Aggregation], prompts: list[Prompt]) -> di
         moments.setdefault(row, []).append(Moment(
             type=MOMENT_TYPE, probability=1.0, detector=DETECTOR, label=HARNESS,
             conversation=Conversation(harness=HARNESS, session_id=prompt.session_id,
-                                      cwd=prompt.cwd)))
+                                      cwd=prompt.cwd, entrypoint=prompt.entrypoint,
+                                      host_session_id=prompt.host_session_id)))
     return moments
 
 

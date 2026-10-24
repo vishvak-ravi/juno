@@ -12,7 +12,7 @@ import os
 import re
 import socket
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -216,6 +216,8 @@ class ControlConfig(Section):
     poll_seconds: float = 5.0
     # Seconds without a report after which a device shows as offline.
     offline_seconds: float = 30.0
+    # Seconds between a client's checks of what changed in the timeline (GET /changes).
+    live_seconds: float = 2.0
 
 
 class ClaudeHookConfig(Section):
@@ -236,6 +238,119 @@ class ClientConfig(Section):
     prefetch: int = 3
 
 
+
+class LayerSpec(Section):
+    """How one layer of the behavior lattice groups the nodes of the layer below before synthesis."""
+
+    # session: nodes of this many consecutive sessions per group. time: one
+    # group per calendar unit (day, week, month, year). number: this many nodes
+    # per group. all: one group of every node, the layer that ends in one insight.
+    type: Literal["session", "time", "number", "all"]
+    value: Optional[str] = None
+
+
+class LatticeConfig(Section):
+    # Behavior Latticing (Zhao et al., arXiv 2604.07629) over the events of
+    # ``events``: observations about the user, synthesized into insights layer
+    # by layer (``lattice``). The name the prompts call the user.
+    user_name: str = "the user"
+    # What the prompts say the interactions are; {user_name} is filled in.
+    description: str = "{user_name}'s screen activities and conversations with coding assistants"
+    # litellm model strings, as ``annotate.model``: the observer writes
+    # observations from windows of interactions, the insight model synthesizes
+    # each group into insights, the evidence model maps a layer 1 insight to the
+    # observations that support it, the format model turns insight prose into JSON.
+    observer_model: str = "gemini/gemini-3.1-flash-lite"
+    insight_model: str = "gemini/gemini-3.1-flash-lite"
+    evidence_model: str = "gemini/gemini-3.1-flash-lite"
+    format_model: str = "gemini/gemini-3.1-flash-lite"
+    # The server an openai/ model is sent to. None: the provider's own endpoint.
+    api_base: Optional[str] = None
+    # Upper bound on a reply, hidden reasoning included. A server that holds
+    # a context of fixed length (vLLM) takes a prompt of at most its context
+    # length less this.
+    max_tokens: int = 2048
+    # Model calls in flight at once.
+    max_concurrency: int = 8
+    # Seconds one call may take.
+    timeout_seconds: float = 300.0
+    # Calls made for one prompt while the provider is busy, and the seconds
+    # waited after it was: the base doubles with each attempt, up to the maximum.
+    max_attempts: int = 3
+    retry_base_seconds: float = 2.0
+    retry_max_seconds: float = 30.0
+    # The event types read (``juno.events.EVENT_TYPES``): activity, the action
+    # captions of recorded sessions; message, the turns of imported conversations.
+    events: list[str] = Field(default_factory=lambda: ["activity", "message"])
+    # Characters of a conversation turn the observer is shown, at most.
+    turn_chars: int = 2000
+    # Interactions per observer window.
+    window_size: int = 25
+    # Insights the model is asked for per group, at least.
+    min_insights: int = 3
+    # Hours without an activity interaction that start a new session; a
+    # conversation is one session.
+    session_gap_hours: float = 3.0
+    # Layer 1 first; the last entry is the top of the lattice.
+    layers: list[LayerSpec] = Field(default_factory=lambda: [
+        LayerSpec(type="number", value="40"), LayerSpec(type="time", value="day"), LayerSpec(type="all")])
+
+
+
+class DawnConfig(Section):
+    # Dawn (Zhao et al., arXiv 2604.07629, Sec. 4): tasks the user could use a
+    # personal agent for, induced from one day's action captions, scored for
+    # how much the lattice's insights would change the help, and two actions
+    # proposed per kept task (`scripts/propose_actions.py`). litellm model
+    # strings sent as ``lattice.api_base`` sends them: the task model
+    # synthesizes the day's high-level tasks, the utility model scores each
+    # task 0-1, the action model proposes the actions.
+    task_model: str = "gemini/gemini-3.1-flash-lite"
+    utility_model: str = "gemini/gemini-3.1-flash-lite"
+    action_model: str = "gemini/gemini-3.1-flash-lite"
+    # The cross encoder that ranks the lattice's insights against a task:
+    # voyage/<model> (key VOYAGE_API_KEY in .env), or llm to have the utility
+    # model score each insight's relevance instead.
+    rerank_model: str = "voyage/rerank-2.5"
+    # Action captions the task model reads at once; the tasks of every
+    # window are then put to it again as the list of goals to choose from.
+    # 0: the whole day in one call.
+    actions_per_window: int = 0
+    # Tasks scoring below this are dropped.
+    utility_threshold: float = 0.75
+    # Insights given to the action model per task, the best ranked.
+    insights_per_task: int = 2
+    # What the action model is told the agent that will carry out its actions
+    # can and cannot do (the paper's implementation constraints, Appendix A.7).
+    constraints: str = """The proposed solutions must be actions or plans for a tool-calling agent running in the Hermes harness, a general-purpose agent harness. Its capabilities are a superset of a personal assistant's:
+- Query an LLM endpoint
+- Access to local file systems (READ / WRITE documents)
+- Access MCP servers for Google Drive (READ / WRITE documents)
+- Access MCP servers for creating slide decks
+- Access MCP servers for Apple Calendar (READ / WRITE events)
+- Conduct a web search
+- Draft text (e.g., message, email, Slack message, text message)
+- Run shell commands and code, browse the web, and call any other MCP server or tool the harness is given
+
+### The tool-calling agent **CANNOT**:
+- Execute physical-world actions
+
+Actions do NOT need to use all of the capabilities. Always defer to the most minimal implementation that can achieve the desired solution."""
+
+
+class ProposalsConfig(Section):
+    # Dawn's proposals as the clients show them (`/proposals`). The local time
+    # (HH:MM) the server proposes for the day before, over the newest finished
+    # lattice; null: only when asked.
+    propose_at: Optional[str] = Field(default="05:00", pattern=r"^\d{2}:\d{2}$")
+    # Seconds a proposal must have been open for a no (dismissed or snoozed)
+    # to count as almost accepted; an edited action counts whatever the time.
+    almost_seconds: float = 30.0
+    # A task scoring under `dawn.utility_threshold` by at most this is almost
+    # asked: shown under the line with a way to propose for it anyway.
+    near_threshold: float = 0.1
+
+
 class Config(Section):
     server: ServerConfig = Field(default_factory=ServerConfig)
     llm: LlmConfig = Field(default_factory=LlmConfig)
@@ -249,6 +364,9 @@ class Config(Section):
     draw: DrawConfig = Field(default_factory=DrawConfig)
     claude_hook: ClaudeHookConfig = Field(default_factory=ClaudeHookConfig)
     client: ClientConfig = Field(default_factory=ClientConfig)
+    lattice: LatticeConfig = Field(default_factory=LatticeConfig)
+    dawn: DawnConfig = Field(default_factory=DawnConfig)
+    proposals: ProposalsConfig = Field(default_factory=ProposalsConfig)
 
 
 def default_data_dir() -> Path:

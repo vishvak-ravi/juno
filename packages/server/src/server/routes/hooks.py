@@ -14,7 +14,8 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Header, Query, Request, Response
 from pydantic import BaseModel
 
-from juno.claude_hook import ENTRYPOINT_HEADER, HOOK_PATH, REMOTE_HEADER
+from juno.claude_hook import (DESKTOP_APP, ENTRYPOINT_HEADER, HOOK_PATH, HOST_SESSION_HEADER,
+                              KEPT_ENTRYPOINTS, REMOTE_HEADER)
 from juno.sessions import DEVICE_ID_PATTERN
 from server.hooks import Prompt, append_prompt
 
@@ -35,18 +36,22 @@ class HookInput(BaseModel):
     agent_id: Optional[str] = None
 
 
-def unsupported(body: HookInput, entrypoint: Optional[str], remote: Optional[str]) -> Optional[str]:
+def unsupported(body: HookInput, entrypoint: Optional[str], remote: Optional[str],
+                host_session: Optional[str]) -> Optional[str]:
     """Why a prompt is not kept as a moment; None when it is.
 
-    A kept prompt's moment carries a button that runs ``claude --resume
-    <session_id>`` in a new terminal in ``cwd`` on the device, so only a prompt
-    typed into Claude Code in that device's terminal is kept:
+    A kept prompt's moment carries a chip that reopens the conversation on the
+    device, so only a prompt typed into a Claude Code the device can reopen is
+    kept (``KEPT_ENTRYPOINTS``): one in a terminal, resumed by ``claude --resume
+    <session_id>`` in a new terminal in ``cwd``, or one in the Claude desktop
+    app, opened by the app's ``claude://code/continue`` link to the session id
+    the app gave it (``host_session``). Not kept:
 
     - a cloud session (``CLAUDE_CODE_REMOTE`` is ``true``) keeps its conversation
       in the cloud and its ``cwd`` is a directory of the cloud machine;
-    - the Claude desktop app (``claude-desktop``), an IDE extension
-      (``claude-vscode``) and the SDK (``sdk-cli`` for ``claude -p``, ``sdk-ts``,
-      ``sdk-py``) open their conversations in their own window, or are scripts;
+    - an IDE extension (``claude-vscode``) and the SDK (``sdk-cli`` for
+      ``claude -p``, ``sdk-ts``, ``sdk-py``) open their conversations in their
+      own window, or are scripts;
     - a subagent's prompt is not the user's.
 
     Chats in claude.ai and in the Claude apps' chat run no hooks and never reach here.
@@ -55,10 +60,12 @@ def unsupported(body: HookInput, entrypoint: Optional[str], remote: Optional[str
         return f"{body.hook_event_name} is not a prompt"
     if remote == "true":
         return "a cloud session"
-    if entrypoint != "cli":
-        return f"entrypoint {entrypoint or 'not sent'}, not the terminal (cli)"
+    if entrypoint not in KEPT_ENTRYPOINTS:
+        return f"entrypoint {entrypoint or 'not sent'}, not one of {', '.join(KEPT_ENTRYPOINTS)}"
     if body.agent_id is not None:
         return "a subagent's prompt"
+    if entrypoint == DESKTOP_APP and not host_session:
+        return f"the desktop app's session id was not sent ({HOST_SESSION_HEADER})"
     return None
 
 
@@ -69,13 +76,15 @@ def claude_code_hook(
     device: DeviceId,
     entrypoint: Annotated[Optional[str], Header(alias=ENTRYPOINT_HEADER)] = None,
     remote: Annotated[Optional[str], Header(alias=REMOTE_HEADER)] = None,
+    host_session: Annotated[Optional[str], Header(alias=HOST_SESSION_HEADER)] = None,
 ) -> Response:
-    """Keep a prompt typed into Claude Code in a terminal of ``device`` as a moment."""
-    reason = unsupported(body, entrypoint, remote)
+    """Keep a prompt typed into Claude Code in a terminal or the Claude desktop app of ``device`` as a moment."""
+    reason = unsupported(body, entrypoint, remote, host_session)
     if reason is not None:
         logger.info("not keeping a Claude Code prompt of %s: %s", device, reason)
         return Response(status_code=204)
     append_prompt(request.app.state.devices_dir / device,
                   Prompt(timestamp=time.time(), session_id=body.session_id, cwd=body.cwd,
-                         prompt_id=body.prompt_id))
+                         prompt_id=body.prompt_id, entrypoint=entrypoint,
+                         host_session_id=host_session or None))
     return Response(status_code=204)

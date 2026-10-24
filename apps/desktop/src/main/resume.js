@@ -1,6 +1,7 @@
-// Reopens an assistant conversation from the event whose moment carries it, on
-// this computer only: the conversation's directory and transcript are on the
-// device that recorded the event. This computer's device id is the recorder's
+// Reopens an assistant conversation from the event whose moment carries it, in
+// a terminal or in the Claude desktop app (`./terminal`), on this computer only:
+// the conversation's directory and transcript are on the device that recorded
+// the event. This computer's device id is the recorder's
 // (`juno.config.resolve_device_id`), asked of the checkout's Python once.
 const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -30,17 +31,17 @@ function launch({ command, args }) {
 function registerResume(repoDir) {
   const deviceId = deviceIdOf(repoDir);
   ipcMain.handle("device:id", () => deviceId);
-  // Resolves to {} once the terminal has started, or {error} saying why it was not.
+  // Resolves to {} once the terminal or the link's opener has started, or {error} saying why it was not.
   ipcMain.handle("conversation:resume", async (_event, eventDeviceId, conversation) => {
     if (eventDeviceId !== (await deviceId)) return { error: `This conversation is on ${eventDeviceId}.` };
     const command = resumeCommand(process.platform, conversation);
     if (!command) return { error: "This conversation cannot be reopened on this computer." };
-    if (!fs.existsSync(conversation.cwd)) return { error: `${conversation.cwd} is no longer on this computer.` };
+    if (command.cwd && !fs.existsSync(command.cwd)) return { error: `${command.cwd} is no longer on this computer.` };
     try {
       await launch(command);
       return {};
     } catch (error) {
-      return { error: error.code === "ENOENT" ? "Ghostty is not installed." : error.message };
+      return { error: error.code === "ENOENT" ? command.missing : error.message };
     }
   });
 }

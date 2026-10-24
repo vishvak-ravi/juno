@@ -1,5 +1,83 @@
 # Status
 
+## 2026-10-23: Proposals in the clients
+
+| Piece | State |
+|---|---|
+| `lattice/proposals.py`: a run over one day (`propose_run`, the body `scripts/propose_actions.py` ran), every insight ranked per task with its score, the proposer's cut candidates (`considered` in the reply format), calls recorded with prompt, reply, seconds and tokens; runs under `<data dir>/proposals/<run>/` with `decisions.jsonl` as the trail; `state_of` | done; 7 tests with a fake model |
+| `/proposals` routes: the feed by state (a first listing writes `listed`), one proposal in full, `PATCH` events, runs listed and started (202; 409 while one goes), one task proposed for on request, the rate | done; 6 tests through `create_app(dawn_call=)` |
+| `proposals.propose_at`: the server proposes for the day before every morning (`server.propose`) | done; the wait is tested, the loop is not |
+| The desktop Proposals pane (feed, ledger, proposal, task pages) and the phone's `#/proposals` screens, over `apps/web/src/proposals.js` (6 tests) and `proposalPage` in `views.js` | done; drawn only with the window's example data, not yet against a server |
+| The predictions pane and the phone's predictions screens | removed; `GET /predictions` and `POST /predictions` stay for scripts |
+| Dispatching an accepted proposal to the agent | not built; accepted is a recorded intent |
+
+## 2026-10-23: Conversations imported; the lattice over activity and messages
+
+| Piece | State |
+|---|---|
+| `juno.conversations`, `server.conversations.FileConversations` (one file per thread under the device), `capture.chats.claude_code` (the transcript reader), `scripts/import_conversations.py` | done; reader and store tested; not yet run on this machine's 115 transcripts |
+| `lattice.build` reads the types in `lattice.events`; a conversation is one session of `<speaker>: <text>` turns cut at `turn_chars`; `SourceInteraction.conversation` points a node at its turn and the node route shows the turn's text | done; tested with the fake model and through the routes |
+| Build over the store with conversations imported | not yet run; plan: `scripts/bench_routes.py snapshot`, a config copy pointing at it, import, `scripts/build_lattice.py` |
+| `GET /events` listing messages; moments from imported turns deduplicated against the hook's lines by prompt id | not started |
+| The hook sending the prompt's text, or a sync of the transcripts, so an installed device stays current | not started |
+| The desktop client's lattice view on a node whose source is a turn (`caption` is the turn's text, `event_ids` empty) | checked against the server's build of 2026-10-23: the turn's text is listed under From, clamped to three lines, with no Timeline button |
+
+## 2026-10-23: Desktop-app prompts as moments
+
+| Piece | State |
+|---|---|
+| `claude-desktop` prompts kept with their `entrypoint` and the app's own session id (`X-Claude-Code-Host-Session`); both on `conversation` in `GET /events` and `GET /sessions/{id}` | done; tested. A hook installed without the third header must be installed again |
+| The conversation chip (Claude's mark, assistant, where it ran); the desktop app's opened by `claude://code/continue?session=<host_session_id>` | done; unit tested; drawn in the client. A link made from `local_` plus Claude Code's id opened the app on a new chat in 14 of 108 sessions, whose app id differs |
+
+## 2026-10-23: Behavior lattice build and Dawn's action proposals
+
+| Piece | State |
+|---|---|
+| `lattice` package: the library's prompts verbatim, observe, layers, build; `scripts/build_lattice.py` | done; 7 tests with a fake model |
+| Builds over the store (2,140 captions, 7,646 interactions, 8 sessions at the 3-hour gap, 310 observer windows) against the local vLLM Gemma (16k context) | done: `lattice_20261023_025734` in 3.5 min, 1,706 observations, 16 / 10 / 7 insights by layer, 344 calls; the two biggest days (10-03, 10-21) overflow the context at layer 1 and contribute no insights. vLLM refuses a prompt longer than its context less `lattice.max_tokens`; at 8192 a first build lost 80 of 310 windows and 3 of 7 days |
+| The same build with vLLM at a 32k context (`--max-model-len 32768` in `~/.config/systemd/user/vllm.service`; 11.65 GiB of KV cache, 9 full-length requests at once) | done: `lattice_20261023_030545` in 4.3 min, 1,732 observations, 21 / 16 / 7 insights by layer, 352 calls, none failed; every day has layer 1 insights |
+| Build with `lattice.layers` number:40, day, all, the first grouping about the size of the authors' example lattice's | done: `lattice_20261023_034949` in 5.1 min, 1,694 observations, 121 / 37 / 7 insights by layer, 538 / 119 / 34 edges; 3 of 43 first-layer groups lost to unreadable JSON from the format call. The five earlier builds are moved to `data/lattice/` at the checkout root |
+| `lattice/dawn.py`, `lattice/rerank.py`, `scripts/propose_actions.py`: tasks of a day, utility scores, reranked insights, two actions per task | done; 7 tests with a fake model; run on 2026-10-22 (1,018 captions, 7 windows): 3 tasks, 2 kept at 0.75, 2 actions each, 21 calls in 54 s, `llm` reranker |
+| Voyage reranker (`dawn.rerank_model: voyage/rerank-2.5`) | needs `VOYAGE_API_KEY` in `.env`; `llm` works without it |
+| Annotation backfill: 1,308 chunks without a finished caption | stalled: `annotate.api_base` points at a llama.cpp server that is not running, and the GPU holds vLLM |
+
+## 2026-10-23: Behavior lattice routes
+
+| Piece | State |
+|---|---|
+| `GET /lattice`: every build newest first as `BuildSummary` (`LatticeBuild` with the count of its sessions in place of them) (`server.routes.lattice`) | done; tested against a lattice stored with `FileLattices` |
+| `POST /lattice`: body `device`, `since`, `until` and the `LatticeParams` knobs, each defaulting from `config.lattice`; calls `lattice.build.new_build`, saves the record, runs `build_lattice` as an `asyncio` task kept in `app.state.lattice_tasks`; 202 with the summary, 409 while a build runs; a build that raises without recording it is marked `failed` | done; tested with an injected `build_lattice` (`create_app(build_lattice=)`) |
+| `GET /lattice/{build_id}`: the `LatticeBuild` with its sessions | done; tested |
+| `GET /lattice/{build_id}/lattice`: the whole `Lattice`; 404 until the build is done | done; tested |
+| `GET /lattice/{build_id}/layers/{layer}`: `{layer, spec, nodes, edges}`; layer 0 is the observations with no spec and no edges | done; tested |
+| `GET /lattice/{build_id}/nodes/{layer}/{node_id}`: the node with `parents`, `children`, `support` (every node under it by layer) and `sources` (the build's sessions its observations came from, each interaction with its action's `caption` and the `event_ids` the action covers through `framed_rows`) | done; tested with rows uploaded through `PUT /events` and a caption spanning frames 1-2 |
+| `app.state.lattices` (`FileLattices` under `<data dir>/lattice`), `app.state.lattice` (`config.lattice`) | done |
+| The desktop client's Lattice view (`apps/desktop/src/renderer/lattice.mjs`): the build picked in the pane header, one layer at a time picked by the switch under it, a node's page on the right moving the switch as its parents and children are followed, its source actions opening in the timeline | done; checked against a stored example lattice served by the routes, not yet against a real build |
+| The phone page | no lattice view |
+
+## 2026-10-22: Live timeline
+
+| Piece | State |
+|---|---|
+| `GET /changes?cursor=&since=&until=&events=`: the sessions changed since the cursor, with the changed events of the ones named (`server.routes.changes`) | done; tested |
+| A session's fingerprint (`version` of `Events`, `ActivityCaptions`, `QuestionAnswers`; the device's prompts in its span) numbers its changes, and its events are built once per fingerprint with the rows that differ from the build before (`server.versions`) | done; tested through `/changes` |
+| `control.live_seconds` (2), returned by `GET /control`: how often the client asks | done |
+| The desktop timeline pane is kept across views and asks every `live_seconds` while shown; sessions, sequences, actions and dividers are reconciled by key (`reconcile` in `apps/web/src/views.js`), what lands above sliding the rest down; the Now button counts sessions that landed above a scrolled view | done; not yet run against a recording device |
+| The calendar's blocks and pins are drawn again (one `GET /indices`) when a changed session is on its days; the month's counts read again | done |
+| The phone page | not live |
+
+Against the rows cache alone (`--label built-cache`, same snapshot, day and passes), in ms:
+
+| Request | Rows cache p50 | Now cold | Now p50 | Now p95 |
+|---|---|---|---|---|
+| calendar (`/events/activity`) | 18 | 2,290 | 21 | 22 |
+| day events (`/events?…&limit=100`) | 63 | 87 | 27 | 44 |
+| day indices (`/indices`) | 46 | 18 | 31 | 504 |
+| day events, next page (`after=`) | 62 | 14 | 41 | 73 |
+| day sessions (`/sessions`) | 44 | 20 | 29 | 40 |
+| open session (`/sessions/{id}`) | 22 | 13 | 15 | 38 |
+| open day (events and indices together) | 80 | 41 | 35 | 89 |
+
 ## 2026-10-22: Timeline routes read only what they need
 
 | Piece | State |

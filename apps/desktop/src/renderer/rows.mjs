@@ -1,7 +1,7 @@
 // What the desktop browser makes of the routes' rows, without drawing anything:
 // sessions laid out on the calendar and down the moment rail, a session's events
 // grouped into sequences, an index smoothed into a curve, inputs read as lines,
-// graded predictions grouped into runs and their <action> lists read, devices
+// devices
 // reduced to one state. Every value here is computed from rows already fetched;
 // nothing is requested.
 
@@ -22,6 +22,12 @@ export function momentText(moment) {
   const who = ASSISTANTS[moment.label] ?? null;
   return text ? text(who) : moment.type.replaceAll("_", " ");
 }
+// The name of a conversation's assistant, by its `harness`.
+export const assistantText = (conversation) => ASSISTANTS[conversation.harness] ?? conversation.harness;
+
+// Where a conversation ran, by its `entrypoint` (Claude Code's CLAUDE_CODE_ENTRYPOINT).
+const SURFACES = { cli: "terminal", "claude-desktop": "desktop app" };
+export const surfaceText = (conversation) => SURFACES[conversation.entrypoint] ?? conversation.entrypoint;
 
 // The conversations an event's moments carry (those an assistant's hook
 // reported), each once, in the order of its moments.
@@ -205,41 +211,8 @@ export const offset = (input, event) => {
 export const clock = (seconds, withSeconds = false) => new Date(seconds * 1000).toLocaleTimeString(undefined,
   { hour: "numeric", minute: "2-digit", ...(withSeconds ? { second: "2-digit" } : {}) });
 
-// The <action> elements of a prediction or a ground truth, in order.
-const ENTITIES = { "&lt;": "<", "&gt;": ">", "&amp;": "&", "&quot;": '"', "&apos;": "'" };
-export const actions = (text) => [...(text ?? "").matchAll(/<action>([\s\S]*?)<\/action>/g)]
-  .map((m) => m[1].trim().replace(/&(lt|gt|amp|quot|apos);/g, (e) => ENTITIES[e]));
-
-// Whether position n of both lists holds the same action.
-export const matches = (predicted, actual) => predicted.map((a, n) => a === actual[n]);
-
-// A run's name is when it started, YYYYMMDD_HHMMSS, local time.
-export function runTime(run) {
-  const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(run);
-  return m ? new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]) : null;
-}
-
 // "hosted_vllm/local-model" → "local-model".
 export const modelName = (model) => model.slice(model.indexOf("/") + 1);
-
-const mean = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
-
-// Graded predictions grouped by run, in the order the page lists them; each
-// run's rows in prediction order.
-export function groupRuns(rows) {
-  const runs = new Map();
-  for (const row of rows) {
-    if (!runs.has(row.run)) runs.set(row.run, []);
-    runs.get(row.run).push(row);
-  }
-  return [...runs].map(([run, graded]) => {
-    graded.sort((a, b) => a.index - b.index);
-    return { run, rows: graded, time: runTime(run),
-             predictor: modelName(graded[0].predictor.model), grader: modelName(graded[0].grader.model),
-             mean: mean(graded.map((g) => g.reward).filter((r) => r != null)),
-             failed: graded.filter((g) => g.error != null).length };
-  });
-}
 
 // One device of GET /control as a state for its light: "recording", "changing"
 // (asked for one thing, still doing the other), "idle" or "offline".

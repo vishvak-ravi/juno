@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("juno", {
   sendChat: (chatId, content) => ipcRenderer.invoke("chat:send", chatId, content),
   get: (route) => ipcRenderer.invoke("api:get", route),
   patch: (route, body) => ipcRenderer.invoke("api:patch", route, body),
+  post: (route, body) => ipcRenderer.invoke("api:post", route, body),
   // This computer's recorder: {running, exitCode, log}, log being its last lines.
   captureStatus: () => ipcRenderer.invoke("capture:status"),
   // The checkout's config.yaml as JSON (juno.config.Config); null if it cannot be read.

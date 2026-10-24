@@ -41,8 +41,9 @@ def test_install_adds_one_hook_to_this_devices_server_and_keeps_the_rest(claude_
     assert groups[1:] == [{"hooks": [{
         "type": "http", "url": "http://10.0.0.2:9000/hooks/claude-code?device=laptop", "timeout": 4,
         "headers": {"X-Claude-Code-Entrypoint": "$CLAUDE_CODE_ENTRYPOINT",
-                    "X-Claude-Code-Remote": "$CLAUDE_CODE_REMOTE"},
-        "allowedEnvVars": ["CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_REMOTE"]}]}]
+                    "X-Claude-Code-Remote": "$CLAUDE_CODE_REMOTE",
+                    "X-Claude-Code-Host-Session": "$CLAUDE_CODE_HOST_SESSION_ID"},
+        "allowedEnvVars": ["CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_REMOTE", "CLAUDE_CODE_HOST_SESSION_ID"]}]}]
 
 
 def test_uninstall_leaves_the_settings_as_they_were(claude_dir):

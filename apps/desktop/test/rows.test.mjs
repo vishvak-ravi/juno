@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  actions, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, groupRuns, indexCurve, inputLine,
-  liveSessions, matches, modelName, momentAt, momentText, monthGrid, offset, overallState, pinClusters, railLines, runTime, sequencesOf, shade,
+  assistantText, conversationsOf, day, dayBlocks, dayLabel, daysFrom, foldedNote, gridEdges, indexCurve, inputLine,
+  liveSessions, modelName, momentAt, momentText, monthGrid, offset, overallState, pinClusters, railLines, sequencesOf, shade,
+  surfaceText,
   shownInputs, weekOf, weekStart, weekdays,
 } from "../src/renderer/rows.mjs";
 
@@ -135,29 +136,8 @@ test("a month's calendar is six weeks from the week start before the first, shad
   assert.deepEqual(weekdays(1, "en-US"), ["M", "T", "W", "T", "F", "S", "S"]);
 });
 
-test("action lists are read from the XML and compared position by position", () => {
-  const predicted = actions("<actions>\n  <action>Clicks the tab.</action>\n  <action>Types &amp; saves.</action>\n</actions>");
-  const actual = actions("<actions><action>Clicks the tab.</action><action>Closes it.</action></actions>");
-  assert.deepEqual(predicted, ["Clicks the tab.", "Types & saves."]);
-  assert.deepEqual(matches(predicted, actual), [true, false]);
-  assert.deepEqual(actions(null), []);
-});
-
-test("graded predictions are grouped by run, in prediction order, with mean reward and failures", () => {
-  const graded = (run, index, reward, error = null) => ({
-    id: `s-${run}-${index}`, run, index, reward, error,
-    predictor: { model: "hosted_vllm/local-model" }, grader: { model: "gemini/gemini-flash" },
-  });
-  const [later, earlier] = groupRuns([graded("20261004_100000", 1, 0.5), graded("20261004_100000", 0, 0.7),
-                                      graded("20261004_100000", 2, null, "timeout"), graded("20261003_183000", 0, 0.4)]);
-  assert.deepEqual(later.rows.map((g) => g.index), [0, 1, 2]);
-  assert.equal(later.mean.toFixed(2), "0.60");
-  assert.equal(later.failed, 1);
-  assert.equal(later.predictor, "local-model");
-  assert.equal(later.grader, "gemini-flash");
-  assert.equal(earlier.run, "20261003_183000");
-  assert.deepEqual(runTime("20261004_100000"), new Date(2026, 9, 4, 10, 0, 0));
-  assert.equal(runTime("not-a-run"), null);
+test("a model is named without its provider", () => {
+  assert.equal(modelName("hosted_vllm/local-model"), "local-model");
   assert.equal(modelName("plain"), "plain");
 });
 
@@ -182,4 +162,14 @@ test("an event's conversations are those its hook-reported moments carry, each o
   const e = event("laptop-session_20261021_152109", 0, 0, { moments: [reported("a"), guessed, reported("b"), reported("a")] });
   assert.deepEqual(conversationsOf(e), [conversation("a"), conversation("b")]);
   assert.deepEqual(conversationsOf(event("laptop-session_20261021_152109", 1, 0)), []);
+});
+
+test("a conversation's chip names its assistant and where it ran", () => {
+  const conversation = (entrypoint, harness = "claude_code") => ({ harness, session_id: "a", cwd: "/work", entrypoint });
+  assert.equal(assistantText(conversation("cli")), "Claude Code");
+  assert.equal(assistantText(conversation("cli", "hermes")), "Hermes");
+  assert.equal(assistantText(conversation("cli", "other")), "other");
+  assert.equal(surfaceText(conversation("cli")), "terminal");
+  assert.equal(surfaceText(conversation("claude-desktop")), "desktop app");
+  assert.equal(surfaceText(conversation("claude-vscode")), "claude-vscode");
 });

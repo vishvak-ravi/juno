@@ -68,11 +68,14 @@ be another machine. The server keeps every device's sessions under
 `<data_dir>/screen/devices/<device_id>/sessions/` and annotates each chunk as it
 fills. A session's id on the server is `<device_id>-session_<timestamp>`.
 
-The server reads and writes its store only through four repositories, built
+The server reads and writes its store only through five repositories, built
 once in `server.app`: `Events` (`server.events`: each session's
 `event_rows.jsonl`, `screenshots/` and `event_edits.json`), `ActivityCaptions`
 (`annotate.store`: `activity_captions/NNNN.json` per chunk), `QuestionAnswers`
-(`keypoints.store`: `question_answers/NNNN.json` per chunk) and `Control`
+(`keypoints.store`: `question_answers/NNNN.json` per chunk), `Conversations`
+(`server.conversations`: each thread an assistant's harness kept on the device,
+`<device dir>/conversations/<harness>/<session id>.json`, written by
+`scripts/import_conversations.py`) and `Control`
 (`server.control`: `<data_dir>/control.json`). Screenshot paths are stored
 relative to the session directory, so the data directory can move. A store in
 the earlier layout (`raw_aggregations.jsonl`, `annotations/`,

@@ -54,10 +54,15 @@ async function fetched(path, options) {
 // GET a route.
 export const api = (path) => (bridge ? bridged(bridge.get(path)) : fetched(path));
 
-// PATCH a route with a JSON body (the switches of /control).
+// PATCH a route with a JSON body (the switches of /control, a proposal's trail).
 export const patch = (path, body) => (bridge
   ? bridged(bridge.patch(path, body))
   : fetched(path, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) }));
+
+// POST a route with a JSON body (a proposal run).
+export const post = (path, body) => (bridge
+  ? bridged(bridge.post(path, body))
+  : fetched(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }));
 
 // PUT /chats/{id}: appends the message and the model's reply, creating the chat if new.
 export const send = (chatId, content) => (bridge

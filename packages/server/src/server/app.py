@@ -18,22 +18,33 @@ from annotate.store import FileActivityCaptions
 from keypoints.ask import Ask, JevAsk, QuestionWorker
 from keypoints.questions import load_questions
 from keypoints.store import FileQuestionAnswers
+from lattice.build import build_lattice as build_lattice_with_models
+from lattice.llm import ModelCall
+from lattice.proposals import FileProposals, proposals_dir
+from lattice.store import FileLattices, lattice_dir
 from predict.predictor import Predictor
 from server.control import FileControl
+from server.conversations import FileConversations
 from server.events import FileEvents
 from server.integrity import StoreReport, check_store
 from server.agent.mcp import MCP_PATH, create_mcp
+from server.routes.changes import router as changes_router
 from server.routes.chats import router as chats_router
 from server.routes.control import router as control_router
 from server.routes.draw import router as draw_router
 from server.routes.events import router as events_router
 from server.routes.hooks import router as hooks_router
 from server.routes.indices import router as indices_router
+from server.routes.lattice import BuildLattice
+from server.routes.lattice import router as lattice_router
 from server.routes.predictions import router as predictions_router
+from server.routes.proposals import router as proposals_router
 from server.routes.sessions import router as sessions_router
 from server.routes.web import WEB_DIR
 from server.routes.web import router as web_router
+from server.propose import ProposalScheduler
 from server.timing import TimingMiddleware
+from server.versions import SessionVersions, session_fingerprint
 from server.agent.tools import create_chat_tools, session_tools
 from server.worker import AnnotateRequest, AnnotationWorker, QueueStatus
 
@@ -76,6 +87,8 @@ def log_store_report(report: StoreReport) -> None:
 def create_app(config: Optional[Config] = None,
                annotate_request: Optional[AnnotateRequest] = None,
                ask: Optional[Ask] = None,
+               build_lattice: Optional[BuildLattice] = None,
+               dawn_call: Optional[ModelCall] = None,
                ) -> FastAPI:
     """
     Args:
@@ -86,6 +99,10 @@ def create_app(config: Optional[Config] = None,
             by default ``annotate.label.annotate`` with the configured model.
         ask: the Jev call for one row; by default ``keypoints.ask.JevAsk``
             with ``keypoints.model``, which needs TYPESAFE_API_KEY.
+        build_lattice: runs one behavior lattice build started by ``POST /lattice``;
+            by default ``lattice.build.build_lattice`` with the ``lattice`` models.
+        dawn_call: the model call a proposal run (``POST /proposals/runs``) sends
+            Dawn's prompts through; by default the ``lattice`` endpoint.
     """
     if config is None:
         config = load_config()
@@ -94,6 +111,9 @@ def create_app(config: Optional[Config] = None,
             return await annotate_async(request, model=config.annotate.model,
                                         max_tokens=config.annotate.max_tokens,
                                         api_base=config.annotate.api_base)
+
+    if build_lattice is None:
+        build_lattice = build_lattice_with_models
 
     data_dir = resolve_data_dir(config.capture)
     chats_dir = data_dir / "chats"
@@ -116,6 +136,7 @@ def create_app(config: Optional[Config] = None,
         app.state.worker.start()
         if app.state.question_worker is not None:
             app.state.question_worker.start()
+        app.state.proposal_scheduler.start()
         try:
             async with mcp.session_manager.run():
                 yield
@@ -123,6 +144,7 @@ def create_app(config: Optional[Config] = None,
             app.state.worker.stop()
             if app.state.question_worker is not None:
                 app.state.question_worker.stop()
+            app.state.proposal_scheduler.stop()
 
     app = FastAPI(title="Juno Server", lifespan=lifespan)
     app.add_middleware(TimingMiddleware)
@@ -132,6 +154,8 @@ def create_app(config: Optional[Config] = None,
     app.state.annotate = config.annotate
     app.state.predictor = predictor
     app.state.events = events
+    # Each session's events, built once per change, and which sessions changed since a cursor.
+    app.state.versions = SessionVersions(session_fingerprint(events, captions, answers, devices_dir(data_dir)))
     app.state.captions = captions
     app.state.answers = answers
     app.state.control = control
@@ -139,6 +163,19 @@ def create_app(config: Optional[Config] = None,
     app.state.capture = config.capture
     app.state.draw = config.draw
     app.state.draw_sessions_dir = draw_sessions_dir(data_dir)
+    app.state.conversations = FileConversations(devices_dir(data_dir))
+    app.state.lattices = FileLattices(lattice_dir(data_dir))
+    app.state.lattice = config.lattice
+    app.state.build_lattice = build_lattice
+    # Build id -> the task running it, so a running build is not collected and a second is refused.
+    app.state.lattice_tasks = {}
+    app.state.proposals = FileProposals(proposals_dir(data_dir))
+    app.state.proposals_config = config.proposals
+    app.state.dawn = config.dawn
+    app.state.dawn_call = dawn_call
+    # Run id -> the task running it, as for lattice builds.
+    app.state.proposal_tasks = {}
+    app.state.proposal_scheduler = ProposalScheduler(app.state, config.proposals)
     annotating = control.read().server.annotate
     app.state.worker = AnnotationWorker(events, captions, config.annotate, annotate_request,
                                         annotating=annotating)
@@ -156,13 +193,16 @@ def create_app(config: Optional[Config] = None,
     mcp = create_mcp(session_tools(app.state, config.llm.tool_result_chars))
     app.include_router(router)
     app.include_router(web_router)
+    app.include_router(changes_router)
     app.include_router(chats_router)
     app.include_router(control_router)
     app.include_router(draw_router)
     app.include_router(events_router)
     app.include_router(hooks_router)
     app.include_router(indices_router)
+    app.include_router(lattice_router)
     app.include_router(predictions_router)
+    app.include_router(proposals_router)
     app.include_router(sessions_router)
     # The modules the web pages import, at the path the pages name them by.
     app.mount("/src", StaticFiles(directory=WEB_DIR / "src"), name="web-src")

@@ -23,6 +23,12 @@ class Conversation(BaseModel):
     session_id: str
     # The directory the conversation runs in, on the device of the moment's event.
     cwd: str
+    # Where the conversation runs, as Claude Code's CLAUDE_CODE_ENTRYPOINT names it: ``cli`` in a
+    # terminal, ``claude-desktop`` in the Claude desktop app.
+    entrypoint: str
+    # The Claude desktop app's own id of the session (its CLAUDE_CODE_HOST_SESSION_ID), what its
+    # ``claude://code/continue?session=`` link takes; None for a terminal's.
+    host_session_id: Optional[str] = None
 
 
 class Moment(BaseModel):

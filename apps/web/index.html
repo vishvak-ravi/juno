@@ -44,7 +44,7 @@
                animation: shimmer 1.4s linear infinite; opacity: .5; }
   .pending i:last-child { width: 60%; }
   @keyframes shimmer { to { background-position: -50% 0; } }
-  /* The pinned rows (Timeline, Predictions), set apart from the chats below them. */
+  /* The pinned rows (Timeline, Proposals), set apart from the chats below them. */
   #pinned { margin-bottom: 1.5rem; }
   #pinned li + li { margin-top: .25rem; }
   #pinned button { padding: .6rem .75rem; border-bottom: 0; border-left: 3px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
@@ -91,14 +91,65 @@
   article p { margin: 0; white-space: pre-wrap; }
   li.event { padding: .15rem 0; white-space: pre; }
   img { display: block; max-width: 100%; margin-top: .5rem; }
-  /* One graded prediction: the prediction above what actually happened next. */
   pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
-  details { border-bottom: 1px solid var(--line); padding: .5rem 0; }
-  summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
-  /* What the predictor was sent: its screenshots as thumbnails; a tap shows one full width. */
-  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: .5rem; }
-  .shots img { margin: 0; border: 1px solid var(--line); }
-  .shots img.big { grid-column: 1 / -1; }
+  /* A listed proposal: its state as a light before its title. */
+  li.proposal button { white-space: normal; display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 0 .6rem; align-items: start; }
+  li.proposal .light { margin-top: .45rem; }
+  li.proposal small { display: block; color: var(--dim); }
+  .light { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+  .light.new { background: none; border: 1.5px solid var(--ink); }
+  .light.seen { background: var(--ink); }
+  .light.accepted { background: #3a9d5d; }
+  .light.dismissed { background: var(--line); }
+  .light.snoozed { background: none; border: 1.5px solid #c8902a; }
+  .light.almost { background: #c8902a; }
+  /* One proposal in full (src/views.js proposalPage): the same parts as the desktop window, in this page's measure. */
+  .page .meta { font-size: .8rem; color: var(--dim); margin: 0 0 .25rem; }
+  .page h1 { font-size: 1.2rem; margin: 0 0 .5rem; line-height: 1.3; }
+  .page .body { margin: 0 0 .75rem; }
+  .page .body p { margin: 0; }
+  .decide { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 0 0 1rem; }
+  .decide .state { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; color: var(--dim); margin-right: .25rem; }
+  button.primary { background: var(--accent); color: #fff; border-radius: .5rem; padding: .45rem .9rem; }
+  button.quiet { border: 1px solid var(--line); border-radius: .5rem; padding: .45rem .75rem; color: var(--ink); }
+  textarea.draft { display: block; width: 100%; min-height: 6rem; margin: 0 0 .75rem; padding: .5rem .75rem; font: inherit; color: inherit; background: var(--raw);
+                   border: 1px solid var(--line); border-radius: .5rem; }
+  .page .parent { font-size: .9rem; color: var(--dim); margin: 0 0 .75rem; padding-left: .75rem; border-left: 2px solid var(--line); }
+  .page .parent b { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
+  .page h2.sec { margin: 1.25rem 0 .4rem; }
+  .page h2.sec small { text-transform: none; letter-spacing: 0; margin-left: .4rem; }
+  ul.evidence li { font-size: .9rem; color: var(--dim); padding: .2rem 0 .2rem .75rem; border-left: 2px solid var(--line); margin-bottom: .3rem; }
+  .row.node { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem; gap: .25rem .75rem; padding: .4rem 0; border-top: 1px solid var(--line); font-size: .9rem; }
+  .row.node .lay { display: none; }
+  .row.node b { display: block; font-weight: 500; }
+  .row.node small { display: block; color: var(--dim); }
+  .row.node.unused { opacity: .6; }
+  .row.node .rank { font-size: .75rem; color: var(--dim); text-align: right; }
+  .row.node .rank .track { display: none; }
+  .row.node .rank .note { display: block; }
+  .trail-list li { display: grid; grid-template-columns: 7rem 10px minmax(0, 1fr); gap: 0 .5rem; align-items: baseline; font-size: .85rem; color: var(--dim); padding: .15rem 0; }
+  .trail-list .when { font-variant-numeric: tabular-nums; }
+  .trail-list .light { align-self: center; }
+  .trail-list b { color: var(--ink); font-weight: 500; }
+  .trail-list li.almost b { color: #c8902a; }
+  .sections { margin-top: 1.25rem; border-top: 1px solid var(--line); }
+  details.section { padding: 0; }
+  details.section > summary { display: flex; justify-content: space-between; gap: .75rem; padding: .75rem 0; color: var(--ink); }
+  details.section > summary span { color: var(--dim); font-size: .8rem; text-align: right; }
+  .section-body { padding-bottom: .75rem; }
+  .section-body h3 { margin: .5rem 0 .25rem; }
+  .calls { display: grid; grid-template-columns: 4rem minmax(0, 1fr) 3rem; gap: .2rem .6rem; font-size: .8rem; color: var(--dim); align-items: center; }
+  .calls > span:nth-child(4n+1) { color: var(--ink); }
+  .calls > span:nth-child(4n) { display: none; }
+  .calls .num { text-align: right; }
+  .track { display: block; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .track > span { display: block; height: 100%; background: var(--dim); }
+  .dayline { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 0 .5rem; align-items: center; margin: .25rem 0 .75rem; font-size: .75rem; color: var(--dim); }
+  .dayline .track { position: relative; height: 22px; border-radius: 4px; overflow: visible; background: var(--raw); }
+  .dayline .track i { position: absolute; top: 4px; bottom: 4px; background: var(--line); border-radius: 2px; }
+  .dayline .hrs { display: flex; justify-content: space-between; font-size: .65rem; }
+  .row.event { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 0 .5rem; width: 100%; text-align: left; color: var(--ink); padding: .4rem 0; border-top: 1px solid var(--line); }
+  .row.event .go { display: none; }
 </style>
 </head>
 <body>
@@ -122,12 +173,13 @@
   // Screens, by location.hash:  (none) the timeline row and the chat list
   //                             #/timeline    every device's events, newest first
   //                             #/status      recording and annotation, with their switches
-  //                             #/predictions       graded benchmark predictions, newest first
-  //                             #/predictions/<id>  one of them in full
+  //                             #/proposals         every proposal, what moved last first
+  //                             #/proposals/<id>    one of them in full, with Accept and Dismiss
   //                             #/chats/<id>  one chat and its message box
-  import { ApiError, api, send } from "./src/api.js";
+  import { ApiError, api, patch, send } from "./src/api.js";
   import { markdown } from "./src/markdown.js";
-  import { controlView, el, load, messageOf, paged, predictionDetail, score, time, timelineEvent } from "./src/views.js";
+  import { controlView, el, load, messageOf, paged, proposalPage, time, timelineEvent } from "./src/views.js";
+  import { lightOf, trailLine } from "./src/proposals.js";
 
   const pad = (n, width) => String(n).padStart(width, "0");
   // crypto.randomUUID exists only on https pages; the server is plain http.
@@ -147,7 +199,7 @@
   const home = async () => [
     el("ul", { id: "pinned" },
       row("Timeline", "Every device's events, newest first", "#/timeline"),
-      row("Predictions", "Graded benchmark predictions, newest first", "#/predictions"),
+      row("Proposals", "What an agent could do for you, from each day's activity", "#/proposals"),
       row("Status", "Recording and annotation, with their switches", "#/status")),
     el("h2", { textContent: "Chats" }),
     await paged("/chats", (chat) =>
@@ -312,37 +364,48 @@
     return controlView(control, redraw);
   }
 
-  // Predictions: a row per graded prediction, newest first; a row opens its own screen.
-  const predictions = async () => [await paged("/predictions", (g) => row(
-    `${g.error ? "failed" : `reward ${score(g.reward)}`} · ${time(g.graded_at)}`,
-    `${g.error ? "" : `accuracy ${score(g.accuracy)}, formatting ${score(g.formatting)} · `}${g.predictor.model} → ${g.grader.model}`,
-    `#/predictions/${g.id}`))];
-  const prediction = async (id) => {
-    const g = await api(`/predictions/${id}`);
-    return [
-      el("h3", { textContent: `Reward ${score(g.reward)} · accuracy ${score(g.accuracy)} · formatting ${score(g.formatting)}` }),
-      ...predictionDetail(g)];
+  // Proposals: a row per proposal, what moved last first; a row opens its own screen, where a
+  // decision is sent as the phone's and the screen drawn again as the server answers.
+  const WHERE = "phone";
+  const proposals = async () => [await paged("/proposals", (p) => el("li", { className: "proposal" },
+    el("button", { onclick: () => { location.hash = `#/proposals/${p.id}`; } },
+      el("span", { className: `light ${lightOf(p.state)}` }),
+      el("span", {}, p.title, el("small", { textContent: `${p.task.task} · ${trailLine(p.state)}` })))))];
+  const proposal = async (id) => {
+    const shown = screen;
+    const draw = (p) => [proposalPage(p, {
+      where: WHERE,
+      decide: async (event, detail) => {
+        try {
+          const next = await patch(`/proposals/${id}`, { event, where: WHERE, detail });
+          if (screen === shown && event !== "expanded") view.replaceChildren(...draw(next));
+        } catch (error) {
+          if (screen === shown) view.prepend(el("p", { className: "status", textContent: messageOf(error) }));
+        }
+      },
+    })];
+    return draw(await api(`/proposals/${id}`));
   };
 
   // Shows the screen location.hash names.
   let parent = "";
   function route() {
     const hash = location.hash;
-    const [, kind, id] = hash.match(/^#\/(timeline|predictions|status)$/)
-      || hash.match(/^#\/(chats|predictions)\/([A-Za-z0-9_-]+)$/) || [];
+    const [, kind, id] = hash.match(/^#\/(timeline|proposals|status)$/)
+      || hash.match(/^#\/(chats|proposals)\/([A-Za-z0-9_-]+)$/) || [];
     chatId = kind === "chats" ? id : null;
     screen++;
     // Until the chat is on screen: a message sent before then would be drawn over.
     sendButton.disabled = true;
     back.hidden = !kind;
-    // Back from one prediction goes to the list of them; from anything else, home.
-    parent = kind === "predictions" && id ? "#/predictions" : "";
+    // Back from one proposal goes to the list of them; from anything else, home.
+    parent = kind === "proposals" && id ? "#/proposals" : "";
     composer.hidden = kind !== "chats";
     title.textContent = kind === "chats" ? "Chat" : kind === "timeline" ? "Timeline" : kind === "status" ? "Status"
-      : kind === "predictions" ? (id ? "Prediction" : "Predictions") : "Juno";
+      : kind === "proposals" ? (id ? "Proposal" : "Proposals") : "Juno";
     view.replaceChildren();
     load(view, kind === "chats" ? () => chat(id) : kind === "timeline" ? timeline : kind === "status" ? controlScreen
-      : kind === "predictions" ? (id ? () => prediction(id) : predictions) : home,
+      : kind === "proposals" ? (id ? () => proposal(id) : proposals) : home,
          () => location.hash === hash);
   }
   window.addEventListener("hashchange", route);

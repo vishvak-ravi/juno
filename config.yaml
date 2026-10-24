@@ -161,6 +161,8 @@ control:
   poll_seconds: 5
   # Seconds without a report after which a device shows as offline.
   offline_seconds: 30
+  # Seconds between a client's checks of what changed in the timeline (GET /changes).
+  live_seconds: 2
 
 draw:
   # The device id the server records the /draw page's sessions under; its
@@ -179,3 +181,113 @@ client:
   # checkout's Python when it starts. Actions either side of the open one whose
   # screenshots are fetched ahead, so stepping to them shows each at once.
   prefetch: 3
+
+lattice:
+  # Behavior Latticing (Zhao et al., arXiv 2604.07629) over the events in
+  # `events`: an activity event's interaction is its action caption with its
+  # chunk's dense caption, a message event's is one turn of a conversation; an
+  # observer reads windows of them and writes observations; each layer groups
+  # the nodes below it and a model synthesizes each group into insights
+  # (`scripts/build_lattice.py`, `POST /lattice`). The name the prompts call
+  # the user.
+  user_name: Vishvak
+  # What the prompts say the interactions are; {user_name} is filled in.
+  description: "{user_name}'s screen activities and conversations with coding assistants"
+  # The event types read: activity (the action captions of recorded sessions),
+  # message (the turns of the conversations scripts/import_conversations.py
+  # stored). Leave one out to build over the other alone.
+  events: [activity, message]
+  # Characters of a conversation turn the observer is shown, at most; a pasted
+  # log is cut there so one turn cannot fill a window.
+  turn_chars: 2000
+  # litellm model strings, as annotate.model: the observer writes observations
+  # from windows of interactions, the insight model synthesizes each group into
+  # insights, the evidence model maps a layer 1 insight to the observations
+  # that support it, the format model turns insight prose into JSON.
+  observer_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  insight_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  evidence_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  format_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  # The server an openai/ model is sent to. null: the provider's own endpoint.
+  api_base: http://localhost:8000/v1
+  # Upper bound on a reply, hidden reasoning included. A server that holds a
+  # context of fixed length (vLLM) takes a prompt of at most its context length
+  # less this.
+  max_tokens: 2048
+  # Model calls in flight at once.
+  max_concurrency: 8
+  # Seconds one call may take.
+  timeout_seconds: 300
+  # Calls made for one prompt while the provider is busy, and the seconds waited
+  # after it was: the base doubles with each attempt, up to the maximum.
+  max_attempts: 3
+  retry_base_seconds: 2
+  retry_max_seconds: 30
+  # Interactions per observer window.
+  window_size: 25
+  # Insights the model is asked for per group, at least.
+  min_insights: 3
+  # Hours without an activity interaction that start a new session; each
+  # conversation is one session of its own.
+  session_gap_hours: 3
+  # Layer 1 first; the last entry is the top of the lattice. type session: nodes
+  # of `value` consecutive sessions per group; time: one group per `value`
+  # (day, week, month, year); number: `value` nodes per group; all: one group
+  # of every node, the layer that ends in one insight.
+  layers:
+    - {type: number, value: "40"}
+    - {type: time, value: day}
+    - {type: all}
+
+dawn:
+  # Dawn (Zhao et al., arXiv 2604.07629, Sec. 4): tasks the user could use a
+  # personal agent for, induced from one day's action captions, scored for how
+  # much the lattice's insights would change the help, and two actions proposed
+  # per kept task (scripts/propose_actions.py). litellm model strings sent as
+  # lattice.api_base sends them: the task model synthesizes the day's
+  # high-level tasks, the utility model scores each task 0-1, the action model
+  # proposes the actions.
+  task_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  utility_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  action_model: openai/cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+  # The cross encoder that ranks the lattice's insights against a task:
+  # voyage/<model> (key VOYAGE_API_KEY in .env), or llm to have the utility
+  # model score each insight's relevance instead.
+  rerank_model: voyage/rerank-2.5
+  # Action captions the task model reads at once; the tasks of every window
+  # are then put to it again as the list of goals to choose from. 0: the whole
+  # day in one call. A day holds 1,000-2,000 captions, 25k-110k tokens.
+  actions_per_window: 150
+  # Tasks scoring below this are dropped.
+  utility_threshold: 0.75
+  # Insights given to the action model per task, the best ranked.
+  insights_per_task: 2
+  # What the action model is told the agent that will carry out its actions can
+  # and cannot do (the paper's implementation constraints, Appendix A.7).
+  constraints: |
+    The proposed solutions must be actions or plans for a tool-calling agent running in the Hermes harness, a general-purpose agent harness. Its capabilities are a superset of a personal assistant's:
+    - Query an LLM endpoint
+    - Access to local file systems (READ / WRITE documents)
+    - Access MCP servers for Google Drive (READ / WRITE documents)
+    - Access MCP servers for creating slide decks
+    - Access MCP servers for Apple Calendar (READ / WRITE events)
+    - Conduct a web search
+    - Draft text (e.g., message, email, Slack message, text message)
+    - Run shell commands and code, browse the web, and call any other MCP server or tool the harness is given
+
+    ### The tool-calling agent **CANNOT**:
+    - Execute physical-world actions
+
+    Actions do NOT need to use all of the capabilities. Always defer to the most minimal implementation that can achieve the desired solution.
+
+proposals:
+  # Dawn's proposals as the clients show them (`/proposals`). The local time
+  # (HH:MM) the server proposes for the day before, over the newest finished
+  # lattice; null: only when asked (the Today button, `POST /proposals/runs`).
+  propose_at: "05:00"
+  # Seconds a proposal must have been open for a no (dismissed or snoozed) to
+  # count as almost accepted; an edited action counts whatever the time.
+  almost_seconds: 30
+  # A task scoring under dawn.utility_threshold by at most this is almost asked:
+  # shown under the line with a way to propose for it anyway.
+  near_threshold: 0.1

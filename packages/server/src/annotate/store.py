@@ -20,20 +20,13 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Literal, Optional, Protocol
+from typing import Hashable, Literal, Optional, Protocol
 
 from pydantic import BaseModel, ValidationError
 
 from annotate.label import Annotation
 from annotate.request import AnnotationFrame
-from juno.sessions import (
-    SESSION_ID_PATTERN,
-    replace_file,
-    resolved,
-    session_dir,
-    session_dirs,
-    stored_path,
-)
+from juno.sessions import (SESSION_ID_PATTERN, dir_stamps, replace_file, resolved, session_dir, session_dirs, stored_path)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +69,9 @@ class ActivityCaptions(Protocol):
 
     def save(self, caption: ActivityCaption) -> None:
         """Store the caption, replacing the chunk's earlier one."""
+
+    def version(self, session_id: str) -> Hashable:
+        """A value that differs whenever any caption of the session does."""
 
     def all(self, session_id: Optional[str] = None, device_id: Optional[str] = None,
             since: Optional[float] = None, until: Optional[float] = None) -> list[ActivityCaption]:
@@ -152,6 +148,9 @@ class FileActivityCaptions:
 
     def save(self, caption: ActivityCaption) -> None:
         write_caption_file(session_dir(self.devices_dir, caption.session_id), caption)
+
+    def version(self, session_id: str) -> Hashable:
+        return dir_stamps(session_dir(self.devices_dir, session_id) / CAPTIONS_DIR)
 
     def all(self, session_id: Optional[str] = None, device_id: Optional[str] = None,
             since: Optional[float] = None, until: Optional[float] = None) -> list[ActivityCaption]:
