@@ -4,6 +4,15 @@ The recorder writes the rows to ``raw_aggregations.jsonl``; the server stores
 its copy as ``event_rows.jsonl`` (``server.events``). A row is everything the
 recorder kept. What a model is shown is derived from it in ``annotate.request``.
 
+Both files are read through ``parse_rows``, which hands each input event to the
+row whose screenshot precedes it (``regroup_inputs``). The recorder writes a
+row's events while the burst after it may still be arriving: whenever the row
+is the last one it has, it writes the row with no ``end_screenshot_timestamp``
+and with every input that has arrived so far, including the inputs of the next
+burst, whose own row then starts empty. Regrouping at read time gives every
+reader the rows napsack's own rule (``screenshot <= input < next screenshot``)
+describes, and leaves the files as the recorder wrote them.
+
 The server keeps the sessions of every device under one directory, as
 ``<devices dir>/<device id>/sessions/<session name>/``. A session's id there is
 ``<device id>-<session name>``; the device id is lowercase letters and digits,
@@ -15,6 +24,7 @@ from __future__ import annotations
 
 import os
 import threading
+from bisect import bisect_right
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -115,7 +125,39 @@ class Aggregation(BaseModel):
     scale_factor: Optional[float]
 
 
+def regroup_inputs(rows: list[Aggregation]) -> list[Aggregation]:
+    """``rows`` with each input event in the row whose screenshot precedes it.
+
+    A row's events are the inputs from its screenshot time up to the next row's
+    screenshot time, rows taken in screenshot order; an input at exactly a
+    screenshot's time belongs to that row, and when two rows share a time, to
+    the later one, whose window the earlier one's (empty) window ends at.
+    Inputs before the first screenshot stay in the first row. The rows keep
+    their order and index; ``num_events`` and ``cursor_position`` follow the
+    events, as the recorder derives them. Returns new rows; ``rows`` is unchanged.
+    """
+    if not rows:
+        return rows
+    starts = sorted((row.screenshot_timestamp if row.screenshot_timestamp is not None
+                     else row.timestamp, index) for index, row in enumerate(rows))
+    times = [start for start, _ in starts]
+    grouped: list[list[InputEvent]] = [[] for _ in rows]
+    for event in sorted((event for row in rows for event in row.events),
+                        key=lambda event: event.timestamp):
+        position = max(0, bisect_right(times, event.timestamp) - 1)
+        grouped[starts[position][1]].append(event)
+    return [row.model_copy(update={
+        "events": events, "num_events": len(events),
+        "cursor_position": events[0].cursor_position if events else None,
+    }) for row, events in zip(rows, grouped)]
+
+
+def parse_rows(text: str) -> list[Aggregation]:
+    """The rows in a JSON-lines file's text, inputs regrouped (``regroup_inputs``)."""
+    return regroup_inputs([Aggregation.model_validate_json(line)
+                           for line in text.splitlines() if line.strip()])
+
+
 def read_aggregations(session_dir: Union[str, Path]) -> list[Aggregation]:
     """Every aggregation of a recorded session, in the order it was written."""
-    lines = (Path(session_dir) / AGGREGATIONS_FILE).read_text().splitlines()
-    return [Aggregation.model_validate_json(line) for line in lines if line.strip()]
+    return parse_rows((Path(session_dir) / AGGREGATIONS_FILE).read_text())

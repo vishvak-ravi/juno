@@ -139,6 +139,7 @@ def test_a_node_shows_its_parents_children_support_and_the_events_behind_it(tmp_
         put(client, LAPTOP, 1, 1000.5)
         put(client, LAPTOP, 2, 1001.0)
         put(client, LAPTOP, 3, 1001.5)
+        put(client, LAPTOP, 4, 1002.0)  # the row after chunk 1 queues it
         wait_for_annotation(tmp_path, LAPTOP, 0)
         wait_for_annotation(tmp_path, LAPTOP, 1)
 

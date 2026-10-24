@@ -159,6 +159,31 @@ group or insight, which is counted in the build's `stage_failures` and left
 out. Lattices live under `<data dir>/lattice/<build id>/` (`build.json`,
 `lattice.json`), built by `scripts/build_lattice.py` or `POST /lattice`.
 
+## 2026-10-22: Inputs regrouped into their rows when rows are read
+
+napsack's `EventQueue._link_requests_with_timestamps` releases the last pending
+request as soon as every burst queue is empty, with no
+`end_screenshot_timestamp`; `AggregationWorker.process_aggregation` then gives
+that row every input from its screenshot onward, including the next burst's,
+whose own row starts empty. In `session_20261022_184125`, 190 of 623 rows were
+written that way and 1416 of 2500 inputs sat in the row before their own.
+Tada's recorder (`napsack/record/__main__.py`) builds the same queue, and its
+labeler reads rows as stored, so Tada's labels carry the same misplacement.
+
+Decision: keep the recorder identical to Tada's and correct the rows when they
+are read. `juno.sessions.parse_rows`, which both `read_aggregations` and
+`server.events.read_rows` go through, gives each input to the row whose
+screenshot precedes it, rows taken in screenshot order: napsack's own window
+(`screenshot <= input < next screenshot`), computed once every row exists.
+Files on disk and row ids do not change, and sessions already recorded are
+corrected on read. Because a chunk's last row is settled by the row after it,
+`PUT /events` captions a chunk when the first row of the next chunk is stored,
+and `find_work` treats a session's last chunk, full or not, as a tail that
+waits `annotate.tail_idle_seconds`. Captions made before this were built from
+the misgrouped rows and are left as they are; `covers` counts them as done.
+Rejected: deleting the "last request" branch in napsack, which would change our
+recordings' shape relative to Tada's 0.1.3 and leave existing sessions wrong.
+
 ## 2026-10-22: The server's store behind repositories
 
 Routes and workers read and write the store only through `Events`,

@@ -362,8 +362,9 @@ def upload_event(event_id: EventId, request: Request, response: Response,
 
     201 when the row is stored. 200, storing nothing, if the session already
     has that row. 409 if rows before it are missing; ``expected_row`` in the
-    detail is the one to send next. With ``annotate`` false the row is only
-    stored; with ``annotate.backfill`` the server annotates its chunk later.
+    detail is the one to send next. The first row of a chunk has the chunk
+    before it captioned. With ``annotate`` false the row is only stored; with
+    ``annotate.backfill`` the server annotates its chunk later.
     """
     state = request.app.state
     session_id, row = locate(event_id)
@@ -383,8 +384,12 @@ def upload_event(event_id: EventId, request: Request, response: Response,
         return find(request, event_id, include_deleted=True)
 
     chunk_size = state.annotate.chunk_size
-    if annotate and (row + 1) % chunk_size == 0:
-        state.worker.request(session_id, row // chunk_size, Priority.LIVE)
+    # A chunk is captioned once the row after it is stored: that row's
+    # screenshot bounds the inputs of the chunk's last row
+    # (``juno.sessions.regroup_inputs``). A session's last chunk is found by
+    # ``find_work`` once the session has gone quiet.
+    if annotate and row > 0 and row % chunk_size == 0:
+        state.worker.request(session_id, row // chunk_size - 1, Priority.LIVE)
     response.status_code = 201
     return find(request, event_id, include_deleted=True)
 

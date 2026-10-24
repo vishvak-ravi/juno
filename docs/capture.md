@@ -104,9 +104,18 @@ new session.
 Edits and deletes of events are kept in the session's `event_edits.json`; the
 row and its screenshot stay on disk with every field the recorder wrote.
 
+Rows are read through `juno.sessions.parse_rows`: each input event goes to the
+row whose screenshot precedes it, because the recorder writes its latest row
+with every input that has arrived, the next burst's included (see
+`decisions.md`, 2026-10-22). What the API lists, the overlay draws and the
+model is shown all come from these regrouped rows.
+
 The server annotates on one thread with up to `annotate.max_concurrency` model
-calls in flight, taking chunks a recorder just filled first, then (with `annotate.backfill`) every other
-chunk in its store without a finished annotation, most recent first. A call the
+calls in flight, taking a chunk as soon as the first row of the chunk after it
+arrives (that row settles the inputs of the chunk's last row), then (with `annotate.backfill`) every other
+chunk in its store without a finished annotation, most recent first; a
+session's last chunk is taken once the session has gone
+`annotate.tail_idle_seconds` without a new row. A call the
 provider was too busy for is made again, up to `annotate.max_attempts` times.
 `GET /api/queue` shows what is waiting and in flight; `GET /api/integrity`
 shows, per device and session, what arrived and what is annotated.

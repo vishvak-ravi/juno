@@ -78,8 +78,6 @@ def wait_for(condition, what):
 def test_uploaded_rows_are_stored_with_their_screenshots_and_a_full_chunk_is_annotated(tmp_path):
     with TestClient(app_for(tmp_path)) as client:
         assert put(client, SESSION, 0).status_code == 201
-        # Nothing is annotated until the chunk's last row is there.
-        assert annotation(tmp_path, SESSION, 0) is None
         assert put(client, SESSION, 1).status_code == 201
 
         screenshot = client.get(f"/events/{SESSION}-000001/screenshot")
@@ -87,6 +85,11 @@ def test_uploaded_rows_are_stored_with_their_screenshots_and_a_full_chunk_is_ann
         assert screenshot.content == png()
         assert event_ids(client) == [f"{SESSION}-000000", f"{SESSION}-000001"]
 
+        # Nothing is annotated until the row after the chunk is there: it
+        # settles which inputs the chunk's last row holds.
+        time.sleep(0.1)
+        assert annotation(tmp_path, SESSION, 0) is None
+        assert put(client, SESSION, 2).status_code == 201
         wait_for(lambda: getattr(annotation(tmp_path, SESSION, 0), "status", None) == "done",
                  "the annotation of the full chunk")
         record = annotation(tmp_path, SESSION, 0)
@@ -108,12 +111,12 @@ def test_a_repeated_row_is_not_stored_twice_and_a_row_out_of_order_is_refused(tm
 def test_each_device_has_its_own_sessions_even_with_the_same_session_name(tmp_path):
     other = "desktop-session_20260101_120000"
     with TestClient(app_for(tmp_path)) as client:
-        for index in range(2):
+        for index in range(3):
             assert put(client, SESSION, index).status_code == 201
         assert put(client, other, 0).status_code == 201
 
         assert event_ids(client, device="desktop") == [f"{other}-000000"]
-        assert event_ids(client, device="laptop") == [f"{SESSION}-000000", f"{SESSION}-000001"]
+        assert event_ids(client, device="laptop") == [f"{SESSION}-00000{i}" for i in range(3)]
         wait_for(lambda: getattr(annotation(tmp_path, SESSION, 0), "status", None) == "done",
                  "the annotation of the full chunk")
         assert annotation(tmp_path, other, 0) is None

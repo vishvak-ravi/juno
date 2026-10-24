@@ -5,7 +5,8 @@
 ``<devices dir>/<device id>/sessions/<name>/`` (``juno.sessions.session_dir``) as
 
 - ``event_rows.jsonl``: one row per line, in upload order, with every field the
-  recorder wrote;
+  recorder wrote; read through ``juno.sessions.parse_rows``, so each input is
+  in the row whose screenshot precedes it;
 - ``screenshots/<recorder's file name>``: the PNG a row names. The row stores
   its path relative to the session directory; ``rows`` hands it out absolute;
 - ``event_edits.json``: the user's captions and deletions, by row.
@@ -25,7 +26,17 @@ from typing import Hashable, Literal, Optional, Protocol
 
 from pydantic import BaseModel
 
-from juno.sessions import (Aggregation, file_stamp, replace_file, resolved, session_dir, session_dirs, session_id_of, stored_path)
+from juno.sessions import (
+    Aggregation,
+    file_stamp,
+    parse_rows,
+    replace_file,
+    resolved,
+    session_dir,
+    session_dirs,
+    session_id_of,
+    stored_path,
+)
 
 EVENT_ROWS_FILE = "event_rows.jsonl"
 SCREENSHOTS_DIR = "screenshots"
@@ -89,10 +100,9 @@ class Events(Protocol):
 def read_rows(directory: Path) -> list[Aggregation]:
     """The rows stored in a session directory, screenshot paths absolute."""
     try:
-        lines = (directory / EVENT_ROWS_FILE).read_text().splitlines()
+        rows = parse_rows((directory / EVENT_ROWS_FILE).read_text())
     except FileNotFoundError:
         return []
-    rows = [Aggregation.model_validate_json(line) for line in lines if line.strip()]
     for row in rows:
         row.screenshot_path = resolved(directory, row.screenshot_path)
     return rows

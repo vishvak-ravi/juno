@@ -67,6 +67,7 @@ def test_with_annotation_off_chunks_wait_until_it_is_on_again(tmp_path):
     client.patch("/control/server", json={"annotate": False})
     put(client, LAPTOP, 0, 1000.0)
     put(client, LAPTOP, 1, 1001.0)
+    put(client, LAPTOP, 2, 1002.0)  # the row after chunk 0 queues it
 
     time.sleep(0.3)
     record = FileActivityCaptions(devices_dir(tmp_path)).get(LAPTOP, 0)
